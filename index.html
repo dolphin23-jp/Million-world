@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <title>million-world</title>
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="million-world" />
+    <meta name="theme-color" content="#0b0d1a" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+    <link rel="icon" href="./icons/icon-192.png" />
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+
+    <!-- タッチ層: ゲームロジックはこの DOM を知らない。src/input/touch.ts だけが触る -->
+    <div id="touch-layer" aria-hidden="true">
+      <div id="stick-zone">
+        <div id="stick-base"><div id="stick-knob"></div></div>
+      </div>
+      <div id="cam-zone"></div>
+      <div id="btn-lock" class="tbtn tbtn-small"><span>LOCK</span></div>
+      <div id="btn-dodge" class="tbtn tbtn-mid"><span>回避</span></div>
+      <div id="btn-attack" class="tbtn tbtn-big"><span>攻撃</span></div>
+    </div>
+
+    <div id="hud">
+      <div id="debug"></div>
+    </div>
+
+    <div id="start-overlay">
+      <div class="title">
+        <div class="title-main">MILLION WORLD</div>
+        <div class="title-sub">prototype M0</div>
+      </div>
+      <div class="start-hint">タップして開始</div>
+    </div>
+
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>
