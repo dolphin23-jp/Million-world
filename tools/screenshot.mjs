@@ -26,7 +26,7 @@ function loadPlaywright() {
 
 const args = new Set(process.argv.slice(2));
 const useDev = args.has('--dev');
-const BASE = '/million-world/';
+const BASE = process.env.BASE_PATH ?? '/';
 const port = useDev ? 5173 : 4173;
 const url = `http://127.0.0.1:${port}${BASE}?autostart=1`;
 

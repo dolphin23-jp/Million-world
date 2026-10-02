@@ -16,7 +16,7 @@ iPad（Safari / PWA）で遊ぶ、三人称視点のアニメ調3Dアクショ�
 - 物理エンジンなし（XZ平面のカプセル衝突 + 地面高さ）。必要になったら Rapier を検討
 - UI は DOM/CSS。React 等のフレームワークは入れない
 - テスト: vitest（戦闘ロジック・状態機械などの純粋関数）、Playwright（描画スクリーンショット）
-- 配信: GitHub Actions → GitHub Pages（`vite build` の `base` は `/million-world/`）
+- 配信: GitHub Actions → GitHub Pages（`BASE_PATH=/Million-world/` でビルド）。Vercel 等に載せる場合は既定の `/`
 
 ## コマンド
 

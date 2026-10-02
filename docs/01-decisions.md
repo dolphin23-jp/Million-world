@@ -111,16 +111,20 @@ VRoid Studio（VRM）はアニメ顔・髪の揺れ（SpringBone）が標準で�
 
 ---
 
-## ADR-007 配信は GitHub Actions → GitHub Pages
+## ADR-007 配信は GitHub Actions → GitHub Pages（リポジトリが private の場合は要判断）
 
-**状態**: 採用（2026-10-03）
+**状態**: 採用（2026-10-03）。配信先は本人の判断待ち（下記）
 
-**決定**: `main` への push で typecheck → build → Pages デプロイ。`vite.config.ts` の `base` は
-`/million-world/`。追加のアカウントやサービスを増やさない。
+**決定**: `main` への push で typecheck → test → build。ビルドの基点パスは環境変数 `BASE_PATH`
+（GitHub Pages では `/Million-world/`、Vercel 等では既定の `/`）。追加のアカウントやサービスは増やさない。
+
+**判明した制約**: リポジトリ `dolphin23-jp/Million-world` は private。GitHub Pages を private リポジトリで
+使うには GitHub Pro 以上が必要（Free は public のみ）。選択肢:
+1. リポジトリを public にする（設定変更のみで Pages が使える。URL を知る人は誰でも開ける）
+2. Vercel / Cloudflare Pages に繋ぐ（private のまま可、ダッシュボードでリポジトリを 1 度インポートする。既定の `/` でビルド）
+3. GitHub Pro にする
 
 **代償**: Pages はリポジトリ設定で「Source: GitHub Actions」を一度有効化する必要がある。
-
----
 
 ## ADR-008 UI は DOM/CSS、フレームワークなし
 

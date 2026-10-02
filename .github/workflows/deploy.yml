@@ -27,6 +27,8 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+        env:
+          BASE_PATH: /Million-world/
       - uses: actions/configure-pages@v5
         with:
           # リポジトリで Pages が未設定なら有効化を試みる（権限不足なら Settings > Pages で手動設定）

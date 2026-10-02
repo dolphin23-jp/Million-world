@@ -1,8 +1,12 @@
 import { defineConfig } from 'vite';
 
-// GitHub Pages: https://dolphin23-jp.github.io/million-world/
+// 配信先でパスの基点が変わる:
+//   GitHub Pages (project site): BASE_PATH=/Million-world/  （.github/workflows/deploy.yml が設定）
+//   Vercel / Cloudflare Pages / ローカル preview: 既定の '/'
+const base = process.env.BASE_PATH ?? '/';
+
 export default defineConfig({
-  base: '/million-world/',
+  base,
   server: {
     host: true,
     port: 5173,
