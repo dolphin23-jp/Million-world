@@ -94,6 +94,8 @@ try {
     const an = vis.animator;
     if (!an.has(clipName)) return { error: `クリップがありません: ${clipName}` };
     const dur = an.duration(clipName);
+    // 直前に再生していたクリップ（装備を替えたときの待機など）が重みを残して姿勢に混ざらないよう、すべて止めてから再生する
+    an.mixer.stopAllAction();
     const act = an.play(clipName, { loop: false, fade: 0, restart: true, rate: 1, clamp: true });
     // 直前のクリップからのクロスフェード（長さ 0）はミキサーの時間が進まないと完了しない。1 度だけ進めて、このクリップだけが効く状態にする
     an.mixer.update(0.01);
