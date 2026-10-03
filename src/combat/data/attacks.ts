@@ -69,16 +69,16 @@ export function rootMotionOf(a: AttackDef): ((t: number) => number) | null {
 }
 
 export const ATTACKS: Record<string, AttackDef> = {
-  // 1 段目: 手付けの右袈裟斬り（src/character/data/combo1.ts、0.6s）。予備動作 0 → 0.17、斬り 0.17 → 0.31。
-  // 剣先は 0.245s に体の前を通る最高速（約 85m/s = 1 フレーム 1.4m。tools/scratch/combo-diag.scratch.ts で実測）なので、当たりはその前後 0.21〜0.29s。
-  // 振り抜き（〜0.37s）の終わりから次段を受け付ける。踏み込みは rootZ（0.3m）。
+  // 1 段目: 手付けの右袈裟斬り（src/character/data/combo1.ts、0.66s）。予備動作 0 → 0.17、斬り 0.17 → 0.31。
+  // 剣先は 0.233s に体の前を通る最高速（約 89m/s = 1 フレーム 1.5m。tools/scratch/combo-diag.scratch.ts で実測）なので、当たりはその前後 0.20〜0.28s。
+  // 前足（左）は 0.235 に腰の 0.36 m 前へ着地し（腰が 0.14 m 沈む）、ルートは 0.57m 進む（0.37s まで）。振り抜き（〜0.37s）の終わりから次段を受け付ける。
   combo1: {
     id: 'combo1',
     segment: 'combo1',
     authored: COMBO1,
     segmentDuration: COMBO1.duration,
-    activeStart: 0.21,
-    activeEnd: 0.29,
+    activeStart: 0.2,
+    activeEnd: 0.28,
     cancelAt: 0.37,
     rate: 1,
     lunge: 0,
@@ -87,16 +87,17 @@ export const ATTACKS: Record<string, AttackDef> = {
     hitStop: 4,
     knockback: 0.3,
   },
-  // 2 段目: 手付けの右逆袈裟（src/character/data/combo2.ts、0.52s）。1 段目の受付時点（0.37s）の姿勢から続けて始まる（continueFrom）。
-  // 剣先が体の前を通る最高速は 0.15s。当たりはその前後 0.13〜0.2s。振り抜き（〜0.32s）の終わりから次段を受け付ける。踏み込みは rootZ（0.24m）。
+  // 2 段目: 手付けの右逆袈裟（src/character/data/combo2.ts、0.67s）。1 段目の受付時点（0.37s）の姿勢から続けて始まる（continueFrom）。
+  // 右足が弧を描いて 0.16s に腰の 0.3 m 前へ着地し、剣先が体の前を通る最高速は 0.167s（約 67m/s）。当たりはその前後 0.14〜0.21s。
+  // 振り抜き（〜0.34s）の終わりから次段を受け付ける。踏み込みはルート 0.58m（0.26s まで）。
   combo2: {
     id: 'combo2',
     segment: 'combo2',
     authored: COMBO2,
     segmentDuration: COMBO2.duration,
-    activeStart: 0.13,
-    activeEnd: 0.2,
-    cancelAt: 0.32,
+    activeStart: 0.14,
+    activeEnd: 0.21,
+    cancelAt: 0.34,
     rate: 1,
     lunge: 0,
     next: 'combo3',
@@ -105,8 +106,9 @@ export const ATTACKS: Record<string, AttackDef> = {
     knockback: 0.4,
     fade: 0.05,
   },
-  // 3 段目: 手付けの突き（src/character/data/combo3.ts、0.62s）。2 段目の受付時点（0.32s）の姿勢から続けて始まる。
-  // 引き絞りは 0〜0.13s、突き出しは 0.13〜0.2s（剣先が体の前へ伸び切る）。当たりは 0.15〜0.24s。踏み込みは rootZ（0.3m）。
+  // 3 段目: 手付けの突き（src/character/data/combo3.ts、0.64s）。2 段目の受付時点（0.34s）の姿勢から続けて始まる。
+  // 引き絞りは 0〜0.13s、突き出しは 0.13〜0.2s（剣先が体の前へ伸び切る）。右足は 0.17s に着地し、当たりは 0.15〜0.24s。
+  // 踏み込みは幅 0.8m のランジでルート 0.6m（0.3s まで）。
   combo3: {
     id: 'combo3',
     segment: 'combo3',
@@ -122,8 +124,9 @@ export const ATTACKS: Record<string, AttackDef> = {
     knockback: 1.2,
     fade: 0.05,
   },
-  // 重撃: 手付けの縦斬り（src/character/data/heavy.ts、1.0s）。0.44s まで頂点で振りかぶり、0.51s に剣が体の前を水平に通る最高速（約 82m/s）、
-  // 0.58s で前下に叩きつけて止まる。当たりは最高速の前後 0.47〜0.56s（6 フレーム）。右足の大踏み込みで rootZ が 0.5m 進む。
+  // 重撃: 手付けの縦斬り（src/character/data/heavy.ts、1.0s）。0.44s まで頂点で振りかぶり、0.51s に剣が体の前を水平に通る最高速（約 84m/s）、
+  // 0.58s で前下に叩きつけて止まる。当たりは最高速の前後 0.47〜0.56s（6 フレーム）。右足が 0.5s に腰の 0.37 m 前へ飛び込んで着地し（幅 0.74m、腰が 0.17 m 沈む）、
+  // ルートは 0.81m 進む（単発なので戻りの途中まで進んでよい）。
   // 発生が遅い代わりに威力が大きい。次段は無い（単発）。
   heavy: {
     id: 'heavy',

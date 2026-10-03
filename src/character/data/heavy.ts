@@ -1,13 +1,14 @@
 import type { AuthoredAttack } from '../authoring';
 import { plane } from './cutting-plane';
 import { OFFHAND } from './offhand';
+import { pose } from './stagger';
 
 /** 縦の面（刃と面の法線が矢状面）。θ = 0 が前、+ が上〜後ろ、− が前下 */
 const V = 90;
 
 /** 予備動作の頂点: 腰を落として体を反らせ、剣を頭の上〜後ろへ大きく振りかぶる。頂点で一拍止めてから振り下ろす */
 const TOP = {
-  hips: { yaw: 6, pitch: -6, z: -0.06, y: -0.1 },
+  hips: { yaw: 6, pitch: -6, z: -0.06, y: -0.12 },
   chest: { yaw: 10, pitch: -14 },
   head: { yaw: 2 },
   grip: [14, 64, 0.34] as [number, number, number],
@@ -17,13 +18,13 @@ const TOP = {
   ...OFFHAND.guard,
 };
 
-/** 振り下ろしの終わり: 前へ踏み込んで体を倒し、剣先が前の低い所で止まる。受付までこの姿勢を保つ */
+/** 振り下ろしの終わり: 前へ大きく踏み込んで腰を深く沈め、体を倒し、剣先が前の低い所で止まる。この姿勢を保つ */
 const LAND = {
-  hips: { yaw: 0, pitch: 12, z: 0.08, y: -0.16 },
-  chest: { yaw: 0, pitch: 22 },
+  hips: { yaw: 0, pitch: 14, z: 0.08, y: -0.2 },
+  chest: { yaw: 0, pitch: 24 },
   head: { yaw: 0 },
-  grip: [4, -32, 0.46] as [number, number, number],
-  ...plane(-30, V),
+  grip: [4, -26, 0.46] as [number, number, number],
+  ...plane(-20, V),
   roll: 0,
   pole: [-0.4, -0.85, -0.1] as [number, number, number],
   ...OFFHAND.hip,
@@ -33,41 +34,48 @@ const LAND = {
  * 重撃: 剣を頭上へ大きく振りかぶり、右足を大きく踏み込んで真上から真下へ叩き斬る（縦斬り）。手付け（ADR-012）。
  * 座標の約束は combo1.ts と同じ（胸の座標系）。斬りの面は縦（plane の tilt = 90）。左手は構え手 → 引き手 → 脇（offhand.ts）。
  *
- * 時間: 0 → 0.38 予備動作（腰を落として反る。0.38〜0.44 は頂点で一拍）/ 0.44 → 0.51 振り下ろし（0.51 に前を通る最高速。当たりはその前後）/
- * 0.51 → 0.58 叩きつけて止まる / 0.58 → 0.72 姿勢を保つ / 0.72 → 1.0 戻り（左足が追いつく）。
- * 足は世界に固定。右足が 0.3 → 0.53 で大きく踏み込み（弧）、ルートは 0.5 m 進む。
+ * 時間: 0 → 0.38 予備動作（腰を落として反る。0.38〜0.44 は頂点で一拍）/ 0.44 → 0.51 振り下ろし（0.51 に前を通る最高速。当たりはその前後。
+ * 右足は 0.5 に着地）/ 0.51 → 0.58 叩きつけて止まる / 0.58 → 0.72 姿勢を保つ / 0.72 → 1.0 戻り（左足が追いつく）。
+ *
+ * 踏み込み: 右足が 0.26 に床を離れ、0.5 までに 0.97 m 弧を描いて、腰の 0.4 m 前へ着地する（左足は腰の 0.34 m 後ろに残り、幅 0.74 m）。
+ * ルートは 0.3 から加速して 0.5（着地）までに 0.4 m、そのあと減速して 0.72 までに 0.8 m（単発なので戻りで止まる必要はない）。
+ * 着地で腰が 0.2 m 沈み、体が 24° 前へ倒れる。左足は着地のあと小さく浮かせて引きつけ、戻りで右足の横へ前へ出る（右足は 0.17 m 引く）。
  */
 export const HEAVY: AuthoredAttack = {
   name: 'heavy',
   duration: 1.0,
   keys: [
     // ---- 予備動作 ----
-    { t: 0.38, ease: 'io', ...TOP },
-    { t: 0.44, ease: 'lin', ...TOP },
-    // ---- 下半身: 右足が大きく踏み込む。左足は残って、戻りで追いつく ----
-    { t: 0.3, ease: 'lin', footR: { z: 0 }, rootZ: 0 },
-    { t: 0.53, ease: 'io', footR: { z: 0.62, arc: 0.16 }, rootZ: 0.5 },
-    { t: 0.72, ease: 'lin', footL: { z: 0 }, footR: { z: 0.62 } },
-    { t: 1.0, ease: 'io', footL: { z: 0.5, arc: 0.1 }, footR: { z: 0.5, arc: 0.03 } },
-    // ---- 振り下ろし ----
-    {
-      t: 0.51,
-      ease: 'in',
-      hips: { yaw: 0, pitch: 6, z: 0.04, y: -0.14 },
-      chest: { yaw: 0, pitch: 8 },
+    ...pose(0.38, 'io', TOP),
+    ...pose(0.44, 'lin', TOP),
+    // ---- 下半身: 右足が大きく踏み込む。左足は残って、着地のあと引きつけ、戻りで追いつく ----
+    { t: 0.3, ease: 'lin', rootZ: 0 },
+    { t: 0.38, ease: 'in', rootZ: 0.12 },
+    { t: 0.5, ease: 'lin', rootZ: 0.48 },
+    { t: 0.72, ease: 'out', rootZ: 0.81 },
+    { t: 0.26, ease: 'lin', footR: { z: 0 } },
+    { t: 0.5, ease: 'io', footR: { z: 0.97, arc: 0.18 } },
+    { t: 0.72, ease: 'lin', footR: { z: 0.97 } },
+    { t: 1.0, ease: 'io', footR: { z: 0.81, arc: 0.03 } },
+    { t: 0.5, ease: 'lin', footL: { z: 0 } },
+    { t: 0.65, ease: 'out', footL: { z: 0.35, arc: 0.08 } },
+    { t: 0.72, ease: 'lin', footL: { z: 0.35 } },
+    { t: 1.0, ease: 'io', footL: { z: 0.81, arc: 0.12 } },
+    // ---- 振り下ろし（腰 → 胸 → 腕・剣の順に遅れて動く） ----
+    ...pose(0.51, 'in', {
+      hips: { yaw: 0, pitch: 8, z: 0.06, y: -0.18 },
+      chest: { yaw: 0, pitch: 12 },
       head: { yaw: 0 },
       grip: [6, 6, 0.46],
       ...plane(0, V),
       roll: 0,
       pole: [-0.45, -0.85, -0.15],
       ...OFFHAND.pull,
-    },
-    { t: 0.58, ease: 'out', ...LAND },
-    { t: 0.72, ease: 'lin', ...LAND },
+    }),
+    ...pose(0.58, 'out', LAND),
+    ...pose(0.72, 'lin', LAND),
     // ---- 戻り ----
-    {
-      t: 1.0,
-      ease: 'io',
+    ...pose(1.0, 'io', {
       hips: { yaw: 0, pitch: 0, z: 0, y: 0 },
       chest: { yaw: 0, pitch: 0 },
       head: { yaw: 0 },
@@ -76,6 +84,6 @@ export const HEAVY: AuthoredAttack = {
       pole: 'idle',
       left: 'idle',
       leftPole: 'idle',
-    },
+    }),
   ],
 };

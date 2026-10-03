@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { ATTACKS, DODGE, dodgeRoot, resolveAttack, rootMotionOf } from './attacks';
+import { AuthoredSampler } from '../../character/authoring';
 import { AUTHORED_ATTACKS } from '../../character/data/authored';
 import { HERO } from '../../character/data/hero';
+import { makeRig } from '../../character/test-rig';
 
 describe('resolveAttack', () => {
   it('秒を rate で割って 60Hz フレームに変換する', () => {
@@ -95,18 +97,18 @@ describe('resolveAttack', () => {
       expect(z).toBeGreaterThanOrEqual(prev - 1e-12);
       prev = z;
     }
-    expect(root(a.segmentDuration)).toBeCloseTo(0.3, 6);
+    expect(root(a.segmentDuration)).toBeCloseTo(0.57, 6);
     // 手付けでない攻撃（lunge で進む）は rootMotionOf が null
     const { authored: _authored, ...plain } = ATTACKS.combo3!;
     expect(rootMotionOf(plain)).toBeNull();
   });
 
-  it('重撃は単発（次段なし）の手付けで、踏み込み 0.5m。持続は剣が前を通る最高速の前後', () => {
+  it('重撃は単発（次段なし）の手付けで、踏み込み 0.81m。持続は剣が前を通る最高速の前後', () => {
     const a = ATTACKS.heavy!;
     expect(a.next).toBeUndefined();
     expect(a.authored).toBe(AUTHORED_ATTACKS.heavy);
     expect(a.authored!.continueFrom).toBeUndefined();
-    expect(rootMotionOf(a)!(a.segmentDuration)).toBeCloseTo(0.5, 6);
+    expect(rootMotionOf(a)!(a.segmentDuration)).toBeCloseTo(0.81, 6);
     const f = resolveAttack(a);
     // 重撃は軽い連撃より発生が遅い代わりに威力が大きい
     expect(f.startup).toBeGreaterThan(resolveAttack(ATTACKS.combo1!).startup);
@@ -148,5 +150,67 @@ describe('DODGE（手付けのダッシュ）', () => {
     expect(peak).toBeGreaterThan(8);
     // 最後の 1 フレームはほぼ止まっている
     expect(prevV).toBeLessThan(0.5);
+  });
+});
+
+describe('踏み込み（手付けの下半身）', () => {
+  const rig = makeRig();
+  const sampler = (id: string) => new AuthoredSampler(rig, ATTACKS[id]!.authored!);
+
+  it('軽い連撃は 0.45m 以上、重撃は 0.7m 以上前へ進む（踏み込みが足りない、に戻さない）', () => {
+    const total = (id: string) => rootMotionOf(ATTACKS[id]!)!(ATTACKS[id]!.segmentDuration);
+    for (const id of ['combo1', 'combo2', 'combo3']) expect(total(id), id).toBeGreaterThanOrEqual(0.45);
+    expect(total('heavy')).toBeGreaterThanOrEqual(0.7);
+  });
+
+  it('着地の瞬間に、踏み込む足が腰（ルート）より 0.25m 以上前にある。着地の足は床の上', () => {
+    // [攻撃, 踏み込む足, 着地の秒]（着地は剣が体の前を通る最高速の直前）
+    const plants: [string, 'footL' | 'footR', number][] = [
+      ['combo1', 'footL', 0.235],
+      ['combo2', 'footR', 0.16],
+      ['combo3', 'footR', 0.17],
+      ['heavy', 'footR', 0.5],
+    ];
+    for (const [id, foot, t] of plants) {
+      const s = sampler(id);
+      const p = s.sample(t, s.newInput());
+      expect(p[foot].z - s.rootZ(t), `${id} の着地`).toBeGreaterThanOrEqual(0.25);
+      expect(p[foot].lift, `${id} の着地の足は床の上`).toBeCloseTo(0, 6);
+      // 剣が体の前を通る前に着く（着地 ≦ 持続の中心）
+      const a = ATTACKS[id]!;
+      expect(t, id).toBeLessThanOrEqual((a.activeStart + a.activeEnd) / 2 + 1e-9);
+    }
+  });
+
+  it('受付（cancelAt）から先はルートが止まる（遅めに押しても pose と位置がずれない）', () => {
+    for (const a of Object.values(ATTACKS)) {
+      if (!a.next) continue;
+      const root = rootMotionOf(a)!;
+      expect(root(a.cancelAt), a.id).toBeCloseTo(root(a.segmentDuration), 9);
+    }
+  });
+
+  it('次段の始まりの足は、前の技の受付時点の足の位置と世界で一致する（足の z + 原点の付け替え）', () => {
+    for (const id of ['combo1', 'combo2']) {
+      const prev = ATTACKS[id]!;
+      const next = ATTACKS[prev.next!]!;
+      const sp = sampler(id);
+      const sn = sampler(next.id);
+      const before = sp.sample(prev.cancelAt, sp.newInput());
+      const after = sn.sample(0, sn.newInput());
+      const originShift = sp.rootZ(prev.cancelAt);
+      expect(after.footL.z + originShift, `${next.id} の左足`).toBeCloseTo(before.footL.z, 6);
+      expect(after.footR.z + originShift, `${next.id} の右足`).toBeCloseTo(before.footR.z, 6);
+    }
+  });
+
+  it('次段の始まりの 1 フレームは足が動かない（前の技から受け取る足の位置と、最初の保持キーの値が合っている）', () => {
+    for (const id of ['combo2', 'combo3']) {
+      const s = sampler(id);
+      const a = s.sample(0, s.newInput());
+      const b = s.sample(1 / 60, s.newInput());
+      expect(b.footL.z, `${id} の左足`).toBeCloseTo(a.footL.z, 6);
+      expect(b.footR.z, `${id} の右足`).toBeCloseTo(a.footR.z, 6);
+    }
   });
 });
