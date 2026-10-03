@@ -3,15 +3,20 @@
   "base": "raw/heroine/base.glb",
   "textureSize": 4096,
   "freezeBones": [],
+  "footPitchDeg": 19,
+  "headPitchDeg": 0,
   "clips": {
     "idle": {
-      "file": "raw/heroine/clips/idle_stand.glb"
+      "file": "raw/heroine/clips/idle_stand.glb",
+      "footPitchDeg": 26.7,
+      "headPitchDeg": 16
     },
     "stance": {
       "file": "raw/heroine/clips/idle.glb"
     },
     "run": {
-      "file": "raw/heroine/clips/run.glb"
+      "file": "raw/heroine/clips/run.glb",
+      "headPitchDeg": 6
     },
     "combo": {
       "file": "raw/heroine/clips/combo.glb"
@@ -46,7 +51,9 @@
       "idle(stand)": "91bd210b-7941-43a1-a5ee-a3fa99d1358b (Idle_02 11)",
       "stance": "4011725b-8a0c-4c6b-bae2-705972c3febe (Combat_Stance 89)"
     },
-    "texture": "raw/heroine/heroine.glb のテクスチャを tools/clean-texture.py で腰まわりだけ塗り直したもの（docs/05 参照）"
+    "texture": "raw/heroine/heroine.glb のテクスチャを tools/clean-texture.py で腰まわりだけ塗り直したもの（docs/05 参照）",
+    "foot": "配信元クリップは全クリップで足のつま先が 15〜24° 上がる（Idle_02 は 24°）。footPitchDeg で系統的なずれを打ち消し、idle だけ個別に上書き。接地補正は足裏の頂点で行う（docs/05「足の接地」）",
+    "head": "待機（Idle_02）は頭が約 18° うつむく（頭ボーンの前方軸が水平から -18.5°）。待機は +16°、走りは +6°（頭を上げる向き）で補正。ゲームのカメラは上から見下ろすので、頭が水平でも顔が前髪に隠れやすい"
   },
   "textureFrom": "raw/heroine/texture-clean.png"
 }

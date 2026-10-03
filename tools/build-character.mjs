@@ -13,8 +13,11 @@
  *   "base": "raw/heroine/base.glb",   // 省略可: メッシュ＋スキンの土台（ウェイト平滑化済み等）
  *   "freezeBones": ["LeftToeBase", "RightToeBase"],   // 省略可: バインド姿勢に固定するボーン
  *   "groundBones": [...], "groundMargin": 0,         // 省略可: 接地補正に使うボーンと余白(m)
+ *   "footPitchDeg": 16,             // 省略可: 足・つま先を「つま先を下げる向き」へ回す量(度)。配信元クリップの足の姿勢は
+ *                                   //   全クリップで 15〜24° つま先が上がる（docs/05「足の接地」）。その系統的なずれを打ち消す
+ *   "headPitchDeg": 0,              // 省略可: 頭を「上を向く向き」へ回す量(度)。クリップごとに上書きできる（例: 待機は 18° うつむくので 16）
  *   "textureSize": 2048,            // 省略時 1024
- *   "clips": {                       // name: { file, loop?, keepRootMotion? }
+ *   "clips": {                       // name: { file, loop?, keepRootMotion?, footPitchDeg?, headPitchDeg? }  どちらもそのクリップだけ上書き
  *     "idle":  { "file": "raw/clips/hero-idle.glb" },
  *     "run":   { "file": "raw/clips/hero-run.glb" },
  *     ...
@@ -91,6 +94,11 @@ for (const [, e] of targetRig.info) {
 
 // 土台にクリップが入っていれば参照だけ残し、出力からは外す（全クリップを同じ経路で作り直す）
 const baseAnimBackup = root.listAnimations()[0] ?? null;
+
+// 足裏の代表点（接地補正用）。メッシュの足裏の頂点を、支配ボーンのローカル座標で持っておく。
+// ジョイントの高さだけでは靴底が床にめり込むのを検出できない（靴底はジョイントの 16cm 下）
+const soleProbes = buildSoleProbes(doc, targetRig);
+console.log(soleProbes ? `[sole] 足裏の接地点 ${soleProbes.length} 個` : '[sole] 足裏の接地点を作れないのでジョイントで接地補正する');
 
 // ---------- 2. 各クリップを土台の骨格へリターゲットして写す ----------
 // Meshy の自動リグはジョブごとに微妙に違う（位置 <0.5cm だが、手・肩・足のロールが数十度違う）。
@@ -278,8 +286,8 @@ function rootScaleOf(rig) {
   return parent ? parent.getScale()[1] : 1;
 }
 
-/** フレーム i の world 空間で、指定ボーンのうち最も低い y（m） */
-function lowestJointY(rig, outRot, outTrans, i, bones) {
+/** フレーム i の全ボーンの world 行列（Hips の並進は outTrans、他はバインドのオフセット） */
+function fkWorld(rig, outRot, outTrans, i) {
   const world = new Map();
   const q = quat.create(), tv = vec3.create();
   const rootName = rig.order[0];
@@ -293,12 +301,68 @@ function lowestJointY(rig, outRot, outTrans, i, bones) {
     if (b === 'Hips' && outTrans) vec3.set(tv, outTrans[i * 3], outTrans[i * 3 + 1], outTrans[i * 3 + 2]);
     else vec3.copy(tv, e.node.getTranslation());
     const local = mat4.fromRotationTranslation(mat4.create(), q, tv);
-    const w = mat4.multiply(mat4.create(), e.parent ? world.get(e.parent) : base, local);
-    world.set(b, w);
+    world.set(b, mat4.multiply(mat4.create(), e.parent ? world.get(e.parent) : base, local));
   }
+  return world;
+}
+
+/** フレーム i の world 空間で、指定ボーンのうち最も低い y（m） */
+function lowestJointY(rig, outRot, outTrans, i, bones) {
+  const world = fkWorld(rig, outRot, outTrans, i);
   let minY = Infinity;
   for (const b of bones) { const y = world.get(b)[13]; if (y < minY) minY = y; }
   return minY;
+}
+
+/** フレーム i の足裏の最低高さ（m）。probes は buildSoleProbes の結果 */
+function lowestSoleY(rig, outRot, outTrans, i, probes) {
+  const world = fkWorld(rig, outRot, outTrans, i);
+  let minY = Infinity;
+  for (const pr of probes) {
+    const m = world.get(pr.bone);
+    const y = m[1] * pr.p[0] + m[5] * pr.p[1] + m[9] * pr.p[2] + m[13];
+    if (y < minY) minY = y;
+  }
+  return minY;
+}
+
+/**
+ * 足裏の頂点（足・つま先ボーンが支配的で、バインド姿勢の高さが最低点から 2cm 以内）を、支配ボーンのローカル座標で返す。
+ * 返り値 { length, ... } は配列（各要素 { bone, p:[x,y,z] }）。作れなければ null
+ */
+function buildSoleProbes(d, rig) {
+  const skin = d.getRoot().listSkins()[0];
+  const prim = d.getRoot().listMeshes().flatMap((m) => m.listPrimitives()).find((p) => p.getAttribute('JOINTS_0'));
+  if (!skin || !prim) return null;
+  const names = skin.listJoints().map((j) => j.getName());
+  const P = prim.getAttribute('POSITION'), J = prim.getAttribute('JOINTS_0'), W = prim.getAttribute('WEIGHTS_0');
+  const feet = new Map([['LeftFoot', 'L'], ['LeftToeBase', 'L'], ['RightFoot', 'R'], ['RightToeBase', 'R']]);
+  const v = [0, 0, 0], j = [0, 0, 0, 0], w = [0, 0, 0, 0];
+  const cand = { L: [], R: [] };
+  for (let i = 0; i < P.getCount(); i++) {
+    J.getElement(i, j); W.getElement(i, w);
+    let dom = 0; for (let k = 1; k < 4; k++) if (w[k] > w[dom]) dom = k;
+    const bone = names[j[dom]];
+    const side = feet.get(bone);
+    if (!side) continue;
+    P.getElement(i, v);
+    cand[side].push({ bone, p: [v[0], v[1], v[2]] });
+  }
+  const out = [];
+  for (const side of ['L', 'R']) {
+    const c = cand[side];
+    if (c.length === 0) return null;
+    let minY = Infinity; for (const x of c) minY = Math.min(minY, x.p[1]);
+    for (const x of c) {
+      if (x.p[1] >= minY + 0.02) continue;
+      const e = rig.info.get(x.bone);
+      if (!e.bindWorld) return null;
+      const ibm = mat4.invert(mat4.create(), e.bindWorld);
+      const l = vec3.transformMat4(vec3.create(), x.p, ibm);
+      out.push({ bone: x.bone, p: [l[0], l[1], l[2]] });
+    }
+  }
+  return out.length ? out : null;
 }
 
 /** バインド姿勢でのローカル回転 inv(Bparent) * Bself */
@@ -334,6 +398,13 @@ function retargetClip(srcAnim, srcRig, dstRig, name, spec) {
   const Ws = new Map(), Wt = new Map();
   const tmpL = quat.create(), tmpD = quat.create(), tmpInv = quat.create(), tmpW = quat.create(), tmpLt = quat.create(), tmpT = vec3.create();
   const prev = new Map(order.map((b) => [b, null]));
+  // バインド姿勢の横軸（世界 +X）まわりの回転量（ラジアン）。正 = 前方が下を向く向き
+  const footPitchRad = (((spec.footPitchDeg ?? manifest.footPitchDeg) ?? 0) * Math.PI) / 180;
+  const headPitchRad = (((spec.headPitchDeg ?? manifest.headPitchDeg) ?? 0) * Math.PI) / 180;
+  const footBones = new Set(manifest.footBones ?? ['LeftFoot', 'RightFoot', 'LeftToeBase', 'RightToeBase']);
+  const headBones = new Set(manifest.headBones ?? ['Head', 'head_end', 'headfront']);
+  const biasOf = (b) => (footBones.has(b) ? footPitchRad : headBones.has(b) ? -headPitchRad : 0); // 頭は「上を向く」を正にするので符号を反転
+  const tmpAxis = vec3.create(), tmpBias = quat.create();
 
   for (let i = 0; i < n; i++) {
     const t = times[i];
@@ -360,6 +431,16 @@ function retargetClip(srcAnim, srcRig, dstRig, name, spec) {
         if (di.parent) quat.copy(wt, Wt.get(di.parent)), quat.multiply(wt, wt, bindLocalRot(dstRig, b)); else quat.copy(wt, di.bindRot);
         Wt.set(b, wt);
       }
+      // 足・頭の姿勢の補正: バインド姿勢の横軸（世界 +X）まわりに回す。
+      // 足とつま先（頭と頭の子）には同じ世界回転を掛けるので、親に対する子の相対角は変わらない
+      const bias = biasOf(b);
+      if (bias !== 0 && di.bindRot) {
+        quat.invert(tmpInv, di.bindRot);
+        vec3.transformQuat(tmpAxis, [1, 0, 0], tmpInv);
+        quat.setAxisAngle(tmpBias, tmpAxis, bias);
+        quat.multiply(wt, wt, tmpBias);
+        Wt.set(b, wt);
+      }
       // ローカルへ
       if (di.parent) { quat.invert(tmpInv, Wt.get(di.parent)); quat.multiply(tmpLt, tmpInv, wt); } else quat.copy(tmpLt, wt);
       quat.normalize(tmpLt, tmpLt);
@@ -382,19 +463,30 @@ function retargetClip(srcAnim, srcRig, dstRig, name, spec) {
   // 各フレームで最も低いジョイント（足・つま先）が床（y=0）を下回っていたら Hips を持ち上げる。
   // 持ち上げる方向にしか補正しない（浮いているフレームは触らない）
   if (outTrans && spec.groundClamp !== false) {
-    const groundBones = (manifest.groundBones ?? ['LeftFoot', 'RightFoot', 'LeftToeBase', 'RightToeBase']).filter((b) => dstRig.info.has(b));
-    // 基準はバインド姿勢（A ポーズで接地している）での同じボーン群の最低 y。つま先ボーンが床下にあるリグでも破綻しない
-    let bindMinY = Infinity;
-    for (const b of groundBones) { const bw = dstRig.info.get(b).bindWorld; if (bw) bindMinY = Math.min(bindMinY, bw[13]); }
-    if (!Number.isFinite(bindMinY)) bindMinY = 0;
-    const target = bindMinY + (manifest.groundMargin ?? 0.0);
-    let maxLift = 0;
-    for (let i = 0; i < n; i++) {
-      const minY = lowestJointY(dstRig, outRot, outTrans, i, groundBones);
-      const lift = target - minY;
-      if (lift > 0) { outTrans[i * 3 + 1] += lift / rootScaleOf(dstRig); maxLift = Math.max(maxLift, lift); }
+    let maxLift = 0, soleMin = Infinity;
+    if (soleProbes) {
+      // 足裏の最低点が床（y=0 + 余白）を下回るフレームだけ、Hips を持ち上げる
+      const target = manifest.groundMargin ?? 0.0;
+      for (let i = 0; i < n; i++) {
+        const minY = lowestSoleY(dstRig, outRot, outTrans, i, soleProbes);
+        soleMin = Math.min(soleMin, minY);
+        const lift = target - minY;
+        if (lift > 0) { outTrans[i * 3 + 1] += lift / rootScaleOf(dstRig); maxLift = Math.max(maxLift, lift); }
+      }
+    } else {
+      const groundBones = (manifest.groundBones ?? ['LeftFoot', 'RightFoot', 'LeftToeBase', 'RightToeBase']).filter((b) => dstRig.info.has(b));
+      // 基準はバインド姿勢（A ポーズで接地している）での同じボーン群の最低 y。つま先ボーンが床下にあるリグでも破綻しない
+      let bindMinY = Infinity;
+      for (const b of groundBones) { const bw = dstRig.info.get(b).bindWorld; if (bw) bindMinY = Math.min(bindMinY, bw[13]); }
+      if (!Number.isFinite(bindMinY)) bindMinY = 0;
+      const target = bindMinY + (manifest.groundMargin ?? 0.0);
+      for (let i = 0; i < n; i++) {
+        const minY = lowestJointY(dstRig, outRot, outTrans, i, groundBones);
+        const lift = target - minY;
+        if (lift > 0) { outTrans[i * 3 + 1] += lift / rootScaleOf(dstRig); maxLift = Math.max(maxLift, lift); }
+      }
     }
-    if (maxLift > 0) console.log(`[${name}] 接地補正: 最大 ${(maxLift * 100).toFixed(1)}cm 持ち上げ`);
+    if (maxLift > 0) console.log(`[${name}] 接地補正: 最大 ${(maxLift * 100).toFixed(1)}cm 持ち上げ` + (Number.isFinite(soleMin) ? `（補正前の足裏最低 ${(soleMin * 100).toFixed(1)}cm）` : ''));
   }
 
   const dst = doc.createAnimation(name);
