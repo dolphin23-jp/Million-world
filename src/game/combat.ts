@@ -15,6 +15,8 @@ export const PLAYER_ID = 0;
 export interface AttackerView {
   readonly attackActive: boolean;
   readonly attack: AttackDef | null;
+  /** いまの攻撃の威力の倍率（溜めの段階。1 = 等倍）。ダメージ・ノックバック・ヒットストップに掛かる */
+  readonly attackPower: number;
   readonly body: Circle;
   readonly yaw: number;
   readonly hitTracker: HitTracker;
@@ -47,7 +49,13 @@ export function resolvePlayerAttack<T extends CombatTarget>(
   for (const box of _hit) {
     const target = targets.find((t) => t.body === box);
     if (!target) continue;
-    const ev = makeHitEvent(PLAYER_ID, _origin, box, atk);
+    const p = attacker.attackPower;
+    const ev = makeHitEvent(PLAYER_ID, _origin, box, {
+      damage: Math.round(atk.damage * p),
+      // ノックバックは威力の半分だけ倍率を掛ける（吹き飛びすぎない）。ヒットストップは威力に比例して伸びる
+      knockback: atk.knockback * (1 + (p - 1) * 0.5),
+      hitStop: Math.round(atk.hitStop * p),
+    });
     const result = target.takeHit(ev);
     onHit(ev, target, result);
   }

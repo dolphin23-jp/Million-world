@@ -39,6 +39,16 @@ export interface FootTarget {
   /** idle の向きに対する yaw（右へ回る正）・pitch（つま先が下がる正）（ラジアン） */
   yaw: number;
   pitch: number;
+  /**
+   * 足を「腰の座標系」で置く割合（0 = 世界固定、1 = 腰に付いて回る）。ロールのように体が回転するとき、丸めた脚が体に追従するために使う。
+   * 1 のあいだの足首の位置は、腰の骨の原点から (lx, ly, lz)（腰の回転で回した向き。左 = +X、右 = −X、上 = +Y、前 = +Z）。0 と 1 の間は両者を線形に混ぜる
+   */
+  rel?: number;
+  lx?: number;
+  ly?: number;
+  lz?: number;
+  /** 膝の向きを「体の前」（腰の回転に従う）に追従させる割合（0 = 世界の前）。逆さになって転がるとき膝が体の前へ曲がるように */
+  knee?: number;
 }
 
 export interface PoseInput {
@@ -97,6 +107,7 @@ export function createPoseOutput(rig: Rig): PoseOutput {
 
 const _Y = new Vector3(0, 1, 0);
 const IDENTITY = new Quaternion();
+const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
 
 /** 前腕のねじれのうち、前腕の骨が受け持つ割合（残りは手首）。肘と手首にねじれを分けて、片側だけが潰れるのを避ける */
 const FOREARM_TWIST_SHARE = 0.5;
@@ -164,12 +175,18 @@ export class PoseSolver {
     const ankleR = this.footWorld(ix.footR, inp.footR, new Vector3());
     const hipOffL = this.va.copy(rig.pos[ix.upLegL]!).applyQuaternion(R[ix.hips]!);
     const hipOffR = this.vb.copy(rig.pos[ix.upLegR]!).applyQuaternion(R[ix.hips]!);
+    // 腰に付いて回る足（rel）は、腰を下げても届く位置にあるので、腰を下げる量には数えない（その割合だけ減らす）
+    const relL = clamp01(inp.footL.rel ?? 0);
+    const relR = clamp01(inp.footR.rel ?? 0);
     const drop = Math.max(
-      this.dropFor(hipsBase.y + hipOffL.y, hipsBase.x + hipOffL.x, hipsBase.z + hipOffL.z, ankleL, lenThighL + lenShinL),
-      this.dropFor(hipsBase.y + hipOffR.y, hipsBase.x + hipOffR.x, hipsBase.z + hipOffR.z, ankleR, lenThighR + lenShinR),
+      this.dropFor(hipsBase.y + hipOffL.y, hipsBase.x + hipOffL.x, hipsBase.z + hipOffL.z, ankleL, lenThighL + lenShinL) * (1 - relL),
+      this.dropFor(hipsBase.y + hipOffR.y, hipsBase.x + hipOffR.x, hipsBase.z + hipOffR.z, ankleR, lenThighR + lenShinR) * (1 - relR),
     );
     hipsBase.y -= drop;
     info.hipsDrop = drop;
+    // 腰の座標系の足首（腰の位置が決まってから）を混ぜる
+    if (relL > 0) ankleL.lerp(this.va.set(inp.footL.lx ?? 0, inp.footL.ly ?? 0, inp.footL.lz ?? 0).applyQuaternion(R[ix.hips]!).add(hipsBase), relL);
+    if (relR > 0) ankleR.lerp(this.va.set(inp.footR.lx ?? 0, inp.footR.ly ?? 0, inp.footR.lz ?? 0).applyQuaternion(R[ix.hips]!).add(hipsBase), relR);
 
     // ---- 位置（FK）。四肢の先は IK が決める ----
     P[ix.hips]!.copy(hipsBase);
@@ -304,8 +321,10 @@ export class PoseSolver {
   ): void {
     const { rig, R, P } = this;
     const H = P[up]!;
-    // 膝は足の向きの前方（少し外）へ出す
+    // 膝は足の向きの前方（少し外）へ出す。knee > 0 なら、体（腰）の前へ向ける
     const pole = this.va.set(side * 0.15, 0, 1).applyQuaternion(eulerYPR(f.yaw, 0, 0, this.qa));
+    const knee = clamp01(f.knee ?? 0);
+    if (knee > 0) pole.lerp(this.vb.set(side * 0.15, 0, 1).applyQuaternion(R[this.ix.hips]!), knee).normalize();
     const res = solveTwoBone(H, ankle, rig.length(rig.names[up]!, rig.names[shin]!), rig.length(rig.names[shin]!, rig.names[foot]!), pole, this.elbow, this.wrist, this.hinge);
     setClamped(res.clamped);
     this.limb(up, shin, H, this.elbow, this.wrist, h);

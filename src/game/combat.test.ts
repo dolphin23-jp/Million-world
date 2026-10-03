@@ -3,7 +3,7 @@ import { Player } from './player';
 import { resolveEnemyAttacks, resolvePlayerAttack, type CombatTarget } from './combat';
 import { Enemy } from '../ai/enemy';
 import { ENEMIES } from '../ai/data/enemies';
-import { ATTACKS, DODGE, HIT_STUN, PLAYER_STATS, resolveAttack } from '../combat/data/attacks';
+import { ATTACKS, DODGE, DODGES, HIT_STUN, PLAYER_STATS, resolveAttack } from '../combat/data/attacks';
 import { createEmptyIntent, type InputIntent } from '../input/intent';
 import type { DamageResult } from '../combat/health';
 import type { HitEvent } from '../combat/hit';
@@ -38,7 +38,13 @@ function setup(enemyZ = 1.6) {
   const run = (n: number, over: Partial<InputIntent> = {}) => {
     for (let i = 0; i < n; i++) step(over);
   };
-  return { player, enemy, hits, step, run };
+  /** 攻撃を押し続けて溜めの構えに入り（段階 0 のうちに）離す。構えが整った時点で重撃が出る */
+  const heavy = () => {
+    step({ attackPressed: true, attackHeld: true });
+    for (let i = 0; i < 60 && player.state !== 'charge'; i++) step({ attackHeld: true });
+    expect(player.state).toBe('charge');
+  };
+  return { player, enemy, hits, step, run, heavy };
 }
 
 describe('プレイヤーの攻撃が敵に当たる（Player + Enemy の結合）', () => {
@@ -105,17 +111,17 @@ describe('プレイヤーの攻撃が敵に当たる（Player + Enemy の結合�
   });
 
   it('重撃は大きなダメージを与える', () => {
-    const { hits, step, run } = setup(1.7);
-    step({ heavyPressed: true });
+    const { hits, run, heavy } = setup(1.7);
+    heavy();
     run(90);
     expect(hits).toHaveLength(1);
     expect(hits[0]!.ev.damage).toBe(ATTACKS.heavy!.damage);
   });
 
   it('HP が 0 になる攻撃で倒れ、そのあとの攻撃はダメージにならない', () => {
-    const { enemy, hits, step, run } = setup(1.7);
+    const { enemy, hits, run, heavy } = setup(1.7);
     enemy.health.hp = 5;
-    step({ heavyPressed: true });
+    heavy();
     run(90);
     expect(hits).toHaveLength(1);
     expect(hits[0]!.result.killed).toBe(true);
@@ -280,27 +286,35 @@ describe('敵の攻撃がプレイヤーに当たる（Enemy + Player の結合�
     expect(sc.enemy.state).not.toBe('windup'); // 攻撃は空振りで終わっている
   });
 
-  it('プレイヤーの無敵フラグは回避の [invulnStart, invulnEnd] フレームだけ立つ', () => {
-    const player = new Player();
-    const flags: boolean[] = [];
-    player.step(DT, { ...createEmptyIntent(), dodgePressed: true }, CAM_YAW);
-    flags.push(player.body.invulnerable);
-    for (let i = 0; i < DODGE.frames + 2; i++) {
-      player.step(DT, createEmptyIntent(), CAM_YAW);
+  it('プレイヤーの無敵フラグは回避の [invulnStart, invulnEnd] フレームだけ立つ（ロールも後ろステップも）', () => {
+    // ロール = スティックを倒して回避、後ろステップ = 入力なしで回避
+    for (const [kind, press] of [['roll', { dodgePressed: true, moveX: 0, moveY: 1 }], ['back', { dodgePressed: true }]] as const) {
+      const d = DODGES[kind];
+      const player = new Player();
+      const flags: boolean[] = [];
+      player.step(DT, { ...createEmptyIntent(), ...press }, CAM_YAW);
+      expect(player.dodgeKind).toBe(kind);
       flags.push(player.body.invulnerable);
+      for (let i = 0; i < d.frames + 2; i++) {
+        player.step(DT, createEmptyIntent(), CAM_YAW);
+        flags.push(player.body.invulnerable);
+      }
+      // 回避に入った step の後が stateFrame = 1
+      const first = flags.indexOf(true) + 1;
+      const last = flags.lastIndexOf(true) + 1;
+      expect(first, kind).toBe(d.invulnStart);
+      expect(last, kind).toBe(d.invulnEnd);
     }
-    // 回避に入った step の後が stateFrame = 1
-    const first = flags.indexOf(true) + 1;
-    const last = flags.lastIndexOf(true) + 1;
-    expect(first).toBe(DODGE.invulnStart);
-    expect(last).toBe(DODGE.invulnEnd);
   });
 
   it('重撃は敵の予備動作の後半（スーパーアーマー中）でも割り込み、プレイヤーは被弾しない', () => {
     const sc = scene(1.7);
-    // 敵が予備動作に入ったらすぐ重撃を振る。当たるのは予備動作の後半（armorFromFrame を過ぎている）で、攻撃の判定が出る前
-    sc.until(() => sc.enemy.state === 'windup');
-    sc.step({ heavyPressed: true });
+    // 溜めの構えに入って待ち、敵が予備動作に入った少しあとに離す。重撃の判定は離してから数フレーム後に出るので、
+    // 当たるのは予備動作の後半（armorFromFrame を過ぎている）で、敵の攻撃の判定が出る前
+    sc.step({ attackPressed: true, attackHeld: true });
+    sc.until(() => sc.player.state === 'charge', 60, { attackHeld: true });
+    sc.until(() => sc.enemy.state === 'windup' && sc.enemy.stateFrame >= 8, 600, { attackHeld: true });
+    expect(sc.player.chargeLevel).toBe(0);
     // 当たった瞬間（直前の step の終わり）の敵はスーパーアーマー中だった
     let armoredAtHit = false;
     for (let i = 0; i < 80 && sc.pHits.length === 0; i++) {

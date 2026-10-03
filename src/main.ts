@@ -22,6 +22,7 @@ function boot(): void {
     // ?dpr=1.25 で解像度を固定、?adaptive=0 で動的解像度だけ止める（計測・スクリーンショット用）
     ...(dprParam > 0 ? { pixelRatio: dprParam } : {}),
     adaptive: params.get('adaptive') !== '0',
+    sandbox: params.get('sandbox') === '1',
   });
   window.__mw = { game, THREE };
   // ?mute=1 で効果音を鳴らさない

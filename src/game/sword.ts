@@ -48,5 +48,7 @@ export function buildSword(): THREE.Group {
   pommel.position.y = -0.11;
   g.add(pommel);
   addOutline(pommel, { thickness: 0.02 });
+  // 溜め（長押し）の光り方を変えるために刃のマテリアルを渡す（HeroVisual.updateGlow）
+  g.userData.steel = steel;
   return g;
 }

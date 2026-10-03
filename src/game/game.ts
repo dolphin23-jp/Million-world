@@ -54,6 +54,8 @@ export interface GameOptions {
   pixelRatio?: number;
   /** false で動的解像度を止める（既定は有効）。?adaptive=0 から渡す */
   adaptive?: boolean;
+  /** 開発用: 敵も戦闘の進行も無い、モーションを確かめるためだけの場。?sandbox=1 から渡す（tools/motion-sheet.mjs が使う） */
+  sandbox?: boolean;
 }
 
 /** 動的解像度の段（大きい順）。デバイスの DPR を超える段は buildLevels が潰す */
@@ -68,7 +70,18 @@ interface EnemyEntry {
 }
 
 /** プレイヤーの攻撃ごとの振りの効果音 */
-const SWING_SFX: Record<string, SfxName> = { combo1: 'swing1', combo2: 'swing2', combo3: 'swing3', heavy: 'swingHeavy' };
+const SWING_SFX: Record<string, SfxName> = {
+  combo1: 'swing1',
+  combo2: 'swing2',
+  combo3: 'swing3',
+  heavy: 'swingHeavy',
+  lunge: 'swingLunge',
+  dash: 'swingDash',
+  retreat: 'swingRetreat',
+  sweep: 'swingSweep',
+};
+/** 溜めの段階が上がったときの合図 */
+const CHARGE_LEVEL_SFX: readonly SfxName[] = ['chargeLevel1', 'chargeLevel2'];
 
 /** 最後の敵を倒したときのスローモーション（倍率、実時間の秒） */
 const FINISH_SLOW = { scale: 0.3, seconds: 0.9 };
@@ -90,10 +103,13 @@ export class Game {
   /** 戦闘の進行（ウェーブ・勝敗・リザルトの集計）。再戦のたびに作り直す */
   encounter: Encounter = new Encounter(DEMO_ENCOUNTER);
   private encounterStarted = false;
+  private readonly sandbox: boolean;
   /** 音声の土台（解放は開始画面のタップ。platform/audio.ts）と、効果音の再生 */
   readonly audio = new AudioBus();
   readonly sfx = new Sfx(this.audio);
   private seenPlayerSerial = 0;
+  /** 溜めの段階の合図を鳴らし終えた段階（構えを出たら 0） */
+  private seenChargeLevel = 0;
   readonly hitStop = new HitStop();
   readonly hitFx = new HitFx();
   readonly damageNumbers: DamageNumbers;
@@ -117,6 +133,7 @@ export class Game {
   ready = false;
 
   constructor(opts: GameOptions) {
+    this.sandbox = opts.sandbox ?? false;
     this.adaptive = new AdaptiveResolution({ levels: buildLevels(window.devicePixelRatio || 1, PIXEL_RATIO_LEVELS) });
     if (opts.pixelRatio !== undefined || opts.adaptive === false) this.adaptive.lock();
     this.host = new RendererHost({ canvas: opts.canvas, maxPixelRatio: opts.pixelRatio ?? this.adaptive.ratio });
@@ -234,6 +251,14 @@ export class Game {
     for (let i = 0; i < count; i++) this.render(1, 1 / 60);
   }
 
+  /**
+   * 開発用: 描画（GPU への draw）を省いて、アニメーション・剣筋・カメラだけを 1/60 秒刻みで進める。
+   * モーションを 1 フレームずつ送って、見たいフレームだけ renderNow で描くのに使う（描画を大量に積むと SwiftShader が追いつかない）
+   */
+  tickVisual(count = 1): void {
+    for (let i = 0; i < count; i++) this.render(1, 1 / 60, false);
+  }
+
   /** 敵を 1 体、(x, z) に出す。プレイヤーの方を向く */
   spawnEnemy(type: keyof typeof ENEMIES, x: number, z: number): Enemy {
     const enemy = new Enemy(ENEMIES[type], this.nextEnemyId++, x, z);
@@ -258,6 +283,7 @@ export class Game {
     this.encounterStarted = true;
     this.encounter = new Encounter(def);
     this.hud.setPlayerHp(this.player.health.hp, this.player.health.max);
+    if (this.sandbox) return; // サンドボックスは敵もウェーブも出さない
     this.applyEncounterEvent(this.encounter.step(0, false));
   }
 
@@ -315,7 +341,7 @@ export class Game {
       intent.moveY = 0;
       intent.attackPressed = false;
       intent.dodgePressed = false;
-      intent.heavyPressed = false;
+      intent.attackHeld = false;
       intent.lockPressed = false;
       intent.lockSwitch = 0;
     }
@@ -378,20 +404,33 @@ export class Game {
     // 戦闘の進行: 全滅でウェーブが進み、最後を倒すか倒されるかでリザルト
     let living = 0;
     for (const e of this.enemySims) if (!e.dead) living++;
-    this.applyEncounterEvent(this.encounter.step(living, this.player.dead));
+    if (!this.sandbox) this.applyEncounterEvent(this.encounter.step(living, this.player.dead));
     this.input.endStep();
   }
 
   /** プレイヤーの状態が変わった瞬間の効果音: 攻撃の振り（当たりの少し前に鳴らす）・回避 */
   private soundPlayerState(): void {
     const p = this.player;
+    // 溜めの段階が上がった瞬間（段階 1, 2 の合図）。構えを出たら数え直す
+    if (p.state === 'charge') {
+      if (p.chargeLevel > this.seenChargeLevel) {
+        const name = CHARGE_LEVEL_SFX[p.chargeLevel - 1];
+        if (name) this.sfx.play(name);
+      }
+      this.seenChargeLevel = p.chargeLevel;
+    } else {
+      this.seenChargeLevel = 0;
+    }
     if (p.stateSerial === this.seenPlayerSerial) return;
     this.seenPlayerSerial = p.stateSerial;
     if (p.state === 'attack' && p.attack) {
       const name = SWING_SFX[p.attack.id];
-      if (name) this.sfx.play(name, { delay: Math.max(0, p.attack.activeStart - 0.07) / p.attack.rate });
+      // 溜めを放った攻撃は威力に応じて少し大きく鳴らす
+      if (name) this.sfx.play(name, { delay: Math.max(0, p.attack.activeStart - 0.07) / p.attack.rate, gain: Math.min(1.3, p.attackPower) });
     } else if (p.state === 'dodge') {
-      this.sfx.play('dodge');
+      this.sfx.play(p.dodgeKind === 'back' ? 'dodgeBack' : 'dodge');
+    } else if (p.state === 'charge') {
+      this.sfx.play('chargeStart');
     }
   }
 
@@ -434,7 +473,7 @@ export class Game {
     this.startEncounter(def);
   }
 
-  private render(alpha: number, frameDt: number): void {
+  private render(alpha: number, frameDt: number, draw = true): void {
     if (this.host.contextLost) return;
     this.host.renderer.info.reset();
     const now = performance.now();
@@ -454,7 +493,7 @@ export class Game {
     this.sky.follow(this.cam.camera);
     this.arena.animate(t);
     this.hitFx.update(frameDt);
-    this.post.render();
+    if (draw) this.post.render();
     this.damageNumbers.update(this.cam.camera, frameDt, this.host.width, this.host.height);
     const locked = this.lockedEnemy();
     this.enemyBars.update(this.cam.camera, this.enemySims, this.host.width, this.host.height, locked ? locked.id : null);

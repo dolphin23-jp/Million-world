@@ -55,6 +55,23 @@ export const SFX = {
   /** 重撃: 長い風切り音と低い唸り */
   swingHeavy: { gain: 0.85, layers: [noise('bandpass', 500, 2600, 0.9, 0.34, 0.9, 0.12), tone('sine', 110, 55, 0.34, 0.3, 0.1)] },
   dodge: { gain: 0.5, layers: [noise('highpass', 2200, 7200, 0.7, 0.22, 0.7, 0.04)] },
+  /** 後ろステップ: 前転より短く軽い（地面を蹴って離れる） */
+  dodgeBack: { gain: 0.45, layers: [noise('highpass', 1800, 5200, 0.7, 0.16, 0.65, 0.03), tone('sine', 200, 120, 0.08, 0.18, 0.005, 0.12)] },
+  /** 踏み込み（突き）: 鋭く一直線。高い所から落ちる細い風切り */
+  swingLunge: { gain: 1, layers: [noise('bandpass', 2800, 900, 1.6, 0.14, 1, 0.015), tone('triangle', 520, 240, 0.1, 0.2)] },
+  /** ダッシュ斬り（斬り上げ）: 下から上がる風切り */
+  swingDash: { gain: 1, layers: [noise('bandpass', 700, 3800, 1.0, 0.22, 1, 0.05), tone('sine', 260, 520, 0.14, 0.2, 0.02)] },
+  /** 下がりながらの払い: 短く軽い */
+  swingRetreat: { gain: 0.9, layers: [noise('bandpass', 1800, 3600, 1.1, 0.15, 0.95, 0.02), tone('sine', 380, 250, 0.09, 0.16)] },
+  /** 横薙ぎ: 長く広い風切り（回り込む） */
+  swingSweep: { gain: 1, layers: [noise('bandpass', 600, 3000, 0.9, 0.3, 1, 0.1), noise('bandpass', 2600, 800, 1.2, 0.16, 0.5, 0.02, 0.1), tone('sine', 150, 90, 0.26, 0.22, 0.06)] },
+
+  // ---- 溜め（長押し） ----
+  /** 構えに入った: 低く息を吸う */
+  chargeStart: { gain: 0.55, layers: [noise('bandpass', 300, 900, 0.9, 0.22, 0.5, 0.08), tone('sine', 140, 210, 0.2, 0.3, 0.05)] },
+  /** 段階が上がった合図（1 → 2 で音が高くなる） */
+  chargeLevel1: { gain: 0.7, layers: [tone('triangle', 880, 1175, 0.12, 0.5), tone('sine', 1760, 1760, 0.1, 0.18, 0.005, 0.03)] },
+  chargeLevel2: { gain: 0.8, layers: [tone('triangle', 1175, 1760, 0.14, 0.55), tone('triangle', 1760, 2349, 0.16, 0.4, 0.005, 0.07), noise('highpass', 4000, 8000, 0.7, 0.18, 0.35, 0.02)] },
 
   // ---- 命中 ----
   hit: { gain: 1, layers: [noise('highpass', 900, 600, 0.8, 0.07, 0.9), tone('sine', 230, 85, 0.1, 1), tone('square', 1500, 620, 0.035, 0.16)] },

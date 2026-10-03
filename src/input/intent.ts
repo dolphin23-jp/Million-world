@@ -13,9 +13,9 @@ export interface InputIntent {
   camPitch: number;
   /** 押下エッジ（このステップで押された） */
   attackPressed: boolean;
+  /** 攻撃ボタンを押している間 true（レベル）。長押しの溜めに使う（ADR-018）。押した瞬間は attackPressed も true */
+  attackHeld: boolean;
   dodgePressed: boolean;
-  /** 重撃（暫定: 専用ボタン。コマンド設計が決まるまでの仮。docs/06-moveset-ideas.md） */
-  heavyPressed: boolean;
   lockPressed: boolean;
   /** ロックオン対象切替（-1 左 / +1 右 / 0 なし） */
   lockSwitch: number;
@@ -28,8 +28,8 @@ export function createEmptyIntent(): InputIntent {
     camYaw: 0,
     camPitch: 0,
     attackPressed: false,
+    attackHeld: false,
     dodgePressed: false,
-    heavyPressed: false,
     lockPressed: false,
     lockSwitch: 0,
   };
@@ -59,8 +59,8 @@ export class InputAggregator {
     it.camYaw = 0;
     it.camPitch = 0;
     it.attackPressed = false;
+    it.attackHeld = false;
     it.dodgePressed = false;
-    it.heavyPressed = false;
     it.lockPressed = false;
     it.lockSwitch = 0;
     for (const s of this.sources) s.collect(it);
