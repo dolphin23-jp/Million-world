@@ -157,14 +157,15 @@ export class EnemyVisual {
       this.shake = 1;
       this.shakeSeed = e.hitSerial * 12.9898;
     }
-    this.flash = Math.max(0, this.flash - frameDt / 0.16);
+    this.flash = Math.max(0, this.flash - frameDt / 0.11);
     this.squash = Math.max(0, this.squash - frameDt / 0.28);
     this.lean = Math.max(0, this.lean - frameDt / 0.45);
     this.shake = Math.max(0, this.shake - frameDt / 0.22);
     this.idleTime += animDt;
 
     const dead = e.dead;
-    this.setGlow(this.flash);
+    // 出だしの数フレームは白く飛ぶが、体の形（輪郭と色の塊）は読める強さにとどめる
+    this.setGlow(this.flash * 0.7);
 
     // 待機のゆらぎ（上下・腕）
     const bob = Math.sin(this.idleTime * 3.2) * 0.025;

@@ -14,6 +14,14 @@ import { resolvePlayerAttack } from './combat';
 import { Enemy } from '../ai/enemy';
 import { ENEMIES } from '../ai/data/enemies';
 import { EnemyVisual } from './enemy-visual';
+import { HitStop } from '../core/hitstop';
+import { HitFx } from '../render/hit-fx';
+import { SwordTrail } from '../render/sword-trail';
+import { DamageNumbers } from '../ui/damage-numbers';
+import { hitFeedback } from '../combat/feedback';
+import { HIT_FEEDBACK } from '../combat/data/hit-feedback';
+import type { HitEvent } from '../combat/hit';
+import type { DamageResult } from '../combat/health';
 import { ThirdPersonCamera } from './camera';
 import { Hud } from '../ui/hud';
 import { onVisibility } from '../platform/safari';
@@ -25,6 +33,8 @@ import { HERO } from '../character/data/hero';
  */
 
 const _pos = new THREE.Vector3();
+const _bladeBase = new THREE.Vector3();
+const _bladeTip = new THREE.Vector3();
 const SUN_DIR = new THREE.Vector3(0.55, 0.75, 0.35).normalize();
 
 export interface GameOptions {
@@ -64,6 +74,10 @@ export class Game {
   private nextEnemyId = 1;
   private spawnCount = 0;
   private respawnTimer = 0;
+  readonly hitStop = new HitStop();
+  readonly hitFx = new HitFx();
+  readonly damageNumbers: DamageNumbers;
+  readonly swordTrail = new SwordTrail();
   readonly input = new InputAggregator();
   readonly touch: TouchInput;
   readonly hud: Hud;
@@ -82,6 +96,7 @@ export class Game {
     this.cam = new ThirdPersonCamera(this.host.width / this.host.height);
     this.hud = new Hud();
     this.hud.setDebugVisible(opts.debug ?? true);
+    this.damageNumbers = new DamageNumbers(document.getElementById('fx-layer')!);
 
     // --- シーン ---
     this.scene.fog = new THREE.Fog(0xbfd9ff, 30, 120);
@@ -110,6 +125,8 @@ export class Game {
 
     this.player = new Player();
     this.scene.add(this.player.root);
+    this.scene.add(this.hitFx.group);
+    this.scene.add(this.swordTrail.mesh);
     this.spawnEnemy();
 
     // --- 入力 ---
@@ -198,13 +215,23 @@ export class Game {
     return enemy;
   }
 
+  /** プレイヤーの攻撃が敵に当たった。ヒットストップ・画面の揺れ・エフェクト・ダメージ数字を起こす */
+  private onPlayerHit(ev: HitEvent, enemy: Enemy, result: DamageResult): void {
+    const fb = hitFeedback(ev, result.killed);
+    this.hitStop.trigger(fb.hitStop);
+    this.cam.shake.trigger(fb.shakeAmp, fb.shakeSeconds);
+    const y = HIT_FEEDBACK.impactHeight;
+    this.hitFx.burst(ev.x, y, ev.z, ev.dirX, ev.dirZ, fb.power);
+    this.damageNumbers.spawn(enemy.body.x, y + 0.5, enemy.body.z, result.dealt, fb.style);
+  }
+
   private step(dt: number): void {
     const intent = this.input.beginStep();
     this.cam.rotate(intent.camYaw, intent.camPitch);
     this.player.step(dt, intent, this.cam.yaw);
 
     for (const { enemy } of this.enemies) enemy.step(dt, this.player.body.x, this.player.body.z);
-    resolvePlayerAttack(this.player, this.enemySims, () => {});
+    resolvePlayerAttack(this.player, this.enemySims, (ev, enemy, result) => this.onPlayerHit(ev, enemy, result));
 
     // 生きている敵は体を持つ（プレイヤーを押し出す）。アリーナの外へは出ない
     for (const { enemy } of this.enemies) {
@@ -237,14 +264,22 @@ export class Game {
     const now = performance.now();
     const t = (now - this.startTime) / 1000;
     // アニメーションは sim の時間スケール（ヒットストップ）に従う
+    // ヒットストップ: sim だけ止める。アニメは sim の時間スケールに従い、カメラ・エフェクト・UI は実時間で進む
+    this.loop.stepper.timeScale = this.hitStop.update(frameDt);
     const animDt = frameDt * this.loop.stepper.timeScale;
     this.player.syncVisual(alpha, animDt);
     for (const { enemy, visual } of this.enemies) visual.update(enemy, alpha, animDt, frameDt);
+    // 剣筋: アニメ更新直後の刃の位置を記録する。時間はアニメの時間（ヒットストップで止まる）
+    if (this.player.getBladePoints(_bladeBase, _bladeTip)) {
+      this.swordTrail.update(animDt, this.player.trailActive, _bladeBase, _bladeTip);
+    }
     this.player.getInterpolatedPosition(alpha, _pos);
     this.cam.update(_pos, frameDt);
     this.sky.follow(this.cam.camera);
     this.arena.animate(t);
+    this.hitFx.update(frameDt);
     this.post.render();
+    this.damageNumbers.update(this.cam.camera, frameDt, this.host.width, this.host.height);
     // 実フレーム間隔で解像度を調整する。段が変わるとレンダターゲットを作り直すので、描画の後で行う
     const nextRatio = this.adaptive.update(frameDt * 1000);
     if (nextRatio !== null) this.host.setMaxPixelRatio(nextRatio);

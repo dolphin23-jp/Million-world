@@ -223,6 +223,17 @@ export class Player {
     return this.state === 'attack' && fr !== null && isActiveFrame(fr.startup, fr.active, this.stateFrame);
   }
 
+  /**
+   * 剣筋（トレイル）を出す区間か。attack.trail は区間先頭からの秒で、描画されている姿勢のアニメ時刻は stateFrame / 60 × rate
+   * （attackActive と同じ対応）
+   */
+  get trailActive(): boolean {
+    const a = this.attack;
+    if (this.state !== 'attack' || !a) return false;
+    const t = (this.stateFrame / 60) * a.rate;
+    return t >= a.trail[0] && t <= a.trail[1];
+  }
+
   /** 無敵中か（敵の攻撃のヒット判定で使う） */
   get invulnerable(): boolean {
     return this.state === 'dodge' && this.stateFrame >= DODGE.invulnStart && this.stateFrame <= DODGE.invulnEnd;
@@ -235,6 +246,11 @@ export class Player {
     return out;
   }
 
+  /** 剣の刃の根元側と先の世界座標（剣筋用）。見た目が読み込まれていなければ false。syncVisual のあとに呼ぶ */
+  getBladePoints(base: THREE.Vector3, tip: THREE.Vector3): boolean {
+    return this.visual?.getBladePoints(base, tip) ?? false;
+  }
+
   /** 毎描画フレーム。animDt はヒットストップ等のスケール済み時間 */
   syncVisual(alpha: number, animDt: number): void {
     this.root.position.set(lerp(this.prevX, this.body.x, alpha), 0, lerp(this.prevZ, this.body.z, alpha));
@@ -242,6 +258,10 @@ export class Player {
     this.visual?.update(this, animDt);
   }
 }
+
+/** 剣の刃の根元寄り・先端（剣のローカル Y。src/game/sword.ts の刃は y = 0.1〜1.16） */
+const BLADE_BASE_Y = 0.3;
+const BLADE_TIP_Y = 1.17;
 
 /** GLB キャラクターとアニメーションの見た目側 */
 class HeroVisual {
@@ -286,6 +306,16 @@ class HeroVisual {
     else console.warn(`[hero] ボーンがありません: ${HERO.sword.bone}`);
 
     this.animator.play(HERO.clips.idle, { loop: true, fade: 0 });
+  }
+
+  /** 刃（剣のローカル +Y が刃先方向）の根元寄りと先端の世界座標。アニメ更新直後の骨の位置から求める */
+  getBladePoints(base: THREE.Vector3, tip: THREE.Vector3): boolean {
+    this.sword.updateWorldMatrix(true, false);
+    base.set(0, BLADE_BASE_Y, 0);
+    tip.set(0, BLADE_TIP_Y, 0);
+    this.sword.localToWorld(base);
+    this.sword.localToWorld(tip);
+    return true;
   }
 
   update(p: Player, dt: number): void {

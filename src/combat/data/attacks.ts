@@ -26,6 +26,8 @@ export interface AttackDef {
   activeStart: number;
   activeEnd: number;
   cancelAt: number;
+  /** 剣筋（トレイル）を出す区間。区間先頭からの秒 [開始, 終了]。持続フレームの少し前から、振り抜きの終わりまで */
+  trail: readonly [number, number];
   /** 再生速度 */
   rate: number;
   /** 持続中に前進する距離（m）。手付け（authored）の攻撃では使わない */
@@ -88,6 +90,7 @@ export const ATTACKS: Record<string, AttackDef> = {
     activeStart: 0.2,
     activeEnd: 0.28,
     cancelAt: 0.37,
+    trail: [0.14, 0.38],
     rate: 1,
     lunge: 0,
     next: 'combo2',
@@ -107,6 +110,7 @@ export const ATTACKS: Record<string, AttackDef> = {
     activeStart: 0.14,
     activeEnd: 0.21,
     cancelAt: 0.34,
+    trail: [0.09, 0.32],
     rate: 1,
     lunge: 0,
     next: 'combo3',
@@ -127,6 +131,7 @@ export const ATTACKS: Record<string, AttackDef> = {
     activeStart: 0.15,
     activeEnd: 0.24,
     cancelAt: 999,
+    trail: [0.1, 0.34],
     rate: 1,
     lunge: 0,
     hitbox: { kind: 'line', length: 2.2, radius: 0.3 },
@@ -147,6 +152,7 @@ export const ATTACKS: Record<string, AttackDef> = {
     activeStart: 0.47,
     activeEnd: 0.56,
     cancelAt: 999,
+    trail: [0.41, 0.66],
     rate: 1,
     lunge: 0,
     hitbox: { kind: 'arc', range: 2.2, halfAngle: deg(55) },

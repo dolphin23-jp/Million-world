@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { clamp, damp } from '../core/math';
+import { Shake } from '../core/shake';
 
 /**
  * 三人称カメラ（docs/04-controls.md）。
@@ -27,6 +28,8 @@ export class ThirdPersonCamera {
   yaw = Math.PI; // キャラの背後（キャラ初期向き +Z を見下ろす位置）
   pitch: number = CAMERA.defaultPitch;
   distance: number = CAMERA.distance;
+  /** 命中などの画面の揺れ。実時間で進む（ヒットストップ中も揺れる） */
+  readonly shake = new Shake();
   private readonly follow = new THREE.Vector3();
   private initialized = false;
 
@@ -62,5 +65,11 @@ export class ThirdPersonCamera {
     // 床より下に潜らない
     if (this.camera.position.y < 0.35) this.camera.position.y = 0.35;
     this.camera.lookAt(this.follow);
+    // 揺れはカメラのローカルの右・上へ。注視点は動かさないので、画面全体が震えて見える
+    this.shake.update(frameDt);
+    if (this.shake.x !== 0 || this.shake.y !== 0) {
+      this.camera.translateX(this.shake.x);
+      this.camera.translateY(this.shake.y);
+    }
   }
 }

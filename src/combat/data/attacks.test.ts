@@ -14,6 +14,7 @@ describe('resolveAttack', () => {
       activeStart: 0.5,
       activeEnd: 0.6,
       cancelAt: 0.8,
+      trail: [0.4, 0.7],
       rate: 2,
       lunge: 0,
       hitbox: { kind: 'arc', range: 1, halfAngle: 1 },
@@ -212,6 +213,18 @@ describe('踏み込み（手付けの下半身）', () => {
       const b = s.sample(1 / 60, s.newInput());
       expect(b.footL.z, `${id} の左足`).toBeCloseTo(a.footL.z, 6);
       expect(b.footR.z, `${id} の右足`).toBeCloseTo(a.footR.z, 6);
+    }
+  });
+});
+
+describe('剣筋（trail）の区間', () => {
+  it('すべての攻撃で、区間が動画の長さの中にあり、持続フレームを含む', () => {
+    for (const a of Object.values(ATTACKS)) {
+      const [start, end] = a.trail;
+      expect(start, a.id).toBeGreaterThanOrEqual(0);
+      expect(end, a.id).toBeLessThanOrEqual(a.segmentDuration);
+      expect(start, a.id).toBeLessThan(a.activeStart);
+      expect(end, a.id).toBeGreaterThan(a.activeEnd);
     }
   });
 });

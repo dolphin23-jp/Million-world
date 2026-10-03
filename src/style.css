@@ -152,6 +152,36 @@ body {
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
 }
 
+/* ---------- ダメージ数字（src/ui/damage-numbers.ts） ---------- */
+#fx-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.dmg {
+  position: absolute;
+  left: 0;
+  top: 0;
+  font-size: 30px;
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.02em;
+  color: #fff;
+  /* 文字の縁取り（Safari で text-stroke より安定する 8 方向の影） */
+  text-shadow:
+    -3px 0 #1a1230, 3px 0 #1a1230, 0 -3px #1a1230, 0 3px #1a1230,
+    -2px -2px #1a1230, 2px -2px #1a1230, -2px 2px #1a1230, 2px 2px #1a1230,
+    0 4px 8px rgba(0, 0, 0, 0.45);
+  will-change: transform, opacity;
+}
+.dmg-heavy {
+  color: var(--accent);
+}
+.dmg-kill {
+  color: #ff8a6a;
+}
+
 /* ---------- 開始画面 ---------- */
 #start-overlay {
   position: fixed;
