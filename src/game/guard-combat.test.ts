@@ -4,7 +4,7 @@ import { resolveEnemyAttacks, resolvePlayerAttack, type CombatTarget } from './c
 import { Enemy } from '../ai/enemy';
 import { ENEMIES } from '../ai/data/enemies';
 import { ATTACKS, PLAYER_STATS } from '../combat/data/attacks';
-import { GUARDS, PARRY } from '../combat/data/guard';
+import { GUARDS, PARRY_EFFECTS } from '../combat/data/guard';
 import { createEmptyIntent, type InputIntent } from '../input/intent';
 import type { HitEvent } from '../combat/hit';
 import type { DamageResult } from '../combat/health';
@@ -16,6 +16,7 @@ import type { DamageResult } from '../combat/health';
 const DT = 1 / 60;
 const CAM_YAW = Math.PI;
 const ATK = ENEMIES.imp.attack;
+const STAGGER = PARRY_EFFECTS.stagger;
 
 interface Scene {
   player: Player;
@@ -98,7 +99,7 @@ describe('ガードで受け止める', () => {
     expect(sc.blocked[0]!.result.dealt).toBe(Math.round(ATK.damage * (1 - GUARDS.sword.damageReduction)));
     expect(sc.player.health.hp).toBe(PLAYER_STATS.maxHp - 6);
     expect(sc.enemy.state).toBe('attack');
-    expect(sc.enemy.vulnerable).toBe(false);
+    expect(sc.enemy.riposte).toBeNull();
   });
 
   it('構えの外（背後）から来る攻撃は防げず、通常の被弾になる', () => {
@@ -135,7 +136,7 @@ describe('パリィで弾く', () => {
     expect(sc.player.health.hp).toBe(PLAYER_STATS.maxHp);
     expect(sc.player.parrySerial).toBe(1);
     expect(sc.enemy.state).toBe('stagger');
-    expect(sc.enemy.vulnerable).toBe(true);
+    expect(sc.enemy.riposte).toBe(STAGGER);
     expect(sc.enemy.attackActive).toBe(false);
     expect(sc.enemy.parrySerial).toBe(1);
     sc.run(14, { guardHeld: true });
@@ -168,7 +169,7 @@ describe('パリィで弾く', () => {
       probe.step();
       if (probe.hurt.length > 0) hitStep = i;
     }
-    expect(hitStep).toBeGreaterThan(PARRY.staggerFrames * 0);
+    expect(hitStep).toBeGreaterThan(0);
     const g = GUARDS.shield;
     const outcomeWhenPressedAt = (pressStep: number) => {
       const sc = scene('sword-shield');
@@ -182,17 +183,17 @@ describe('パリィで弾く', () => {
     expect(outcomeWhenPressedAt(hitStep - g.parryFrames)).toBe('guard');
   });
 
-  it('弾かれた敵は PARRY.staggerFrames のあいだ動けず、そのあと追い始める。すぐには攻撃してこない', () => {
+  it('弾かれた敵は stagger.frames のあいだ動けず、そのあと追い始める。すぐには攻撃してこない', () => {
     const sc = scene('sword-shield');
     guardAt(sc, 35);
     sc.until(() => sc.parried.length > 0, 120, { guardHeld: true });
     const frames = sc.enemy.stateFrame;
-    sc.run(PARRY.staggerFrames - frames - 1, { guardHeld: true });
+    sc.run(STAGGER.frames - frames - 1, { guardHeld: true });
     expect(sc.enemy.state).toBe('stagger');
     sc.run(2, { guardHeld: true });
     expect(sc.enemy.state).toBe('chase');
     // 立て直してから recoverCooldownFrames は予備動作に入らない
-    for (let i = 0; i < PARRY.recoverCooldownFrames - 1; i++) {
+    for (let i = 0; i < STAGGER.recoverCooldownFrames - 1; i++) {
       sc.step({ guardHeld: true });
       expect(sc.enemy.state, `+${i}`).not.toBe('windup');
     }
@@ -229,8 +230,8 @@ describe('反撃（弾かれた敵への攻撃）', () => {
     sc.until(() => sc.dealt.length > 0, 60);
     const d = sc.dealt[0]!;
     expect(d.riposte).toBe(true);
-    expect(d.ev.damage).toBe(Math.round(combo1.damage * PARRY.riposteDamageScale));
-    expect(d.ev.knockback).toBeCloseTo(combo1.knockback * PARRY.riposteKnockbackScale, 9);
+    expect(d.ev.damage).toBe(Math.round(combo1.damage * STAGGER.riposteDamageScale));
+    expect(d.ev.knockback).toBeCloseTo(combo1.knockback * STAGGER.riposteKnockbackScale, 9);
     expect(d.result.dealt).toBe(d.ev.damage);
     expect(sc.enemy.health.hp).toBe(ENEMIES.imp.hp - d.ev.damage);
   });
@@ -248,7 +249,7 @@ describe('反撃（弾かれた敵への攻撃）', () => {
     sc.enemy.body.z = sc.player.body.z + 1.4;
     sc.until(() => sc.dealt.length > 1, 60);
     expect(sc.dealt[1]!.riposte).toBe(true);
-    expect(sc.dealt[1]!.ev.damage).toBe(Math.round(ATTACKS.combo2!.damage * PARRY.riposteDamageScale));
+    expect(sc.dealt[1]!.ev.damage).toBe(Math.round(ATTACKS.combo2!.damage * STAGGER.riposteDamageScale));
   });
 
   it('崩れていない敵（ふつうのひるみ・攻撃前）への攻撃は反撃にならない', () => {
@@ -262,8 +263,8 @@ describe('反撃（弾かれた敵への攻撃）', () => {
 
   it('体勢が戻ったあとの攻撃は、ふつうのダメージに戻る', () => {
     const sc = parried();
-    sc.run(PARRY.staggerFrames + 2, { guardHeld: true });
-    expect(sc.enemy.vulnerable).toBe(false);
+    sc.run(STAGGER.frames + 2, { guardHeld: true });
+    expect(sc.enemy.riposte).toBeNull();
     sc.enemy.body.z = sc.player.body.z + 1.4;
     sc.step({ guardHeld: true, attackPressed: true });
     sc.enemy.body.z = sc.player.body.z + 1.4;

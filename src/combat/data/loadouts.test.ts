@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ATTACKS, CHARGES } from './attacks';
-import { GUARDS, PARRY } from './guard';
+import { GUARDS, PARRY_EFFECTS } from './guard';
 import { DEFAULT_LOADOUT, LOADOUTS, LOADOUT_ORDER, isLoadoutId, nextLoadout } from './loadouts';
 import { AuthoredSampler, type AuthoredAttack } from '../../character/authoring';
 import type { PoseInput } from '../../character/pose-solver';
@@ -85,10 +85,36 @@ describe('ガードの数値', () => {
   });
 
   it('パリィで体勢を崩す時間は、1 段目から 2 段目まで続けて当てられる長さ。反撃はダメージが増え、ノックバックは減る', () => {
-    expect(PARRY.staggerFrames).toBeGreaterThanOrEqual(45);
-    expect(PARRY.riposteDamageScale).toBeGreaterThan(1);
-    expect(PARRY.riposteKnockbackScale).toBeLessThan(1);
-    expect(PARRY.riposteKnockbackScale).toBeGreaterThan(0);
+    const fx = PARRY_EFFECTS.stagger;
+    expect(fx.frames).toBeGreaterThanOrEqual(45);
+    expect(fx.riposteFrames).toBeLessThanOrEqual(fx.frames);
+    expect(fx.riposteDamageScale).toBeGreaterThan(1);
+    expect(fx.riposteKnockbackScale).toBeLessThan(1);
+    expect(fx.riposteKnockbackScale).toBeGreaterThan(0);
+  });
+
+  it('弾かれた敵の効果（PARRY_EFFECTS）は、どれも反撃の受付が動けない時間の中にあり、倍率は妥当。構えは存在する効果を指す', () => {
+    for (const fx of Object.values(PARRY_EFFECTS)) {
+      expect(fx.riposteFrames, fx.id).toBeGreaterThan(0);
+      expect(fx.riposteFrames, fx.id).toBeLessThanOrEqual(fx.frames);
+      expect(fx.riposteDamageScale, fx.id).toBeGreaterThan(1);
+      expect(fx.riposteKnockbackScale, fx.id).toBeGreaterThan(0);
+      expect(fx.riposteKnockbackScale, fx.id).toBeLessThan(1);
+      expect(fx.enemyKnockback, fx.id).toBeGreaterThan(0);
+      expect(fx.hitStop, fx.id).toBeGreaterThan(0);
+      expect(fx.recoverCooldownFrames, fx.id).toBeGreaterThan(0);
+    }
+    for (const g of Object.values(GUARDS)) expect(PARRY_EFFECTS[g.parryEffect], g.id).toBeDefined();
+  });
+
+  it('盾のパリィは体勢を崩す（stagger）、大剣のパリィは弾き飛ばして倒す（down）。倒れるほうが長く・遠く・反撃の倍率も大きい', () => {
+    expect(GUARDS.shield.parryEffect).toBe('stagger');
+    const s = PARRY_EFFECTS.stagger;
+    const d = PARRY_EFFECTS.down;
+    expect(d.frames).toBeGreaterThan(s.frames);
+    expect(d.enemyKnockback).toBeGreaterThan(s.enemyKnockback);
+    expect(d.riposteDamageScale).toBeGreaterThan(s.riposteDamageScale);
+    expect(d.hitStop).toBeGreaterThan(s.hitStop);
   });
 });
 

@@ -3,7 +3,7 @@ import type { InputIntent } from '../input/intent';
 import { ATTACKS, CHARGES, DODGES, DODGE_RULES, HIT_STUN, MOVE, PLAYER_STATS, resolveAttack, rootMotionOf, type AttackDef, type AttackFrames, type ChargeDef, type DodgeKind } from '../combat/data/attacks';
 import { CHARGE_HOLD_FRAMES } from '../combat/data/moveset';
 import { DEFAULT_LOADOUT, LOADOUTS, type LoadoutDef, type LoadoutId } from '../combat/data/loadouts';
-import type { GuardDef } from '../combat/data/guard';
+import { PARRY_EFFECTS, type GuardDef, type ParryEffectDef } from '../combat/data/guard';
 import { guardOutcome as resolveGuardOutcome, guardedDamage, type GuardOutcome } from '../combat/guard';
 import { afterDodgeOf, classifyStick, pickAttack } from '../combat/moveset';
 import { applyDamage, createHealth, type DamageResult } from '../combat/health';
@@ -578,10 +578,11 @@ export class Player {
     return r;
   }
 
-  /** パリィ成功。ダメージも押されもなし（敵が弾かれる）。構えは保つので、そのまま反撃できる */
-  parry(ev: HitEvent): void {
+  /** パリィ成功。ダメージも押されもなし（敵が弾かれる）。構えは保つので、そのまま反撃できる。弾かれた敵の反応（構えごとの効果）を返す */
+  parry(ev: HitEvent): ParryEffectDef {
     this.parrySerial++;
     this.lastGuardHit = ev;
+    return PARRY_EFFECTS[this.guard!.parryEffect];
   }
 
   private setState(s: PlayerState, forceRestart = false): void {

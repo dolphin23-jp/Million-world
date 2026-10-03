@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Enemy, type EnemyState } from './enemy';
 import { ENEMIES } from './data/enemies';
 import type { HitEvent } from '../combat/hit';
-import { PARRY } from '../combat/data/guard';
+import { PARRY_EFFECTS } from '../combat/data/guard';
 
 const DT = 1 / 60;
 const ATK = ENEMIES.imp.attack;
@@ -301,6 +301,9 @@ describe('Enemy: 攻撃（予備動作 → 攻撃 → 硬直）', () => {
   });
 });
 
+const STAGGER = PARRY_EFFECTS.stagger;
+const DOWN = PARRY_EFFECTS.down;
+
 describe('Enemy: パリィで弾かれる（stagger。ADR-020）', () => {
   /** 敵 → プレイヤー（原点）の攻撃の結果。dir はプレイヤーへ向かう（−Z） */
   const enemyHit = (): HitEvent => hit({ attackerId: 1, targetId: 0, dirX: 0, dirZ: -1 });
@@ -315,16 +318,16 @@ describe('Enemy: パリィで弾かれる（stagger。ADR-020）', () => {
   it('攻撃中に弾かれると体勢を崩し（stagger）、プレイヤーから離れる向きへ押される。parrySerial が増える', () => {
     const e = make(1.7);
     toAttack(e);
-    expect(e.vulnerable).toBe(false);
+    expect(e.riposte).toBeNull();
     e.parried(enemyHit());
     expect(e.state).toBe('stagger');
-    expect(e.vulnerable).toBe(true);
+    expect(e.riposte).toBe(STAGGER);
     expect(e.parrySerial).toBe(1);
     expect(e.attackActive).toBe(false);
     expect(e.attacking).toBe(false); // 攻撃権を手放す
     const z0 = e.body.z;
     run(e, ENEMIES.imp.knockbackFrames, 0, 0);
-    expect(e.body.z - z0).toBeCloseTo(PARRY.enemyKnockback * ENEMIES.imp.knockbackScale, 6);
+    expect(e.body.z - z0).toBeCloseTo(STAGGER.enemyKnockback * ENEMIES.imp.knockbackScale, 6);
     expect(e.body.z).toBeGreaterThan(z0); // プレイヤー（原点）から離れる
   });
 
@@ -336,17 +339,17 @@ describe('Enemy: パリィで弾かれる（stagger。ADR-020）', () => {
     expect(e.state).toBe('stagger');
   });
 
-  it('PARRY.staggerFrames が過ぎると追跡に戻る。そのあと recoverCooldownFrames は予備動作に入らない', () => {
+  it('stagger.frames が過ぎると追跡に戻る。そのあと recoverCooldownFrames は予備動作に入らない', () => {
     const e = make(1.7);
     toAttack(e);
     e.parried(enemyHit());
-    // ひるみ（hit）と同じ数え方: stateFrame が staggerFrames に達した次の step で追跡へ移る
-    run(e, PARRY.staggerFrames, 0, 0);
+    // ひるみ（hit）と同じ数え方: stateFrame が frames に達した次の step で追跡へ移る
+    run(e, STAGGER.frames, 0, 0);
     expect(e.state).toBe('stagger');
-    expect(e.stateFrame).toBe(PARRY.staggerFrames);
+    expect(e.stateFrame).toBe(STAGGER.frames);
     run(e, 1, 0, 0);
     expect(e.state).toBe('chase');
-    for (let i = 0; i < PARRY.recoverCooldownFrames - 1; i++) {
+    for (let i = 0; i < STAGGER.recoverCooldownFrames - 1; i++) {
       e.step(DT, 0, 0);
       expect(e.state, `+${i}`).not.toBe('windup');
     }
@@ -391,7 +394,95 @@ describe('Enemy: パリィで弾かれる（stagger。ADR-020）', () => {
     const e = make(1.7);
     toAttack(e);
     e.parried(enemyHit());
-    for (let i = 0; i < PARRY.staggerFrames + 1; i++) e.step(DT, 0, 0, false);
+    for (let i = 0; i < STAGGER.frames + 1; i++) e.step(DT, 0, 0, false);
+    expect(e.state).toBe('idle');
+  });
+});
+
+describe('Enemy: 大剣のパリィで弾き飛ばされる（down。盾の stagger とは別の挙動）', () => {
+  const enemyHit = (): HitEvent => hit({ attackerId: 1, targetId: 0, dirX: 0, dirZ: -1 });
+  const toAttack = (e: Enemy) => {
+    until(e, 'attack', 600, 0, 0);
+  };
+
+  it('effect に down を渡すと倒れる。stagger より遠くへ、長いフレームをかけて弾き飛ばされる', () => {
+    const e = make(1.7);
+    toAttack(e);
+    e.parried(enemyHit(), DOWN);
+    expect(e.state).toBe('down');
+    expect(e.parryEffect).toBe(DOWN);
+    expect(e.held).toBe(true);
+    expect(e.attacking).toBe(false); // 攻撃権を手放す
+    expect(e.attackActive).toBe(false);
+    const z0 = e.body.z;
+    run(e, DOWN.knockbackFrames, 0, 0);
+    expect(e.body.z - z0).toBeCloseTo(DOWN.enemyKnockback * ENEMIES.imp.knockbackScale, 6);
+    // 盾の体勢崩しよりずっと遠い
+    expect(DOWN.enemyKnockback).toBeGreaterThan(STAGGER.enemyKnockback * 2);
+  });
+
+  it('down は frames のあいだ動けず（追跡も攻撃もしない）、過ぎると追跡に戻る。そのあと recoverCooldownFrames は予備動作に入らない', () => {
+    const e = make(1.7);
+    toAttack(e);
+    e.parried(enemyHit(), DOWN);
+    run(e, DOWN.frames, 0, 0);
+    expect(e.state).toBe('down');
+    expect(e.stateFrame).toBe(DOWN.frames);
+    run(e, 1, 0, 0);
+    expect(e.state).toBe('chase');
+    for (let i = 0; i < DOWN.recoverCooldownFrames - 1; i++) {
+      e.step(DT, 0, 0);
+      expect(e.state, `+${i}`).not.toBe('windup');
+    }
+    // 倒れている長さは盾の体勢崩しより長く、起き上がったあとの待ちも長い
+    expect(DOWN.frames).toBeGreaterThan(STAGGER.frames);
+    expect(DOWN.recoverCooldownFrames).toBeGreaterThan(STAGGER.recoverCooldownFrames);
+  });
+
+  it('反撃の受付は riposteFrames まで。起き上がりの途中（動けないが無防備なだけ）は倍率が付かない。stagger は全期間が受付', () => {
+    const e = make(1.7);
+    toAttack(e);
+    e.parried(enemyHit(), DOWN);
+    run(e, DOWN.riposteFrames, 0, 0);
+    expect(e.stateFrame).toBe(DOWN.riposteFrames);
+    expect(e.riposte).toBe(DOWN);
+    run(e, 1, 0, 0);
+    expect(e.state).toBe('down');
+    expect(e.riposte).toBeNull();
+    expect(DOWN.riposteFrames).toBeLessThan(DOWN.frames);
+    expect(STAGGER.riposteFrames).toBe(STAGGER.frames);
+    // 倍率は大剣のほうが大きく、ノックバックは小さい（遠くへ飛ばさない）
+    expect(DOWN.riposteDamageScale).toBeGreaterThan(STAGGER.riposteDamageScale);
+    expect(DOWN.riposteKnockbackScale).toBeLessThan(STAGGER.riposteKnockbackScale);
+  });
+
+  it('倒れているあいだは、何度当たっても倒れたまま（ひるみに上書きされない）。ダメージは通り、倒れるときは死ぬ', () => {
+    const e = make(1.7);
+    toAttack(e);
+    e.parried(enemyHit(), DOWN);
+    e.takeHit(hit({ damage: 20, knockback: 0.3, dirZ: -1 }));
+    expect(e.state).toBe('down');
+    run(e, 5, 0, 0);
+    e.takeHit(hit({ damage: 5, knockback: 0.3, dirZ: -1 }));
+    expect(e.state).toBe('down');
+    e.takeHit(hit({ damage: 999, knockback: 0, dirZ: -1 }));
+    expect(e.state).toBe('dead');
+  });
+
+  it('続けて stagger で弾かれれば stagger の効果に切り替わる（effect は直近のもの）', () => {
+    const e = make(1.7);
+    toAttack(e);
+    e.parried(enemyHit(), DOWN);
+    e.parried(enemyHit());
+    expect(e.state).toBe('stagger');
+    expect(e.parryEffect).toBe(STAGGER);
+  });
+
+  it('プレイヤーが倒れていたら、起き上がったあとは待機に戻る', () => {
+    const e = make(1.7);
+    toAttack(e);
+    e.parried(enemyHit(), DOWN);
+    for (let i = 0; i < DOWN.frames + 1; i++) e.step(DT, 0, 0, false);
     expect(e.state).toBe('idle');
   });
 });

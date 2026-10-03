@@ -17,6 +17,8 @@ export interface GuardDef {
   clips: { enter: AuthoredAttack; hit: AuthoredAttack; parry?: AuthoredAttack };
   /** 構えに入ってから、パリィが効く sim フレーム（1 〜 parryFrames）。0 = パリィなし */
   parryFrames: number;
+  /** パリィが決まったときの、弾かれた敵の反応（PARRY_EFFECTS のキー）。パリィのない構えでは使わない */
+  parryEffect: ParryEffectId;
   /** 構えの正面からこの角度（度）以内から来る攻撃を受け止める。外側（横・背後）は防げず、そのまま被弾する */
   coneDeg: number;
   /** 受け止めたときに減らすダメージの割合（0..1）。残りは削りダメージとして通る */
@@ -38,6 +40,7 @@ export const GUARDS: Record<GuardId, GuardDef> = {
     id: 'shield',
     clips: { enter: SHIELD_GUARD, hit: SHIELD_GUARD_HIT, parry: SHIELD_PARRY },
     parryFrames: 10,
+    parryEffect: 'stagger',
     coneDeg: 80,
     damageReduction: 0.85,
     knockbackScale: 0.3,
@@ -50,6 +53,7 @@ export const GUARDS: Record<GuardId, GuardDef> = {
     id: 'sword',
     clips: { enter: SWORD_GUARD, hit: SWORD_GUARD_HIT },
     parryFrames: 0,
+    parryEffect: 'stagger',
     coneDeg: 60,
     damageReduction: 0.5,
     knockbackScale: 0.6,
@@ -60,22 +64,66 @@ export const GUARDS: Record<GuardId, GuardDef> = {
   },
 };
 
-/** パリィ（弾く）と、弾かれた敵への反撃 */
-export const PARRY = {
-  /** 弾かれた敵が体勢を崩すフレーム。そのあいだ敵は動けず、攻撃はひるみに割り込まれず、反撃が通りやすい */
-  staggerFrames: 66,
-  /** 弾いたときの、敵のノックバック（m）・ヒットストップ（sim フレーム）・画面の揺れ */
-  enemyKnockback: 0.7,
-  hitStop: 9,
-  shake: { amp: 0.05, seconds: 0.2 },
-  /** 弾かれた敵（体勢を崩しているあいだ）に当てた攻撃のダメージ倍率（反撃）。ノックバックは倍率を掛けて小さくする（遠くへ飛ばさず、続けて当てられるように） */
-  riposteDamageScale: 2,
-  riposteKnockbackScale: 0.5,
-  /** 体勢を崩したあと、敵が次の予備動作に入れるまでの待ち（sim フレーム） */
-  recoverCooldownFrames: 30,
-} as const;
+/**
+ * 弾かれた敵の反応の種類（パリィの「効果」）。構えごとに違う（GuardDef.parryEffect）。
+ *  - stagger（盾）: その場でのけぞって体勢を崩す。立ったまま動けず、少ししか離れない。反撃は近距離で連続して入れられる
+ *  - down（大剣）: 大きく弾き飛ばされて倒れる。起き上がるまで長く動けず、反撃の倍率も大きいが、離れた所に倒れるので踏み込みが要る
+ * 敵の状態は同名（Enemy の 'stagger' / 'down'）。
+ */
+export type ParryEffectId = 'stagger' | 'down';
 
-/** ガードで受け止めたときの演出（パリィの演出は PARRY） */
+export interface ParryEffectDef {
+  id: ParryEffectId;
+  /** 敵が動けないフレーム。stateFrame がこれに達した次の step で追跡へ戻る。そのあいだ予備動作も攻撃もしない（スーパーアーマーも関係なく割り込まれない） */
+  frames: number;
+  /** 弾いた直後から stateFrame がこの値になるまでに当てた攻撃が反撃（ダメージ・ノックバックに倍率）。frames より短ければ、立て直し・起き上がりの終わりは通常のダメージ */
+  riposteFrames: number;
+  /** 弾いたときの敵のノックバック（m）と押されるフレーム数（0 = 敵ごとの knockbackFrames） */
+  enemyKnockback: number;
+  knockbackFrames: number;
+  /** 弾いた瞬間の演出: ヒットストップ（sim フレーム）・画面の揺れ・命中の閃光の強さ */
+  hitStop: number;
+  shake: { amp: number; seconds: number };
+  burst: number;
+  /** 反撃のダメージ倍率。ノックバックの倍率は小さくして、遠くへ飛ばさず続けて当てられるようにする */
+  riposteDamageScale: number;
+  riposteKnockbackScale: number;
+  /** 立て直し・起き上がったあと、次の予備動作に入れるまでの待ち（sim フレーム） */
+  recoverCooldownFrames: number;
+}
+
+export const PARRY_EFFECTS: Record<ParryEffectId, ParryEffectDef> = {
+  stagger: {
+    id: 'stagger',
+    frames: 66,
+    riposteFrames: 66,
+    enemyKnockback: 0.7,
+    knockbackFrames: 0,
+    hitStop: 9,
+    shake: { amp: 0.05, seconds: 0.2 },
+    burst: 1.2,
+    riposteDamageScale: 2,
+    riposteKnockbackScale: 0.5,
+    recoverCooldownFrames: 30,
+  },
+  down: {
+    id: 'down',
+    // 倒れる（約 0.25 秒）→ 倒れたまま → 起き上がる（最後の 26f）。起き上がりの途中は無防備だが、反撃の倍率は付かない
+    frames: 112,
+    riposteFrames: 86,
+    // 3m 近く弾き飛ばされる（22f かけて滑る）。反撃は踏み込みの長い技（突き・ロール直後の跳び込み）で届く
+    enemyKnockback: 2.6,
+    knockbackFrames: 22,
+    hitStop: 14,
+    shake: { amp: 0.1, seconds: 0.32 },
+    burst: 1.7,
+    riposteDamageScale: 2.4,
+    riposteKnockbackScale: 0.15,
+    recoverCooldownFrames: 50,
+  },
+};
+
+/** ガードで受け止めたときの演出（パリィの演出は PARRY_EFFECTS） */
 export const GUARD_FEEDBACK = {
   /** ヒットストップ（sim フレーム）と画面の揺れ。被弾より小さく、受け止めた手応えだけを出す */
   hitStop: 4,

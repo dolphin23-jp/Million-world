@@ -2,7 +2,7 @@ import { applyDamage, createHealth, type DamageResult, type Health } from '../co
 import { HitTracker, isActiveFrame, type HitEvent, type Hurtbox } from '../combat/hit';
 import { Knockback } from '../combat/knockback';
 import { rotateTowards } from '../core/math';
-import { PARRY } from '../combat/data/guard';
+import { PARRY_EFFECTS, type ParryEffectDef } from '../combat/data/guard';
 import type { EnemyAttackDef, EnemyDef } from './data/enemies';
 
 /**
@@ -14,8 +14,9 @@ import type { EnemyAttackDef, EnemyDef } from './data/enemies';
  *   windup（予備動作 = テレグラフ。windupTrackFrames まではプレイヤーを向き続け、そのあと向きを固定する）
  *   attack（startup → active（判定が出る。前へ踏み込む）→ recover = 硬直）→ chase
  *   hit（ひるみ。windup の前半は中断される。後半から attack の終わりまではスーパーアーマー = 弱い攻撃ではひるまず、重撃だけが割り込める）→ chase
- *   stagger（パリィで攻撃を弾かれて体勢を崩す。スーパーアーマーを無視して予備動作・攻撃を中断する。PARRY.staggerFrames のあいだ動けず、
- *     攻撃を受けてもひるみに割り込まれない。この間に当てた攻撃は反撃として大きなダメージになる = vulnerable）→ chase
+ *   stagger / down（パリィで攻撃を弾かれる。スーパーアーマーを無視して予備動作・攻撃を中断する。どちらも parryEffect.frames のあいだ動けず、
+ *     攻撃を受けてもひるみに割り込まれない。弾かれてから riposteFrames までに当てた攻撃は反撃として大きなダメージになる = riposte）→ chase
+ *     stagger = 盾のパリィ: その場でのけぞって立ったまま崩れる。down = 大剣のパリィ: 大きく弾き飛ばされて倒れ、起き上がるまで長い）
  *   dead（死亡演出のあと removable）
  * プレイヤーが倒れたら（targetAlive = false）、idle に戻って何もしない。
  *
@@ -23,7 +24,7 @@ import type { EnemyAttackDef, EnemyDef } from './data/enemies';
  * 描画されている姿勢の時刻に一致する（入った step の直後が 1）。
  */
 
-export type EnemyState = 'idle' | 'chase' | 'windup' | 'attack' | 'recover' | 'hit' | 'stagger' | 'dead';
+export type EnemyState = 'idle' | 'chase' | 'windup' | 'attack' | 'recover' | 'hit' | 'stagger' | 'down' | 'dead';
 
 export class Enemy {
   /** 当たり判定。被弾側のハートボックスを兼ねる（Hurtbox は円 + id + 無敵） */
@@ -38,6 +39,8 @@ export class Enemy {
   lastHit: HitEvent | null = null;
   /** パリィで弾かれるたびに増える（見た目側が反応を起こすため） */
   parrySerial = 0;
+  /** 直近に弾かれたときの効果（stagger / down の長さ・反撃の倍率。stagger・down のあいだ有効） */
+  parryEffect: ParryEffectDef = PARRY_EFFECTS.stagger;
   /** この攻撃で当てた対象の記録（1 攻撃 1 対象 1 回）。攻撃に入るたびにリセットする */
   readonly hitTracker = new HitTracker();
   /** 状態が切り替わるたびに増える（効果音など、遷移の瞬間に反応する側が検出するため） */
@@ -97,20 +100,30 @@ export class Enemy {
     this.yaw = this.prevYaw = yaw;
   }
 
-  /** パリィで弾かれて体勢を崩しているか。この間に当てた攻撃は反撃（ダメージが大きい。src/game/combat.ts） */
-  get vulnerable(): boolean {
-    return this.state === 'stagger';
+  /** 弾かれて動けない状態か（体勢を崩している stagger・倒れている down）。ひるみに割り込まれず、何度当たっても同じ状態のまま */
+  get held(): boolean {
+    return this.state === 'stagger' || this.state === 'down';
   }
 
   /**
-   * プレイヤーに攻撃をパリィで弾かれた。予備動作・攻撃を中断して体勢を崩し（stagger）、プレイヤーから離れる向きへ少し押される。
-   * スーパーアーマーは効かない（パリィは割り込みではなく、攻撃そのものを弾く）。ev は敵 → プレイヤーの攻撃の結果
+   * 反撃を受ける状態なら、その効果（ダメージ・ノックバックの倍率。src/game/combat.ts が読む）。そうでなければ null。
+   * 弾かれてから riposteFrames まで（stateFrame は弾いた step で 0、次の step から 1, 2, …）
    */
-  parried(ev: HitEvent): void {
+  get riposte(): ParryEffectDef | null {
+    return this.held && this.stateFrame <= this.parryEffect.riposteFrames ? this.parryEffect : null;
+  }
+
+  /**
+   * プレイヤーに攻撃をパリィで弾かれた。予備動作・攻撃を中断して、effect の状態（stagger = 体勢を崩す / down = 倒れる）に入り、
+   * プレイヤーから離れる向きへ押される。スーパーアーマーは効かない（パリィは割り込みではなく、攻撃そのものを弾く）。
+   * ev は敵 → プレイヤーの攻撃の結果
+   */
+  parried(ev: HitEvent, effect: ParryEffectDef = PARRY_EFFECTS.stagger): void {
     if (this.dead) return;
     this.parrySerial++;
-    this.knockback.start(-ev.dirX, -ev.dirZ, PARRY.enemyKnockback * this.def.knockbackScale, this.def.knockbackFrames);
-    this.setState('stagger', true);
+    this.parryEffect = effect;
+    this.knockback.start(-ev.dirX, -ev.dirZ, effect.enemyKnockback * this.def.knockbackScale, effect.knockbackFrames || this.def.knockbackFrames);
+    this.setState(effect.id, true);
   }
 
   /** スーパーアーマー中か（予備動作の後半〜攻撃の終わり）。ev のダメージが armorBreakDamage 未満ならひるまない */
@@ -129,8 +142,8 @@ export class Enemy {
     this.hitSerial++;
     this.lastHit = ev;
     const armor = this.def.attack;
-    // 体勢を崩しているあいだは、何度当てても崩れたまま（ひるみで状態が上書きされない。ノックバックは反撃の倍率で小さくしてある）
-    const staggered = this.state === 'stagger';
+    // 弾かれて動けないあいだは、何度当てても同じ状態のまま（ひるみで状態が上書きされない。ノックバックは反撃の倍率で小さくしてある）
+    const staggered = this.held;
     const holds = !r.killed && (staggered || (this.armored && ev.damage < armor.armorBreakDamage));
     const scale = this.def.knockbackScale * (staggered ? 1 : holds ? armor.armorKnockbackScale : 1);
     this.knockback.start(ev.dirX, ev.dirZ, ev.knockback * scale, this.def.knockbackFrames);
@@ -211,8 +224,9 @@ export class Enemy {
         if (this.stateFrame >= def.hitStunFrames) this.setState(targetAlive ? 'chase' : 'idle');
         break;
       case 'stagger':
-        if (this.stateFrame >= PARRY.staggerFrames) {
-          this.cooldown = PARRY.recoverCooldownFrames;
+      case 'down':
+        if (this.stateFrame >= this.parryEffect.frames) {
+          this.cooldown = this.parryEffect.recoverCooldownFrames;
           this.setState(targetAlive ? 'chase' : 'idle');
         }
         break;

@@ -3,7 +3,6 @@ import type { Enemy } from '../ai/enemy';
 import { clamp, easeOutCubic, lerp, lerpAngle } from '../core/math';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { addOutline, createToonMaterial, type ToonMaterial } from '../render/toon';
-import { PARRY } from '../combat/data/guard';
 
 /**
  * 敵（子鬼）の見た目。プリミティブ製の仮モデルだが、トゥーン着色・輪郭線・影の枠の中に置く（CLAUDE.md 原則 3）。
@@ -16,8 +15,11 @@ import { PARRY } from '../combat/data/guard';
 const WHITE = new THREE.Color(0xffffff);
 /** 予備動作の発光色（赤。紫の体の上で「これから攻撃する」が読める色） */
 const DANGER = new THREE.Color(1, 0.22, 0.16);
-/** パリィで弾かれて体勢を崩しているあいだの発光色（水色。予備動作の赤・被弾の白と見分ける） */
+/** パリィで弾かれて動けないあいだ（体勢を崩す・倒れる）の発光色（水色。予備動作の赤・被弾の白と見分ける） */
 const STAGGER = new THREE.Color(0.45, 0.88, 1);
+/** 倒れたときの後ろ向きの傾き（rad。ほぼ仰向け）と、そのときの持ち上げ（m。胴の半径ぶん） */
+const FALL_PITCH = 1.42;
+const FALL_LIFT = 0.34;
 const AXIS_X = new THREE.Vector3(1, 0, 0);
 const AXIS_Z = new THREE.Vector3(0, 0, 1);
 const _q = new THREE.Quaternion();
@@ -225,7 +227,8 @@ export class EnemyVisual {
     let danger = 0; // 赤い発光 0..1
     let crouch = 0; // しゃがみ 0..1（縦に縮む）
     let pitch = 0; // 前後の傾き（+ で前のめり）
-    let stagger = 0; // パリィで弾かれた体勢の崩れ 0..1
+    let stagger = 0; // パリィで弾かれて動けない度合い 0..1（水色の発光に使う。stagger・down 共通）
+    let fallen = 0; // 倒れている度合い 0..1（down。後ろへ倒れて、地面に寝る）
     let wobble = 0; // 崩れているあいだのふらつき（左右の傾き。rad）
     if (e.state === 'windup') {
       const w = clamp(e.stateFrame / atk.windupFrames, 0, 1);
@@ -245,12 +248,20 @@ export class EnemyVisual {
     } else if (e.state === 'stagger') {
       // 弾かれた直後に一気にのけぞって腕が跳ね上がり（6f）、ふらつきながら保ち、最後の 14f で立て直す
       const into = clamp(e.stateFrame / 6, 0, 1);
-      const out = clamp((e.stateFrame - (PARRY.staggerFrames - 14)) / 14, 0, 1);
+      const out = clamp((e.stateFrame - (e.parryEffect.frames - 14)) / 14, 0, 1);
       stagger = easeOutCubic(into) * (1 - out);
       raise = stagger * 0.95;
       pitch = -0.5 * stagger;
       crouch = -0.04 * stagger; // 伸び上がる
       wobble = Math.sin(e.stateFrame * 0.32) * 0.14 * stagger;
+    } else if (e.state === 'down') {
+      // 大剣に弾き飛ばされて後ろへ倒れ（14f）、腕を投げ出して寝たまま動けず、最後の 26f で起き上がる
+      const fall = easeOutCubic(clamp(e.stateFrame / 14, 0, 1));
+      const up = clamp((e.stateFrame - (e.parryEffect.frames - 26)) / 26, 0, 1);
+      fallen = fall * (1 - up * up * (3 - 2 * up));
+      stagger = fall * (1 - up);
+      raise = fallen * 0.6;
+      pitch = -FALL_PITCH * fallen;
     }
 
     // 白（被弾）が強いあいだは白、そうでなければ赤（予備動作）。崩れているあいだは水色が脈打つ（反撃のチャンスの合図）
@@ -262,7 +273,7 @@ export class EnemyVisual {
     else this.setGlow(red * 0.8, DANGER);
 
     // 待機のゆらぎ（上下・腕）と、腕の姿勢
-    const bob = Math.sin(this.idleTime * 3.2) * 0.025 * (1 - raise);
+    const bob = Math.sin(this.idleTime * 3.2) * 0.025 * (1 - raise) * (1 - fallen);
     const sway = 1 - Math.max(raise, swing);
     const armBase = 0.28 + Math.sin(this.idleTime * 3.2) * 0.05 * sway;
     const spread = lerp(armBase, 2.55, raise);
@@ -275,7 +286,8 @@ export class EnemyVisual {
     this.pivot.scale.set(1 + sq, 1 - sq * 1.1, 1 + sq);
 
     // のけぞり（攻撃の向きへ頭が傾く）。死亡では倒れる。予備動作・攻撃の前後の傾きは別に掛ける
-    let tilt = this.lean * 0.4;
+    // 倒れているあいだは被弾でのけぞらない（寝たまま、揺れとフラッシュだけ）
+    let tilt = this.lean * (e.state === 'down' ? 0.08 : 0.4);
     let sink = 0;
     let shrink = 1;
     if (dead) {
@@ -318,6 +330,7 @@ export class EnemyVisual {
       sx = Math.sin(this.shakeSeed + this.shake * 90) * amp;
       sz = Math.cos(this.shakeSeed * 1.7 + this.shake * 77) * amp;
     }
-    this.pivot.position.set(sx, bob - sink, sz);
+    // 倒れたとき、足元を軸に回すと胴が地面にめり込むので、胴の太さのぶん持ち上げる
+    this.pivot.position.set(sx, bob - sink + FALL_LIFT * fallen, sz);
   }
 }
