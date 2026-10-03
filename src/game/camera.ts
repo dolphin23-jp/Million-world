@@ -42,6 +42,8 @@ export class ThirdPersonCamera {
   private lockDist = 0;
   /** 0（通常）〜 1（ロック）。切り替わりをなめらかにする（描画で更新） */
   private lockBlend = 0;
+  /** 開発用: 注視点をここに固定する（追従しない）。モーションシートで、動くキャラを定点から撮るために使う */
+  private pinned: THREE.Vector3 | null = null;
 
   constructor(aspect: number) {
     this.camera = new THREE.PerspectiveCamera(CAMERA.fov, aspect, 0.1, 500);
@@ -71,6 +73,15 @@ export class ThirdPersonCamera {
     if (this.lockDist > 0.05) this.yaw = dampAngle(this.yaw, lockYaw(dx, dz), LOCKON.camYawLambda, dt);
   }
 
+  /** 開発用: 注視点を固定する。unpin() で通常の追従に戻る */
+  pin(x: number, y: number, z: number): void {
+    this.pinned = (this.pinned ?? new THREE.Vector3()).set(x, y, z);
+  }
+
+  unpin(): void {
+    this.pinned = null;
+  }
+
   setAspect(aspect: number): void {
     this.camera.aspect = aspect;
     this.camera.updateProjectionMatrix();
@@ -87,7 +98,10 @@ export class ThirdPersonCamera {
       _target.z += (this.lockZ - targetFoot.z) * bias;
     }
     const extra = clamp((this.lockDist - 3) * LOCKON.distanceGain, 0, LOCKON.distanceMax) * this.lockBlend;
-    if (!this.initialized) {
+    if (this.pinned) {
+      this.follow.copy(this.pinned);
+      this.initialized = true;
+    } else if (!this.initialized) {
       this.follow.copy(_target);
       this.initialized = true;
     } else {

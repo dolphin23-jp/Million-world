@@ -54,6 +54,8 @@ export interface GameOptions {
   pixelRatio?: number;
   /** false で動的解像度を止める（既定は有効）。?adaptive=0 から渡す */
   adaptive?: boolean;
+  /** 開発用: 敵も戦闘の進行も無い、モーションを確かめるためだけの場。?sandbox=1 から渡す（tools/motion-sheet.mjs が使う） */
+  sandbox?: boolean;
 }
 
 /** 動的解像度の段（大きい順）。デバイスの DPR を超える段は buildLevels が潰す */
@@ -90,6 +92,7 @@ export class Game {
   /** 戦闘の進行（ウェーブ・勝敗・リザルトの集計）。再戦のたびに作り直す */
   encounter: Encounter = new Encounter(DEMO_ENCOUNTER);
   private encounterStarted = false;
+  private readonly sandbox: boolean;
   /** 音声の土台（解放は開始画面のタップ。platform/audio.ts）と、効果音の再生 */
   readonly audio = new AudioBus();
   readonly sfx = new Sfx(this.audio);
@@ -117,6 +120,7 @@ export class Game {
   ready = false;
 
   constructor(opts: GameOptions) {
+    this.sandbox = opts.sandbox ?? false;
     this.adaptive = new AdaptiveResolution({ levels: buildLevels(window.devicePixelRatio || 1, PIXEL_RATIO_LEVELS) });
     if (opts.pixelRatio !== undefined || opts.adaptive === false) this.adaptive.lock();
     this.host = new RendererHost({ canvas: opts.canvas, maxPixelRatio: opts.pixelRatio ?? this.adaptive.ratio });
@@ -234,6 +238,14 @@ export class Game {
     for (let i = 0; i < count; i++) this.render(1, 1 / 60);
   }
 
+  /**
+   * 開発用: 描画（GPU への draw）を省いて、アニメーション・剣筋・カメラだけを 1/60 秒刻みで進める。
+   * モーションを 1 フレームずつ送って、見たいフレームだけ renderNow で描くのに使う（描画を大量に積むと SwiftShader が追いつかない）
+   */
+  tickVisual(count = 1): void {
+    for (let i = 0; i < count; i++) this.render(1, 1 / 60, false);
+  }
+
   /** 敵を 1 体、(x, z) に出す。プレイヤーの方を向く */
   spawnEnemy(type: keyof typeof ENEMIES, x: number, z: number): Enemy {
     const enemy = new Enemy(ENEMIES[type], this.nextEnemyId++, x, z);
@@ -258,6 +270,7 @@ export class Game {
     this.encounterStarted = true;
     this.encounter = new Encounter(def);
     this.hud.setPlayerHp(this.player.health.hp, this.player.health.max);
+    if (this.sandbox) return; // サンドボックスは敵もウェーブも出さない
     this.applyEncounterEvent(this.encounter.step(0, false));
   }
 
@@ -378,7 +391,7 @@ export class Game {
     // 戦闘の進行: 全滅でウェーブが進み、最後を倒すか倒されるかでリザルト
     let living = 0;
     for (const e of this.enemySims) if (!e.dead) living++;
-    this.applyEncounterEvent(this.encounter.step(living, this.player.dead));
+    if (!this.sandbox) this.applyEncounterEvent(this.encounter.step(living, this.player.dead));
     this.input.endStep();
   }
 
@@ -434,7 +447,7 @@ export class Game {
     this.startEncounter(def);
   }
 
-  private render(alpha: number, frameDt: number): void {
+  private render(alpha: number, frameDt: number, draw = true): void {
     if (this.host.contextLost) return;
     this.host.renderer.info.reset();
     const now = performance.now();
@@ -454,7 +467,7 @@ export class Game {
     this.sky.follow(this.cam.camera);
     this.arena.animate(t);
     this.hitFx.update(frameDt);
-    this.post.render();
+    if (draw) this.post.render();
     this.damageNumbers.update(this.cam.camera, frameDt, this.host.width, this.host.height);
     const locked = this.lockedEnemy();
     this.enemyBars.update(this.cam.camera, this.enemySims, this.host.width, this.host.height, locked ? locked.id : null);
