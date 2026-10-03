@@ -10,6 +10,9 @@ import { COMBO2 } from '../../character/data/combo2';
 import { COMBO3 } from '../../character/data/combo3';
 import { DODGE_CLIP } from '../../character/data/dodge';
 import { HEAVY } from '../../character/data/heavy';
+import type { HitboxDef } from '../hit';
+
+const deg = (d: number) => (d * Math.PI) / 180;
 
 export interface AttackDef {
   id: string;
@@ -23,6 +26,8 @@ export interface AttackDef {
   activeStart: number;
   activeEnd: number;
   cancelAt: number;
+  /** 剣筋（トレイル）を出す区間。区間先頭からの秒 [開始, 終了]。持続フレームの少し前から、振り抜きの終わりまで */
+  trail: readonly [number, number];
   /** 再生速度 */
   rate: number;
   /** 持続中に前進する距離（m）。手付け（authored）の攻撃では使わない */
@@ -31,7 +36,12 @@ export interface AttackDef {
   next?: string;
   /** この攻撃へ入るときのクロスフェード秒（省略時 0.08）。前の技との姿勢差が大きいほど長くする */
   fade?: number;
-  /** M2 で使う: ダメージ・ヒットストップ長（フレーム）・ノックバック（m） */
+  /**
+   * 当たる領域（攻撃者の XZ 位置・向きに付く。ADR-014）。持続フレーム（activeStart〜activeEnd）のあいだ毎フレーム評価する。
+   * 数値は技の見た目に合わせる: 斬りは振りの弧（扇形）、突きは剣の伸びる線。届く距離は腕と剣の長さ（約 1.8m）＋ 踏み込み分
+   */
+  hitbox: HitboxDef;
+  /** ダメージ・ヒットストップ長（sim フレーム）・ノックバック（m） */
   damage: number;
   hitStop: number;
   knockback: number;
@@ -80,9 +90,11 @@ export const ATTACKS: Record<string, AttackDef> = {
     activeStart: 0.2,
     activeEnd: 0.28,
     cancelAt: 0.37,
+    trail: [0.14, 0.38],
     rate: 1,
     lunge: 0,
     next: 'combo2',
+    hitbox: { kind: 'arc', range: 2.0, halfAngle: deg(65) },
     damage: 10,
     hitStop: 4,
     knockback: 0.3,
@@ -98,9 +110,11 @@ export const ATTACKS: Record<string, AttackDef> = {
     activeStart: 0.14,
     activeEnd: 0.21,
     cancelAt: 0.34,
+    trail: [0.09, 0.32],
     rate: 1,
     lunge: 0,
     next: 'combo3',
+    hitbox: { kind: 'arc', range: 2.0, halfAngle: deg(65) },
     damage: 12,
     hitStop: 5,
     knockback: 0.4,
@@ -117,8 +131,10 @@ export const ATTACKS: Record<string, AttackDef> = {
     activeStart: 0.15,
     activeEnd: 0.24,
     cancelAt: 999,
+    trail: [0.1, 0.34],
     rate: 1,
     lunge: 0,
+    hitbox: { kind: 'line', length: 2.2, radius: 0.3 },
     damage: 18,
     hitStop: 8,
     knockback: 1.2,
@@ -136,8 +152,10 @@ export const ATTACKS: Record<string, AttackDef> = {
     activeStart: 0.47,
     activeEnd: 0.56,
     cancelAt: 999,
+    trail: [0.41, 0.66],
     rate: 1,
     lunge: 0,
+    hitbox: { kind: 'arc', range: 2.2, halfAngle: deg(55) },
     damage: 34,
     hitStop: 12,
     knockback: 2.2,
@@ -164,9 +182,18 @@ export const DODGE = {
 /** 回避の前進カーブ（開始からの秒 → ルートの前進量 m） */
 export const dodgeRoot: (t: number) => number = rootZCurve(DODGE_CLIP);
 
+/** プレイヤーの被弾（敵の攻撃を受けたとき） */
 export const HIT_STUN = {
-  /** ひるみフレーム（アニメ区間 0.6 秒 / rate 1.5 = 0.4 秒） */
+  /** ひるみフレーム（アニメ区間 0.6 秒 / rate 1.5 = 0.4 秒）。この間は何もできない */
   frames: 24,
+  /** ノックバックをかけるフレーム数（距離は敵の攻撃データ） */
+  knockbackFrames: 10,
+  /** 被弾から無敵になるフレーム（ひるみの 24f を含む。起き上がってから少し動ける） */
+  invulnFrames: 56,
+} as const;
+
+export const PLAYER_STATS = {
+  maxHp: 100,
 } as const;
 
 export const MOVE = {

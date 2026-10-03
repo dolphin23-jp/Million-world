@@ -1,7 +1,10 @@
-/** HUD（DOM）。M0 はデバッグ表示と開始画面だけ */
+/** HUD（DOM）。デバッグ表示・開始画面・プレイヤーの HP バー・被弾の画面フラッシュ */
 export class Hud {
   private readonly debugEl: HTMLElement;
   private readonly overlay: HTMLElement;
+  private readonly hpFill: HTMLElement;
+  private readonly hpLag: HTMLElement;
+  private readonly hurtFlashEl: HTMLElement;
   private lastDebugUpdate = 0;
   private fpsAccum = 0;
   private fpsCount = 0;
@@ -10,6 +13,25 @@ export class Hud {
   constructor() {
     this.debugEl = document.getElementById('debug')!;
     this.overlay = document.getElementById('start-overlay')!;
+    const hp = document.getElementById('hp-player')!;
+    this.hpFill = hp.querySelector('.hp-fill') as HTMLElement;
+    this.hpLag = hp.querySelector('.hp-lag') as HTMLElement;
+    this.hurtFlashEl = document.getElementById('hurt-flash')!;
+  }
+
+  /** プレイヤーの HP バー。減った分は白い帯が遅れて縮む（CSS の transition） */
+  setPlayerHp(hp: number, max: number): void {
+    const w = `${Math.max(0, Math.min(1, hp / max)) * 100}%`;
+    this.hpFill.style.width = w;
+    this.hpLag.style.width = w;
+  }
+
+  /** 被弾の画面フラッシュ（縁が赤くなる）。連続で呼ばれたらアニメーションをやり直す */
+  flashHurt(): void {
+    const el = this.hurtFlashEl;
+    el.classList.remove('on');
+    void el.offsetWidth; // 同じクラスを付け直してもアニメーションが再始動するよう、再計算を挟む
+    el.classList.add('on');
   }
 
   /** 開始画面のタップを待つ */

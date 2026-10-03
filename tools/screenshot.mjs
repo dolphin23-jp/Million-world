@@ -114,6 +114,65 @@ try {
   await sleep(150);
   await page.screenshot({ path: 'artifacts/shot-dodge.png' });
 
+  // 5〜7. 戦闘（ループを止め、sim と描画を手で進める）。敵の正面で 1 段目 → 命中直後 → 倒れる途中
+  await page.evaluate(() => {
+    const g = window.__mw.game;
+    g.loop.stop();
+    g.stepNow(60);
+    g.player.body.x = 0;
+    g.player.body.z = 0;
+    g.player.yaw = 0;
+    g.enemies[0].enemy.place(0, 1.9, Math.PI);
+    g.renderNow(30);
+  });
+  await page.screenshot({ path: 'artifacts/shot-combat-ready.png' });
+
+  await page.evaluate(() => {
+    const g = window.__mw.game;
+    const e = g.enemies[0].enemy;
+    g.inject({ attackPressed: true });
+    g.stepNow(1);
+    for (let i = 0; i < 60 && e.hitSerial === 0; i++) g.stepNow(1);
+    g.renderNow(3);
+  });
+  await page.screenshot({ path: 'artifacts/shot-combat-hit.png' });
+
+  await page.evaluate(() => {
+    const g = window.__mw.game;
+    const e = g.enemies[0].enemy;
+    g.stepNow(90);
+    e.place(0, g.player.body.z + 1.9, Math.PI);
+    e.health.hp = 5;
+    g.inject({ heavyPressed: true });
+    g.stepNow(1);
+    for (let i = 0; i < 90 && !e.dead; i++) g.stepNow(1);
+    g.stepNow(14);
+    g.renderNow(14);
+  });
+  await page.screenshot({ path: 'artifacts/shot-combat-defeat.png' });
+
+  // 8〜9. 敵の攻撃: 予備動作（腕を上げ赤く光る）→ 被弾の直後（赤いフラッシュ・HP バー・数字）
+  await page.evaluate(() => {
+    const g = window.__mw.game;
+    g.restart();
+    g.enemies[0].enemy.place(0, 2.4, Math.PI);
+    g.stepNow(1);
+    const e = g.enemies[0].enemy;
+    for (let i = 0; i < 300 && !(e.state === 'windup' && e.stateFrame >= 24); i++) g.stepNow(1);
+    g.renderNow(6);
+  });
+  await sleep(120);
+  await page.screenshot({ path: 'artifacts/shot-telegraph.png' });
+
+  await page.evaluate(() => {
+    const g = window.__mw.game;
+    const serial = g.player.hitSerial;
+    for (let i = 0; i < 60 && g.player.hitSerial === serial; i++) g.stepNow(1);
+    g.renderNow(4);
+  });
+  await sleep(120);
+  await page.screenshot({ path: 'artifacts/shot-hurt.png' });
+
   const errors = logs.filter((l) => l.startsWith('[error]') || l.startsWith('[pageerror]'));
   console.log(logs.join('\n'));
   if (errors.length) {

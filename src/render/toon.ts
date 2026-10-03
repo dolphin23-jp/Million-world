@@ -20,6 +20,8 @@ export interface ToonParams {
   emissive?: THREE.ColorRepresentation;
   emissiveIntensity?: number;
   map?: THREE.Texture | null;
+  /** ジオメトリの頂点色（color 属性）を色に掛ける。色違いの部品を 1 つのメッシュにまとめて描画呼び出しを減らすときに使う */
+  vertexColors?: boolean;
   transparent?: boolean;
   opacity?: number;
   /**
@@ -67,6 +69,7 @@ export function createToonMaterial(p: ToonParams): ToonMaterial {
     emissive: p.emissive ?? 0x000000,
     emissiveIntensity: p.emissiveIntensity ?? 1,
     map: p.map ?? null,
+    vertexColors: p.vertexColors ?? false,
     transparent: p.transparent ?? false,
     opacity: p.opacity ?? 1,
   }) as ToonMaterial;
