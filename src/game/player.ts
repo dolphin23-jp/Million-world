@@ -236,7 +236,7 @@ class HeroVisual {
     const socket = new THREE.Group();
     socket.name = 'sword-socket';
     socket.position.fromArray(HERO.sword.position);
-    socket.rotation.set(...HERO.sword.rotation);
+    socket.quaternion.fromArray(HERO.sword.quaternion);
     socket.scale.setScalar(100);
     socket.add(this.sword);
     if (bone) bone.add(socket);

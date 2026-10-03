@@ -52,12 +52,32 @@ export const HERO = {
   dodge: { rate: 2.2 },
   hit: { rate: 1.5 },
 
-  /** 剣の装着。ボーンのローカル空間（単位 cm。Armature が 0.01 倍のため） */
+  /**
+   * 手ボーン（RightHand）の座標系。ボーンのローカル空間（cm）で、手の頂点の主成分分析から求めた
+   * （tools/scratch/hand-pca.mjs）。f=指の向き、t=親指側、d=手の甲側（f×t）。ボーンの Y 軸は f から約 22° ずれている。
+   * 手を下ろしてのひらを体に向けたとき、t は前、f は下を向く。
+   */
+  hand: {
+    right: {
+      f: [0.2109, 0.9277, -0.3079] as [number, number, number],
+      t: [-0.6494, 0.3682, 0.6654] as [number, number, number],
+      d: [0.7307, 0.0596, 0.6801] as [number, number, number],
+    },
+  },
+
+  /**
+   * 剣の装着（グリップ）。ボーンのローカル空間（単位 cm。Armature が 0.01 倍のため）。
+   * 以前は刃が手ボーンの X 軸＝のひらに垂直な向きで、待機で刃が真横に突き出ていた（実機の指摘）。
+   * 今は「柄が手のひらを斜めに横切り、刃が親指側から前へ伸びる」持ち方:
+   *   刃(+Y) = 親指側 t を指の向き f へ gripAngleDeg 倒した向き、剣の面の法線(+Z) = 手の甲側 d、
+   *   剣の幅方向(+X) = 刃 × 法線。待機は刃が前下がり、走りは前へやや下がる
+   */
   sword: {
     bone: 'RightHand',
-    /** ソケットの位置（cm） */
-    position: [0, 8, 0] as [number, number, number],
-    /** ソケットの回転（オイラー、ラジアン、XYZ 順） */
-    rotation: [0, 0, -Math.PI * 0.5] as [number, number, number],
+    /** 柄の中心（手のひらの中心。cm） */
+    position: [-0.86, 7.48, -1.22] as [number, number, number],
+    /** グリップの回転（クォータニオン xyzw。剣のローカル → 手ボーンのローカル） */
+    quaternion: [0.0883, 0.3901, 0.2744, 0.8745] as [number, number, number, number],
+    gripAngleDeg: 35,
   },
 } as const;

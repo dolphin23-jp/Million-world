@@ -1,10 +1,11 @@
+import * as THREE from 'three';
 import { Game } from './game/game';
 import { installGestureGuards } from './platform/safari';
 
 declare global {
   interface Window {
     /** 開発・検証ツール用のフック */
-    __mw?: { game: Game };
+    __mw?: { game: Game; THREE: typeof THREE };
   }
 }
 
@@ -22,7 +23,7 @@ function boot(): void {
     ...(dprParam > 0 ? { pixelRatio: dprParam } : {}),
     adaptive: params.get('adaptive') !== '0',
   });
-  window.__mw = { game };
+  window.__mw = { game, THREE };
   // ?perf=1: 実機で fps の原因を切り分ける計測モード（通常起動では読み込まない）
   if (params.has('perf')) void import('./debug/perf-probe').then((m) => m.installPerfProbe(game));
 
