@@ -10,6 +10,9 @@ import { COMBO2 } from '../../character/data/combo2';
 import { COMBO3 } from '../../character/data/combo3';
 import { DODGE_CLIP } from '../../character/data/dodge';
 import { HEAVY } from '../../character/data/heavy';
+import type { HitboxDef } from '../hit';
+
+const deg = (d: number) => (d * Math.PI) / 180;
 
 export interface AttackDef {
   id: string;
@@ -31,7 +34,12 @@ export interface AttackDef {
   next?: string;
   /** この攻撃へ入るときのクロスフェード秒（省略時 0.08）。前の技との姿勢差が大きいほど長くする */
   fade?: number;
-  /** M2 で使う: ダメージ・ヒットストップ長（フレーム）・ノックバック（m） */
+  /**
+   * 当たる領域（攻撃者の XZ 位置・向きに付く。ADR-014）。持続フレーム（activeStart〜activeEnd）のあいだ毎フレーム評価する。
+   * 数値は技の見た目に合わせる: 斬りは振りの弧（扇形）、突きは剣の伸びる線。届く距離は腕と剣の長さ（約 1.8m）＋ 踏み込み分
+   */
+  hitbox: HitboxDef;
+  /** ダメージ・ヒットストップ長（sim フレーム）・ノックバック（m） */
   damage: number;
   hitStop: number;
   knockback: number;
@@ -83,6 +91,7 @@ export const ATTACKS: Record<string, AttackDef> = {
     rate: 1,
     lunge: 0,
     next: 'combo2',
+    hitbox: { kind: 'arc', range: 2.0, halfAngle: deg(65) },
     damage: 10,
     hitStop: 4,
     knockback: 0.3,
@@ -101,6 +110,7 @@ export const ATTACKS: Record<string, AttackDef> = {
     rate: 1,
     lunge: 0,
     next: 'combo3',
+    hitbox: { kind: 'arc', range: 2.0, halfAngle: deg(65) },
     damage: 12,
     hitStop: 5,
     knockback: 0.4,
@@ -119,6 +129,7 @@ export const ATTACKS: Record<string, AttackDef> = {
     cancelAt: 999,
     rate: 1,
     lunge: 0,
+    hitbox: { kind: 'line', length: 2.2, radius: 0.3 },
     damage: 18,
     hitStop: 8,
     knockback: 1.2,
@@ -138,6 +149,7 @@ export const ATTACKS: Record<string, AttackDef> = {
     cancelAt: 999,
     rate: 1,
     lunge: 0,
+    hitbox: { kind: 'arc', range: 2.2, halfAngle: deg(55) },
     damage: 34,
     hitStop: 12,
     knockback: 2.2,

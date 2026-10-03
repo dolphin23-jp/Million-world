@@ -16,6 +16,7 @@ describe('resolveAttack', () => {
       cancelAt: 0.8,
       rate: 2,
       lunge: 0,
+      hitbox: { kind: 'arc', range: 1, halfAngle: 1 },
       damage: 1,
       hitStop: 0,
       knockback: 0,
