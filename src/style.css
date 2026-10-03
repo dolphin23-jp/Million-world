@@ -528,6 +528,9 @@ body {
   margin-top: -8px;
 }
 .loadout-chip {
+  /* iOS Safari の button の既定の見た目（丸い灰色）を消す */
+  -webkit-appearance: none;
+  appearance: none;
   font: inherit;
   min-width: 150px;
   padding: 12px 18px 10px;
