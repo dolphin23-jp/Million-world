@@ -22,6 +22,12 @@ export interface ToonParams {
   map?: THREE.Texture | null;
   transparent?: boolean;
   opacity?: number;
+  /**
+   * 顔の平坦化（キャラ用）。ジオメトリの頂点属性 aFace（0..1、頭ボーンのウェイト）が 1 の頂点は、
+   * 陰影を抑えてテクスチャ色をそのまま出す。アニメの顔は陰影を付けないのが定石で、
+   * 2 階調の影が顔を横切ると目鼻が消えるため
+   */
+  faceFlat?: number;
 }
 
 const gradientCache = new Map<string, THREE.DataTexture>();
@@ -72,17 +78,30 @@ export function createToonMaterial(p: ToonParams): ToonMaterial {
   };
   mat.userData.rim = rim;
 
+  const faceFlat = p.faceFlat ?? 0;
+  const useFace = faceFlat > 0;
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uRimColor = { value: rim.color };
     shader.uniforms.uRimStrength = { value: rim.strength };
     shader.uniforms.uRimPower = { value: rim.power };
+    shader.uniforms.uFaceFlat = { value: faceFlat };
+    if (useFace) {
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', `#include <common>
+attribute float aFace;
+varying float vFace;`)
+        .replace('#include <begin_vertex>', `#include <begin_vertex>
+vFace = aFace;`);
+    }
     shader.fragmentShader = shader.fragmentShader
       .replace(
         '#include <common>',
         `#include <common>
 uniform vec3 uRimColor;
 uniform float uRimStrength;
-uniform float uRimPower;`,
+uniform float uRimPower;
+uniform float uFaceFlat;
+${useFace ? 'varying float vFace;' : ''}`,
       )
       .replace(
         '#include <opaque_fragment>',
@@ -92,11 +111,13 @@ uniform float uRimPower;`,
   float fres = pow( 1.0 - saturate( dot( normal, vdir ) ), uRimPower );
   outgoingLight += uRimColor * fres * uRimStrength;
 }
+${useFace ? `// --- 顔の平坦化: 頭の頂点はテクスチャ色をそのまま（わずかに明るく）出す ---
+outgoingLight = mix( outgoingLight, diffuseColor.rgb * 1.02, clamp( vFace, 0.0, 1.0 ) * uFaceFlat );` : ''}
 #include <opaque_fragment>`,
       );
   };
-  // onBeforeCompile で注入した内容が同じでもマテリアルごとにキャッシュキーを分けない（共有してよい）
-  mat.customProgramCacheKey = () => 'toon-rim-v1';
+  // 注入内容が同じマテリアル同士はプログラムを共有してよい。顔の有無で分ける
+  mat.customProgramCacheKey = () => (useFace ? 'toon-rim-face-v1' : 'toon-rim-v1');
   return mat;
 }
 
@@ -108,6 +129,8 @@ export interface OutlineParams {
   thickness?: number;
   /** 不透明度 */
   opacity?: number;
+  /** 頂点属性 aFace=1 の頂点での太さ倍率（顔の目鼻に黒い塊が出るのを防ぐ）。既定 1 */
+  faceScale?: number;
 }
 
 const outlineVertex = /* glsl */ `
@@ -115,6 +138,8 @@ const outlineVertex = /* glsl */ `
 #include <skinning_pars_vertex>
 #include <morphtarget_pars_vertex>
 uniform float uThickness;
+uniform float uFaceScale;
+attribute float aFace;
 void main() {
   #include <beginnormal_vertex>
   #include <morphnormal_vertex>
@@ -127,7 +152,7 @@ void main() {
   vec3 viewNormal = normalize( normalMatrix * objectNormal );
   // 画面上でほぼ一定の太さになるよう、カメラ距離に比例して押し出す
   float dist = max( -mvPosition.z, 0.5 );
-  mvPosition.xyz += viewNormal * uThickness * dist * 0.22;
+  mvPosition.xyz += viewNormal * uThickness * mix( 1.0, uFaceScale, clamp( aFace, 0.0, 1.0 ) ) * dist * 0.22;
   gl_Position = projectionMatrix * mvPosition;
 }
 `;
@@ -148,6 +173,7 @@ export function createOutlineMaterial(p: OutlineParams = {}): THREE.ShaderMateri
       uColor: { value: new THREE.Color(p.color ?? 0x14121f) },
       uThickness: { value: p.thickness ?? 0.03 },
       uOpacity: { value: p.opacity ?? 1 },
+      uFaceScale: { value: p.faceScale ?? 1 },
     },
     side: THREE.BackSide,
     transparent: (p.opacity ?? 1) < 1,

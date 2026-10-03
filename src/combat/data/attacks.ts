@@ -113,7 +113,7 @@ export const HIT_STUN = {
 } as const;
 
 export const MOVE = {
-  runSpeed: 5.2,
+  runSpeed: 4.8,
   /** 加速度（m/s^2） */
   accel: 40,
   /** 減速度（m/s^2） */

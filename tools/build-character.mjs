@@ -62,6 +62,17 @@ if (!targetRig) throw new Error('土台にスキンがありません');
 // 試した限りでは隣接頂点との不連続を生んで悪化したので、manifest.weightMaxHops を明示したときだけ使う
 if (manifest.weightMaxHops) cleanupWeights(doc, targetRig, manifest.weightMaxHops);
 
+// テクスチャの差し替え: リグ工程に渡したのが縮小版でも、元の高解像度テクスチャ（同じ UV）を最終出力に使う
+if (manifest.textureFrom) {
+  const texDoc = await io.read(resolve(manifest.textureFrom));
+  const srcTex = texDoc.getRoot().listTextures()[0];
+  const dstTex = root.listTextures()[0];
+  if (srcTex && dstTex) {
+    dstTex.setImage(srcTex.getImage()).setMimeType(srcTex.getMimeType());
+    console.log(`[texture] ${manifest.textureFrom} の ${srcTex.getSize()?.join('x')} テクスチャに差し替え`);
+  }
+}
+
 // 出力の骨格は「バインド姿勢のオフセット + 回転アニメ」に固定する（ボーン伸縮の並進アニメは持ち込まない）
 for (const [, e] of targetRig.info) {
   if (e.bindLocalTrans) e.node.setTranslation(e.bindLocalTrans);

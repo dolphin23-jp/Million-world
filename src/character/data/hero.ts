@@ -19,7 +19,10 @@ export const HERO = {
 
   /** そのまま使うクリップ */
   clips: {
+    /** 直立に近い自然な待機（Idle_02）。身長が読めるように */
     idle: 'idle',
+    /** 剣を構えた待機（Combat_Stance）。ロックオン中などに使う予定 */
+    stance: 'stance',
     run: 'run',
     death: 'death',
   },
@@ -40,8 +43,9 @@ export const HERO = {
     hit: { clip: 'hit', start: 0.0, end: 0.6 },
   } satisfies Record<string, ClipSegment>,
 
-  /** 走りアニメ 1 周（0.83 秒）が自然に見える移動速度（m/s）。これを基準に再生速度を変える */
-  runCycleSpeed: 5.2,
+  /** 走りアニメ（Run_02, 0.73 秒/周）の自然な地面速度（m/s）。接地足の後方速度から推定した値。
+   *  移動速度 ÷ この値 を再生速度にすると足が滑らない */
+  runCycleSpeed: 3.6,
   runRateMin: 0.6,
 
   dodge: { rate: 2.2 },

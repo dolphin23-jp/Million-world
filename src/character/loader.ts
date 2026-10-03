@@ -22,6 +22,32 @@ export interface LoadCharacterOptions {
   toon?: Partial<ToonParams>;
   outlineThickness?: number;
   castShadow?: boolean;
+  /** 顔とみなすボーン名。これらのウェイト合計が頂点属性 aFace になる */
+  faceBones?: string[];
+  /** 顔の陰影の平坦化量（0..1） */
+  faceFlat?: number;
+  /** 顔の輪郭線の太さ倍率 */
+  faceOutlineScale?: number;
+}
+
+/** 頭ボーンのスキンウェイト合計を aFace 属性として付ける（顔の平坦化・輪郭線の抑制に使う） */
+function addFaceAttribute(mesh: THREE.SkinnedMesh, faceBones: string[]): void {
+  const geo = mesh.geometry;
+  const si = geo.getAttribute('skinIndex');
+  const sw = geo.getAttribute('skinWeight');
+  if (!si || !sw) return;
+  const faceSet = new Set<number>();
+  mesh.skeleton.bones.forEach((b, i) => {
+    if (faceBones.includes(b.name)) faceSet.add(i);
+  });
+  const n = geo.getAttribute('position').count;
+  const out = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    let f = 0;
+    for (let k = 0; k < 4; k++) if (faceSet.has(si.getComponent(i, k))) f += sw.getComponent(i, k);
+    out[i] = Math.min(1, f);
+  }
+  geo.setAttribute('aFace', new THREE.BufferAttribute(out, 1));
 }
 
 const bufferCache = new Map<string, Promise<ArrayBuffer>>();
@@ -61,13 +87,17 @@ export async function loadCharacter(url: string, opts: LoadCharacterOptions = {}
     if ((o as THREE.SkinnedMesh).isSkinnedMesh) meshes.push(o as THREE.SkinnedMesh);
   });
 
+  const faceBones = opts.faceBones ?? ['Head', 'head_end', 'headfront'];
+  const faceFlat = opts.faceFlat ?? 0.8;
   for (const mesh of meshes) {
     const src = mesh.material as THREE.MeshStandardMaterial;
     const map = src.map ?? null;
     if (map) {
       map.colorSpace = THREE.SRGBColorSpace;
-      map.anisotropy = 4;
+      // UV が細かい島に分かれた生成テクスチャは、斜めから見ると目鼻がぼやけるので異方性を高めに
+      map.anisotropy = 16;
     }
+    addFaceAttribute(mesh, faceBones);
     mesh.material = createToonMaterial({
       color: 0xffffff,
       map,
@@ -76,6 +106,7 @@ export async function loadCharacter(url: string, opts: LoadCharacterOptions = {}
       rimColor: 0xfff1e0,
       rimStrength: 0.22,
       rimPower: 3.5,
+      faceFlat,
       ...opts.toon,
     });
     src.dispose();
@@ -83,7 +114,7 @@ export async function loadCharacter(url: string, opts: LoadCharacterOptions = {}
     mesh.receiveShadow = false;
     // スキンの変形で境界球が外れるのでカリングしない
     mesh.frustumCulled = false;
-    addOutline(mesh, { thickness: opts.outlineThickness ?? 0.028 });
+    addOutline(mesh, { thickness: opts.outlineThickness ?? 0.028, faceScale: opts.faceOutlineScale ?? 0.35 });
   }
 
   const clips = new Map<string, THREE.AnimationClip>();
