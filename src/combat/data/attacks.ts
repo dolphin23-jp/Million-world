@@ -8,8 +8,12 @@ import { rootZCurve, type AuthoredAttack } from '../../character/authoring';
 import { COMBO1 } from '../../character/data/combo1';
 import { COMBO2 } from '../../character/data/combo2';
 import { COMBO3 } from '../../character/data/combo3';
-import { DODGE_CLIP } from '../../character/data/dodge';
-import { HEAVY } from '../../character/data/heavy';
+import { DODGE_BACK, DODGE_CLIP } from '../../character/data/dodge';
+import { HEAVY, HEAVY_CHARGE } from '../../character/data/heavy';
+import { LUNGE } from '../../character/data/lunge';
+import { DASH } from '../../character/data/dash';
+import { RETREAT } from '../../character/data/retreat';
+import { SWEEP } from '../../character/data/sweep';
 import type { HitboxDef } from '../hit';
 
 const deg = (d: number) => (d * Math.PI) / 180;
@@ -140,47 +144,190 @@ export const ATTACKS: Record<string, AttackDef> = {
     knockback: 1.2,
     fade: 0.05,
   },
-  // 重撃: 手付けの縦斬り（src/character/data/heavy.ts、1.0s）。0.44s まで頂点で振りかぶり、0.51s に剣が体の前を水平に通る最高速（約 84m/s）、
-  // 0.58s で前下に叩きつけて止まる。当たりは最高速の前後 0.47〜0.56s（6 フレーム）。右足が 0.5s に腰の 0.37 m 前へ飛び込んで着地し（幅 0.74m、腰が 0.17 m 沈む）、
-  // ルートは 0.81m 進む（単発なので戻りの途中まで進んでよい）。
-  // 発生が遅い代わりに威力が大きい。次段は無い（単発）。
+  // 重撃（溜めを放つ）: 手付けの縦斬り（src/character/data/heavy.ts、0.62s）。溜め（CHARGES.sword の構え = 頭上）から始まり、右足を踏み込んで 0.18s に剣が体の前を水平に通る最高速（約 84m/s）、
+  // 0.25s で前下に叩きつけて止まる。当たりは最高速の前後 0.15〜0.23s（5 フレーム）。右足が 0.18s に腰の 0.4 m 前へ飛び込んで着地し、ルートは 0.81m 進む（単発なので戻りの途中まで進んでよい）。
+  // 溜めの段階で威力が上がる（CHARGES.sword.levelPower）。次段は無い（単発）。
   heavy: {
     id: 'heavy',
     segment: 'heavy',
     authored: HEAVY,
     segmentDuration: HEAVY.duration,
-    activeStart: 0.47,
-    activeEnd: 0.56,
+    activeStart: 0.15,
+    activeEnd: 0.23,
     cancelAt: 999,
-    trail: [0.41, 0.66],
+    trail: [0.1, 0.34],
     rate: 1,
     lunge: 0,
     hitbox: { kind: 'arc', range: 2.2, halfAngle: deg(55) },
     damage: 34,
     hitStop: 12,
     knockback: 2.2,
-    fade: 0.12,
+    fade: 0.04,
+  },
+  // 踏み込み突き（スティック前 + 攻撃）: 大きく踏み込んで体ごと突く。距離を詰める技。右足が 0.21s に腰の 0.45 m 前へ着地し、ルートは 1.3 m 進む。当たりは最高速（0.21s）の前後 0.17〜0.27s。
+  lunge: {
+    id: 'lunge',
+    segment: 'lunge',
+    authored: LUNGE,
+    segmentDuration: LUNGE.duration,
+    activeStart: 0.17,
+    activeEnd: 0.27,
+    cancelAt: 999,
+    trail: [0.12, 0.34],
+    rate: 1,
+    lunge: 0,
+    hitbox: { kind: 'line', length: 2.6, radius: 0.34 },
+    damage: 14,
+    hitStop: 7,
+    knockback: 1.4,
+    fade: 0.06,
+  },
+  // ダッシュ斬り（ロール直後）: 着地の低い姿勢から、右足を踏み込んで剣を右下から左上へ斜めにすくい上げる（逆袈裟の斬り上げ）。0.17s に剣が前を通る最高速。当たりは 0.14〜0.23s。ロールの着地の姿勢から続ける（continueFrom）。
+  dash: {
+    id: 'dash',
+    segment: 'dash',
+    authored: DASH,
+    segmentDuration: DASH.duration,
+    activeStart: 0.14,
+    activeEnd: 0.23,
+    cancelAt: 999,
+    trail: [0.09, 0.32],
+    rate: 1,
+    lunge: 0,
+    hitbox: { kind: 'arc', range: 2.2, halfAngle: deg(70) },
+    damage: 16,
+    hitStop: 8,
+    knockback: 1.0,
+    fade: 0.05,
+  },
+  // 下がりながらの払い（ロック中に後ろ + 攻撃）: 後ろへ 1.1 m 跳びながら右から左へ水平に払って敵を押し返す。0.16s に前を通る最高速。当たりは 0.135〜0.215s（跳び始め）。
+  retreat: {
+    id: 'retreat',
+    segment: 'retreat',
+    authored: RETREAT,
+    segmentDuration: RETREAT.duration,
+    activeStart: 0.135,
+    activeEnd: 0.215,
+    cancelAt: 999,
+    trail: [0.1, 0.3],
+    rate: 1,
+    lunge: 0,
+    hitbox: { kind: 'arc', range: 2.1, halfAngle: deg(85) },
+    damage: 9,
+    hitStop: 5,
+    knockback: 1.8,
+    fade: 0.06,
+  },
+  // 横薙ぎ（ロック中に横 + 攻撃）: 右へ大きくひねって溜め、左足を踏み込みながら体ごと右から左へ水平に薙ぐ。範囲が広い。0.23s に前を通る最高速。当たりは 0.19〜0.28s。
+  sweep: {
+    id: 'sweep',
+    segment: 'sweep',
+    authored: SWEEP,
+    segmentDuration: SWEEP.duration,
+    activeStart: 0.19,
+    activeEnd: 0.28,
+    cancelAt: 999,
+    trail: [0.15, 0.38],
+    rate: 1,
+    lunge: 0,
+    hitbox: { kind: 'arc', range: 2.2, halfAngle: deg(105) },
+    damage: 13,
+    hitStop: 6,
+    knockback: 1.2,
+    fade: 0.07,
   },
 };
 
 /**
- * 回避（手付けのダッシュ、src/character/data/dodge.ts）。前進は DODGE_CLIP の rootZ のカーブに従う（攻撃の rootMotionOf と同じ）。
- * 0.04〜0.34s は前へ飛び出して（最高 10 m/s）両足が浮く瞬間を含むので、無敵はそこに合わせる。0.43s 以降は減速して立ち上がり始める。
+ * 溜め（攻撃の長押し。ADR-018）: 1 段目を CHARGE_HOLD_FRAMES 押し続けると、1 段目の予備動作の途中の姿勢から構えのクリップ（頭上へ振りかぶる）へ移り、そこで止まる。
+ * 離すと next（重撃）を放つ。構えが整ってからの保持の長さで段階が上がり、威力が上がる。
  */
-export const DODGE = {
-  /** 手付けのクリップ */
-  clip: DODGE_CLIP,
-  /** 全体フレーム（クリップ 0.58 秒） */
-  frames: Math.ceil(DODGE_CLIP.duration * 60),
+export interface ChargeDef {
+  id: string;
+  /** 構えへ入る手付けのクリップ。終端の姿勢で止まる */
+  clip: AuthoredAttack;
+  /** クリップのフレーム数（この間は離しても構えを続け、整ってから放つ） */
+  frames: number;
+  /** 構えが整ってから、この保持フレーム数以上で段階 1, 2, … になる */
+  levels: readonly number[];
+  /** 段階ごとの威力の倍率（長さ = levels.length + 1。ダメージ・ノックバック・ヒットストップに掛かる） */
+  levelPower: readonly number[];
+  /** 構えのまま保てる最大のフレーム数（超えたら自動で放つ） */
+  maxHoldFrames: number;
+  /** 放つ攻撃の id（ATTACKS のキー） */
+  next: string;
+  /** 構えに入ってからこのフレーム以降は、回避でキャンセルできる */
+  dodgeCancelFrame: number;
+}
+
+export const CHARGES: Record<string, ChargeDef> = {
+  sword: {
+    id: 'sword',
+    clip: HEAVY_CHARGE,
+    frames: Math.ceil(HEAVY_CHARGE.duration * 60),
+    levels: [24, 54],
+    levelPower: [1, 1.25, 1.6],
+    maxHoldFrames: 100,
+    next: 'heavy',
+    dodgeCancelFrame: 8,
+  },
+};
+
+/** 回避の種類。ロール（入力方向へ向きを変えて前転）と、後ろステップ（向きを保って後ろへ跳ぶ） */
+export type DodgeKind = 'roll' | 'back';
+
+export interface DodgeDef {
+  id: DodgeKind;
+  /** 手付けのクリップ（src/character/data/dodge.ts） */
+  clip: AuthoredAttack;
+  /** 全体フレーム */
+  frames: number;
   /** 無敵フレーム（開始からの範囲、両端含む） */
-  invulnStart: 3,
-  invulnEnd: 20,
-  /** このフレーム以降は攻撃でキャンセル可能（立ち上がりの手前） */
-  cancelFrame: 26,
+  invulnStart: number;
+  invulnEnd: number;
+  /** このフレーム以降は攻撃でキャンセル可能 */
+  cancelFrame: number;
+  /** ルートの前進カーブ（開始からの秒 → m。負は後ろ）。Player.stepDodge が毎ステップの差分で動く */
+  root: (t: number) => number;
+}
+
+/**
+ * 回避（手付け。src/character/data/dodge.ts）。前進は各クリップの rootZ のカーブに従う（攻撃の rootMotionOf と同じ）。
+ *  - ロール: 0.08〜0.40s に体を丸めて転がり（約 2.1m）、0.43s に足から着地する。無敵は 3〜22f（蹴り出しから着地の寸前まで）
+ *  - 後ろステップ: 0.07〜0.30s に後ろへ 2.0m 跳ぶ（空中は 0.12〜0.27s）。無敵は 2〜16f
+ */
+export const DODGES: Record<DodgeKind, DodgeDef> = {
+  roll: {
+    id: 'roll',
+    clip: DODGE_CLIP,
+    frames: Math.ceil(DODGE_CLIP.duration * 60),
+    invulnStart: 3,
+    invulnEnd: 22,
+    cancelFrame: 26,
+    root: rootZCurve(DODGE_CLIP),
+  },
+  back: {
+    id: 'back',
+    clip: DODGE_BACK,
+    frames: Math.ceil(DODGE_BACK.duration * 60),
+    invulnStart: 2,
+    invulnEnd: 16,
+    cancelFrame: 22,
+    root: rootZCurve(DODGE_BACK),
+  },
+};
+
+/** どちらの回避を出すかの規則。ロック中に、対象から離れる向き（正面の真後ろ ± backCone）へスティックを倒していれば後ろステップ */
+export const DODGE_RULES = {
+  /** 度 */
+  backConeDeg: 50,
 } as const;
 
-/** 回避の前進カーブ（開始からの秒 → ルートの前進量 m） */
-export const dodgeRoot: (t: number) => number = rootZCurve(DODGE_CLIP);
+/** ロール（代表）。クリップ・無敵・キャンセルの検査と、既存の参照用 */
+export const DODGE = DODGES.roll;
+
+/** ロールの前進カーブ（開始からの秒 → ルートの前進量 m） */
+export const dodgeRoot: (t: number) => number = DODGES.roll.root;
 
 /** プレイヤーの被弾（敵の攻撃を受けたとき） */
 export const HIT_STUN = {

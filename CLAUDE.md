@@ -33,6 +33,8 @@ node tools/build-character.mjs <manifest.json>   # クリップ結合・リタ�
 python3 tools/clean-texture.py <glb> <tex.png> <out.png>   # 生成テクスチャの描き崩れ（腰まわり）を塗り直す。docs/05 参照
 node tools/clip-arm-height.mjs <glb>   # クリップごとの腕の挙上角（脇の破綻の目安）
 node tools/sfx-check.mjs   # 効果音を書き出して数値検査し、artifacts/audio/*.wav を出す（先に npm run build）
+node tools/motion-sheet.mjs <label> --script '0:{"attackPressed":true}' --end 36   # 手付けクリップの姿勢を 1 枚に並べる（npm run build の後。--cam side|three|top、--aim x,z、--weapon。詳細はファイル先頭）
+node tools/motion-check.mjs <clip> | --stats | --trace <clip>   # 手付けクリップの数値検査: 骨の床からの高さ・剣先の速さ / 全クリップの焼き込み統計 / フレームごとの腕・手首
 ```
 
 ## ディレクトリ

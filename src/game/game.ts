@@ -70,7 +70,18 @@ interface EnemyEntry {
 }
 
 /** プレイヤーの攻撃ごとの振りの効果音 */
-const SWING_SFX: Record<string, SfxName> = { combo1: 'swing1', combo2: 'swing2', combo3: 'swing3', heavy: 'swingHeavy' };
+const SWING_SFX: Record<string, SfxName> = {
+  combo1: 'swing1',
+  combo2: 'swing2',
+  combo3: 'swing3',
+  heavy: 'swingHeavy',
+  lunge: 'swingLunge',
+  dash: 'swingDash',
+  retreat: 'swingRetreat',
+  sweep: 'swingSweep',
+};
+/** 溜めの段階が上がったときの合図 */
+const CHARGE_LEVEL_SFX: readonly SfxName[] = ['chargeLevel1', 'chargeLevel2'];
 
 /** 最後の敵を倒したときのスローモーション（倍率、実時間の秒） */
 const FINISH_SLOW = { scale: 0.3, seconds: 0.9 };
@@ -97,6 +108,8 @@ export class Game {
   readonly audio = new AudioBus();
   readonly sfx = new Sfx(this.audio);
   private seenPlayerSerial = 0;
+  /** 溜めの段階の合図を鳴らし終えた段階（構えを出たら 0） */
+  private seenChargeLevel = 0;
   readonly hitStop = new HitStop();
   readonly hitFx = new HitFx();
   readonly damageNumbers: DamageNumbers;
@@ -328,7 +341,7 @@ export class Game {
       intent.moveY = 0;
       intent.attackPressed = false;
       intent.dodgePressed = false;
-      intent.heavyPressed = false;
+      intent.attackHeld = false;
       intent.lockPressed = false;
       intent.lockSwitch = 0;
     }
@@ -398,13 +411,26 @@ export class Game {
   /** プレイヤーの状態が変わった瞬間の効果音: 攻撃の振り（当たりの少し前に鳴らす）・回避 */
   private soundPlayerState(): void {
     const p = this.player;
+    // 溜めの段階が上がった瞬間（段階 1, 2 の合図）。構えを出たら数え直す
+    if (p.state === 'charge') {
+      if (p.chargeLevel > this.seenChargeLevel) {
+        const name = CHARGE_LEVEL_SFX[p.chargeLevel - 1];
+        if (name) this.sfx.play(name);
+      }
+      this.seenChargeLevel = p.chargeLevel;
+    } else {
+      this.seenChargeLevel = 0;
+    }
     if (p.stateSerial === this.seenPlayerSerial) return;
     this.seenPlayerSerial = p.stateSerial;
     if (p.state === 'attack' && p.attack) {
       const name = SWING_SFX[p.attack.id];
-      if (name) this.sfx.play(name, { delay: Math.max(0, p.attack.activeStart - 0.07) / p.attack.rate });
+      // 溜めを放った攻撃は威力に応じて少し大きく鳴らす
+      if (name) this.sfx.play(name, { delay: Math.max(0, p.attack.activeStart - 0.07) / p.attack.rate, gain: Math.min(1.3, p.attackPower) });
     } else if (p.state === 'dodge') {
-      this.sfx.play('dodge');
+      this.sfx.play(p.dodgeKind === 'back' ? 'dodgeBack' : 'dodge');
+    } else if (p.state === 'charge') {
+      this.sfx.play('chargeStart');
     }
   }
 

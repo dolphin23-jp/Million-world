@@ -117,7 +117,7 @@ export function idleChannels(rig: Rig): Map<string, number> {
   put('left.az', d.left.az);
   put('left.el', d.left.el);
   put('left.r', d.left.r);
-  for (const f of ['footL', 'footR'] as const) for (const a of ['x', 'z', 'lift', 'yaw', 'pitch'] as const) put(`${f}.${a}`, 0);
+  for (const f of ['footL', 'footR'] as const) for (const a of ['x', 'z', 'lift', 'yaw', 'pitch', 'rel', 'lx', 'ly', 'lz', 'knee'] as const) put(`${f}.${a}`, 0);
   vec(m, 'pole', d.pole);
   vec(m, 'leftPole', d.leftPole);
   const q = swordRotation(d.blade, d.face, new THREE.Quaternion());
@@ -153,7 +153,7 @@ export function idleInput(rig: Rig): PoseInput {
   const SL = rig.idleWorldP[ix(BONE.armL)]!;
   const lp = vectorToPolar(rig.idleWorldP[ix(BONE.handL)]!.clone().sub(SL));
   const zero = (): Angles => ({ yaw: 0, pitch: 0, roll: 0 });
-  const foot = (): FootTarget => ({ x: 0, z: 0, lift: 0, yaw: 0, pitch: 0 });
+  const foot = (): FootTarget => ({ x: 0, z: 0, lift: 0, yaw: 0, pitch: 0, rel: 0, lx: 0, ly: 0, lz: 0, knee: 0 });
   return {
     rootZ: 0,
     hips: { ...zero(), x: 0, y: 0, z: 0 },
@@ -273,7 +273,7 @@ export class AuthoredSampler {
    */
   private snapshot(t: number): Map<string, number> {
     const m = new Map<string, number>();
-    for (const ch of this.idle.keys()) m.set(ch, this.value(ch, t));
+    for (const ch of this.idle.keys()) m.set(ch, ANGLE_CHANNEL.test(ch) ? wrapRad(this.value(ch, t)) : this.value(ch, t));
     this.swordQuat(t, _q);
     m.set('sword.x', _q.x);
     m.set('sword.y', _q.y);
@@ -371,6 +371,11 @@ export class AuthoredSampler {
       o.lift = v(`${f}.lift`) + this.arcLift(f, t);
       o.yaw = v(`${f}.yaw`);
       o.pitch = v(`${f}.pitch`);
+      o.rel = v(`${f}.rel`);
+      o.lx = v(`${f}.lx`);
+      o.ly = v(`${f}.ly`);
+      o.lz = v(`${f}.lz`);
+      o.knee = v(`${f}.knee`);
     }
     return out;
   }
@@ -395,6 +400,19 @@ export class AuthoredSampler {
 }
 const _q = new THREE.Quaternion();
 const _qb = new THREE.Quaternion();
+
+/**
+ * 角度（ラジアン）のチャンネル。ロールのように 360° 回るクリップは終端が 372° などになるが、姿勢としては 12° と同じ。
+ * continueFrom で次の技の起点にするとき、そのまま 372° を渡すと、次の技の 10° へ向かって逆に 1 回転してしまうので、±180° に折り返して渡す
+ */
+const ANGLE_CHANNEL = /^(hips|chest|head)\.(yaw|pitch|roll)$|^foot[LR]\.(yaw|pitch)$/;
+function wrapRad(a: number): number {
+  const t = Math.PI * 2;
+  let r = a % t;
+  if (r > Math.PI) r -= t;
+  else if (r <= -Math.PI) r += t;
+  return r;
+}
 
 /** 焼いたフレームごとの診断値（角度は度、長さは m） */
 export interface FrameTrace {

@@ -16,7 +16,6 @@ interface Elements {
   camZone: HTMLElement;
   btnAttack: HTMLElement;
   btnDodge: HTMLElement;
-  btnHeavy: HTMLElement;
   btnLock: HTMLElement;
 }
 
@@ -49,8 +48,9 @@ export class TouchInput implements InputSource {
 
   // ボタンのエッジ
   private attackEdge = false;
+  /** 攻撃ボタンを押している間 true */
+  private attackHeld = false;
   private dodgeEdge = false;
-  private heavyEdge = false;
   private lockEdge = false;
 
   constructor() {
@@ -62,14 +62,20 @@ export class TouchInput implements InputSource {
       camZone: q('cam-zone'),
       btnAttack: q('btn-attack'),
       btnDodge: q('btn-dodge'),
-      btnHeavy: q('btn-heavy'),
       btnLock: q('btn-lock'),
     };
     this.bindStick();
     this.bindCamera();
-    this.bindButton(this.el.btnAttack, () => (this.attackEdge = true));
+    // 攻撃は押している間も読む（長押しの溜め。ADR-018）
+    this.bindButton(
+      this.el.btnAttack,
+      () => {
+        this.attackEdge = true;
+        this.attackHeld = true;
+      },
+      () => (this.attackHeld = false),
+    );
     this.bindButton(this.el.btnDodge, () => (this.dodgeEdge = true));
-    this.bindButton(this.el.btnHeavy, () => (this.heavyEdge = true));
     this.bindButton(this.el.btnLock, () => (this.lockEdge = true));
   }
 
@@ -87,7 +93,7 @@ export class TouchInput implements InputSource {
     this.camDyPx = 0;
     if (this.attackEdge) intent.attackPressed = true;
     if (this.dodgeEdge) intent.dodgePressed = true;
-    if (this.heavyEdge) intent.heavyPressed = true;
+    if (this.attackHeld) intent.attackHeld = true;
     if (this.lockEdge) intent.lockPressed = true;
     if (this.switchEdge !== 0) intent.lockSwitch = this.switchEdge;
   }
@@ -95,7 +101,6 @@ export class TouchInput implements InputSource {
   endStep(): void {
     this.attackEdge = false;
     this.dodgeEdge = false;
-    this.heavyEdge = false;
     this.lockEdge = false;
     this.switchEdge = 0;
   }
@@ -210,7 +215,7 @@ export class TouchInput implements InputSource {
 
   // ---------------- ボタン ----------------
 
-  private bindButton(btn: HTMLElement, onPress: () => void): void {
+  private bindButton(btn: HTMLElement, onPress: () => void, onRelease?: () => void): void {
     let pid: number | null = null;
     btn.addEventListener('pointerdown', (e) => {
       e.preventDefault();
@@ -225,6 +230,7 @@ export class TouchInput implements InputSource {
       if (e.pointerId !== pid) return;
       pid = null;
       btn.classList.remove('pressed');
+      onRelease?.();
     };
     btn.addEventListener('pointerup', end);
     btn.addEventListener('pointercancel', end);

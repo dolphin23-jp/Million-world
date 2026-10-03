@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { ATTACKS, DODGE, dodgeRoot, resolveAttack, rootMotionOf } from './attacks';
+import { ATTACKS, CHARGES, DODGE, DODGES, resolveAttack, rootMotionOf } from './attacks';
+import { CHARGE_HOLD_FRAMES, SWORD_MOVESET } from './moveset';
 import { AuthoredSampler } from '../../character/authoring';
 import { AUTHORED_ATTACKS } from '../../character/data/authored';
 import { HERO } from '../../character/data/hero';
@@ -105,40 +106,46 @@ describe('resolveAttack', () => {
     expect(rootMotionOf(plain)).toBeNull();
   });
 
-  it('重撃は単発（次段なし）の手付けで、踏み込み 0.81m。持続は剣が前を通る最高速の前後', () => {
+  it('重撃は単発（次段なし）の手付けで、溜めの構えの終端から続き、踏み込み 0.81m。持続は剣が前を通る最高速の前後', () => {
     const a = ATTACKS.heavy!;
     expect(a.next).toBeUndefined();
     expect(a.authored).toBe(AUTHORED_ATTACKS.heavy);
-    expect(a.authored!.continueFrom).toBeUndefined();
+    // 溜めの終端（HEAVY_CHARGE の最後の姿勢）から続けて始まる
+    expect(a.authored!.continueFrom?.attack).toBe(AUTHORED_ATTACKS.heavyCharge);
+    expect(a.authored!.continueFrom?.t).toBeCloseTo(AUTHORED_ATTACKS.heavyCharge!.duration, 9);
     expect(rootMotionOf(a)!(a.segmentDuration)).toBeCloseTo(0.81, 6);
     const f = resolveAttack(a);
-    // 重撃は軽い連撃より発生が遅い代わりに威力が大きい
-    expect(f.startup).toBeGreaterThan(resolveAttack(ATTACKS.combo1!).startup);
+    // 重撃は溜め（長押し）が予備動作なので、放ってからの発生は軽い 1 段目より短い。代わりに威力が大きい
+    expect(f.startup).toBeLessThan(resolveAttack(ATTACKS.combo1!).startup);
     expect(a.damage).toBeGreaterThan(ATTACKS.combo3!.damage);
   });
 });
 
-describe('DODGE（手付けのダッシュ）', () => {
+describe('回避（手付け。ロールと後ろステップ）', () => {
   it('クリップは手付けとして登録され、長さがフレーム数と一致する', () => {
-    expect(AUTHORED_ATTACKS.dodge).toBe(DODGE.clip);
-    expect(DODGE.clip.name).toBe('dodge');
-    expect(DODGE.frames).toBe(Math.ceil(DODGE.clip.duration * 60));
+    expect(AUTHORED_ATTACKS.dodge).toBe(DODGES.roll.clip);
+    expect(AUTHORED_ATTACKS.dodgeBack).toBe(DODGES.back.clip);
+    expect(DODGE).toBe(DODGES.roll);
+    for (const d of Object.values(DODGES)) expect(d.frames, d.id).toBe(Math.ceil(d.clip.duration * 60));
   });
 
   it('無敵とキャンセルのフレームが全体の中に収まり、無敵が先、キャンセルが後', () => {
-    expect(DODGE.invulnStart).toBeGreaterThanOrEqual(0);
-    expect(DODGE.invulnStart).toBeLessThan(DODGE.invulnEnd);
-    expect(DODGE.invulnEnd).toBeLessThan(DODGE.cancelFrame);
-    expect(DODGE.cancelFrame).toBeLessThan(DODGE.frames);
+    for (const d of Object.values(DODGES)) {
+      expect(d.invulnStart, d.id).toBeGreaterThanOrEqual(0);
+      expect(d.invulnStart, d.id).toBeLessThan(d.invulnEnd);
+      expect(d.invulnEnd, d.id).toBeLessThan(d.cancelFrame);
+      expect(d.cancelFrame, d.id).toBeLessThan(d.frames);
+    }
   });
 
-  it('前進は単調で、滑らかに加速して終端で止まり、最高速は 12 m/s 以下', () => {
-    expect(dodgeRoot(0)).toBe(0);
+  it('ロールの前進は単調で、滑らかに加速して終端で止まり、最高速は 12 m/s 以下', () => {
+    const d = DODGES.roll;
+    expect(d.root(0)).toBe(0);
     let prev = 0;
     let prevV = 0;
     let peak = 0;
-    for (let f = 1; f <= DODGE.frames; f++) {
-      const z = dodgeRoot(f / 60);
+    for (let f = 1; f <= d.frames; f++) {
+      const z = d.root(f / 60);
       const v = (z - prev) * 60;
       expect(z, `f${f}`).toBeGreaterThanOrEqual(prev - 1e-12);
       // 1 フレームで 6 m/s を超えて急変しない（滑らかな加減速）
@@ -147,11 +154,37 @@ describe('DODGE（手付けのダッシュ）', () => {
       prev = z;
       prevV = v;
     }
-    expect(dodgeRoot(DODGE.clip.duration)).toBeCloseTo(3.1, 6);
+    expect(d.root(d.clip.duration)).toBeCloseTo(2.95, 6);
     expect(peak).toBeLessThanOrEqual(12);
-    expect(peak).toBeGreaterThan(8);
+    expect(peak).toBeGreaterThan(6);
     // 最後の 1 フレームはほぼ止まっている
     expect(prevV).toBeLessThan(0.5);
+  });
+
+  it('後ろステップは後ろへ（負）単調に進み、合計 2.0m、最高速は 12 m/s 以下で、終端で止まる', () => {
+    const d = DODGES.back;
+    expect(d.root(0)).toBe(0);
+    let prev = 0;
+    let prevV = 0;
+    let peak = 0;
+    for (let f = 1; f <= d.frames; f++) {
+      const z = d.root(f / 60);
+      const v = (z - prev) * 60;
+      expect(z, `f${f}`).toBeLessThanOrEqual(prev + 1e-12);
+      expect(Math.abs(v - prevV), `f${f}`).toBeLessThan(6);
+      peak = Math.max(peak, -v);
+      prev = z;
+      prevV = v;
+    }
+    expect(d.root(d.clip.duration)).toBeCloseTo(-2.0, 6);
+    expect(peak).toBeLessThanOrEqual(12);
+    expect(peak).toBeGreaterThan(6);
+    expect(Math.abs(prevV)).toBeLessThan(0.5);
+  });
+
+  it('ロールの無敵は着地の寸前（足が地面に戻る前）まで: 無敵の終わりは足が着く 0.43s より前', () => {
+    expect(DODGES.roll.invulnEnd / 60).toBeLessThan(0.43);
+    expect(DODGES.back.invulnEnd / 60).toBeLessThan(0.3);
   });
 });
 
@@ -171,7 +204,7 @@ describe('踏み込み（手付けの下半身）', () => {
       ['combo1', 'footL', 0.235],
       ['combo2', 'footR', 0.16],
       ['combo3', 'footR', 0.17],
-      ['heavy', 'footR', 0.5],
+      ['heavy', 'footR', 0.18],
     ];
     for (const [id, foot, t] of plants) {
       const s = sampler(id);
@@ -226,5 +259,31 @@ describe('剣筋（trail）の区間', () => {
       expect(start, a.id).toBeLessThan(a.activeStart);
       expect(end, a.id).toBeGreaterThan(a.activeEnd);
     }
+  });
+});
+
+describe('溜め（長押し）の定義', () => {
+  const c = CHARGES.sword!;
+
+  it('構えのクリップは手付けとして登録され、フレーム数がクリップの長さと一致する。放つ攻撃は存在する', () => {
+    expect(AUTHORED_ATTACKS.heavyCharge).toBe(c.clip);
+    expect(c.frames).toBe(Math.ceil(c.clip.duration * 60));
+    expect(ATTACKS[c.next]).toBeDefined();
+    expect(ATTACKS[c.next]!.authored!.continueFrom?.attack).toBe(c.clip);
+  });
+
+  it('段階は昇順で、威力の倍率は段階ごとに上がる（長さ = 段階数 + 1）。最大保持は最高段階より長い', () => {
+    expect(c.levelPower).toHaveLength(c.levels.length + 1);
+    for (let i = 1; i < c.levels.length; i++) expect(c.levels[i]!, `levels[${i}]`).toBeGreaterThan(c.levels[i - 1]!);
+    for (let i = 1; i < c.levelPower.length; i++) expect(c.levelPower[i]!, `levelPower[${i}]`).toBeGreaterThan(c.levelPower[i - 1]!);
+    expect(c.levelPower[0]).toBe(1);
+    expect(c.maxHoldFrames).toBeGreaterThan(c.levels[c.levels.length - 1]!);
+  });
+
+  it('溜めに入るフレームは、構えのクリップが 1 段目から続く時刻と一致し、1 段目の斬りが始まる前', () => {
+    const from = c.clip.continueFrom!;
+    expect(from.attack).toBe(ATTACKS[SWORD_MOVESET.light]!.authored);
+    expect(CHARGE_HOLD_FRAMES).toBe(Math.round(from.t * 60));
+    expect(CHARGE_HOLD_FRAMES).toBeLessThan(resolveAttack(ATTACKS[SWORD_MOVESET.light]!).startup);
   });
 });
