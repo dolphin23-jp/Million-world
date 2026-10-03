@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { addOutline, createToonMaterial, type ToonParams } from '../render/toon';
+import { addOutlineAttributes } from '../render/outline-attrs';
 
 /**
  * キャラクター GLB（tools/build-character.mjs の出力）の読込。
@@ -98,6 +99,8 @@ export async function loadCharacter(url: string, opts: LoadCharacterOptions = {}
       map.anisotropy = 16;
     }
     addFaceAttribute(mesh, faceBones);
+    // 輪郭線が背骨の溝・裾で壊れないよう、押し出し用の法線と凹み量を作る
+    addOutlineAttributes(mesh.geometry);
     mesh.material = createToonMaterial({
       color: 0xffffff,
       map,

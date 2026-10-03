@@ -129,6 +129,8 @@ export interface OutlineParams {
   thickness?: number;
   /** 不透明度 */
   opacity?: number;
+  /** 視線方向に奥へ送る量（m）。表面を突き破る輪郭の線を隠す。既定 0.006 */
+  depthPush?: number;
   /** 頂点属性 aFace=1 の頂点での太さ倍率（顔の目鼻に黒い塊が出るのを防ぐ）。既定 1 */
   faceScale?: number;
 }
@@ -139,9 +141,19 @@ const outlineVertex = /* glsl */ `
 #include <morphtarget_pars_vertex>
 uniform float uThickness;
 uniform float uFaceScale;
+uniform float uDepthPush;
 attribute float aFace;
+// 凹んだ溝（背骨・脇・服のしわ）で押し出しが表面を突き破らないよう、頂点ごとに輪郭線を削る（0 = 満額）。
+// 属性が無いメッシュでは 0 が読まれるので満額のまま
+attribute float aOutlineCut;
+#ifdef USE_ONORMAL
+attribute vec3 aONormal; // 押し出し専用に平滑化した法線（src/render/outline-attrs.ts）
+#endif
 void main() {
   #include <beginnormal_vertex>
+  #ifdef USE_ONORMAL
+  objectNormal = aONormal;
+  #endif
   #include <morphnormal_vertex>
   #include <skinbase_vertex>
   #include <skinnormal_vertex>
@@ -152,7 +164,10 @@ void main() {
   vec3 viewNormal = normalize( normalMatrix * objectNormal );
   // 画面上でほぼ一定の太さになるよう、カメラ距離に比例して押し出す
   float dist = max( -mvPosition.z, 0.5 );
-  mvPosition.xyz += viewNormal * uThickness * mix( 1.0, uFaceScale, clamp( aFace, 0.0, 1.0 ) ) * dist * 0.22;
+  mvPosition.xyz += viewNormal * uThickness * mix( 1.0, uFaceScale, clamp( aFace, 0.0, 1.0 ) ) * ( 1.0 - clamp( aOutlineCut, 0.0, 1.0 ) ) * dist * 0.22;
+  // 輪郭線を視線方向に少し奥へ送る（画面上の位置は変えない）。細かい溝・裾で押し出した裏面が
+  // 表面を数 mm 突き破って暗いギザギザになるのを、奥行きテストで隠す。外周の輪郭は手前に何もないので影響しない
+  mvPosition.xyz *= 1.0 + uDepthPush / dist;
   gl_Position = projectionMatrix * mvPosition;
 }
 `;
@@ -165,8 +180,9 @@ void main() {
 }
 `;
 
-export function createOutlineMaterial(p: OutlineParams = {}): THREE.ShaderMaterial {
+export function createOutlineMaterial(p: OutlineParams = {}, smoothNormals = false): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
+    defines: smoothNormals ? { USE_ONORMAL: '' } : {},
     vertexShader: outlineVertex,
     fragmentShader: outlineFragment,
     uniforms: {
@@ -174,6 +190,7 @@ export function createOutlineMaterial(p: OutlineParams = {}): THREE.ShaderMateri
       uThickness: { value: p.thickness ?? 0.03 },
       uOpacity: { value: p.opacity ?? 1 },
       uFaceScale: { value: p.faceScale ?? 1 },
+      uDepthPush: { value: p.depthPush ?? 0.006 },
     },
     side: THREE.BackSide,
     transparent: (p.opacity ?? 1) < 1,
@@ -186,7 +203,7 @@ export function createOutlineMaterial(p: OutlineParams = {}): THREE.ShaderMateri
  * SkinnedMesh の場合はスケルトンを共有する。
  */
 export function addOutline(mesh: THREE.Mesh, p: OutlineParams = {}): THREE.Mesh {
-  const mat = createOutlineMaterial(p);
+  const mat = createOutlineMaterial(p, Boolean(mesh.geometry.getAttribute('aONormal')));
   let outline: THREE.Mesh;
   if ((mesh as THREE.SkinnedMesh).isSkinnedMesh) {
     const sm = mesh as THREE.SkinnedMesh;
