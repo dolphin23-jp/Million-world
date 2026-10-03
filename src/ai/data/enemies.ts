@@ -40,6 +40,8 @@ export interface EnemyAttackDef {
 
 export interface EnemyDef {
   id: string;
+  /** HUD に出す名前 */
+  name: string;
   hp: number;
   /** 当たり判定（XZ の円）の半径 */
   radius: number;
@@ -70,6 +72,7 @@ export const ENEMIES = {
   /** 子鬼。M2 の最初の敵（プリミティブ製の仮の見た目。src/game/enemy-visual.ts） */
   imp: {
     id: 'imp',
+    name: '子鬼',
     hp: 80,
     radius: 0.5,
     height: 1.7,

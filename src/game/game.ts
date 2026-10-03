@@ -19,6 +19,9 @@ import { HitFx } from '../render/hit-fx';
 import { SwordTrail } from '../render/sword-trail';
 import { DamageNumbers } from '../ui/damage-numbers';
 import { EnemyBars } from '../ui/enemy-bars';
+import { LockMarker } from '../ui/lock-marker';
+import { LockOn } from '../combat/lockon-state';
+import type { Hurtbox } from '../combat/hit';
 import { hitFeedback } from '../combat/feedback';
 import { HIT_FEEDBACK } from '../combat/data/hit-feedback';
 import type { HitEvent } from '../combat/hit';
@@ -81,6 +84,12 @@ export class Game {
   readonly hitFx = new HitFx();
   readonly damageNumbers: DamageNumbers;
   readonly enemyBars: EnemyBars;
+  readonly lockMarker: LockMarker;
+  /** ロックオンの状態。対象は敵の id */
+  readonly lockOn = new LockOn();
+  /** ロックできる敵の体（生きているものだけ。毎ステップ作り直して使い回す） */
+  private readonly lockCands: Hurtbox[] = [];
+  private lockIndicator = false;
   private playerDeadFrames = 0;
   readonly swordTrail = new SwordTrail();
   readonly input = new InputAggregator();
@@ -103,6 +112,7 @@ export class Game {
     this.hud.setDebugVisible(opts.debug ?? true);
     this.damageNumbers = new DamageNumbers(document.getElementById('fx-layer')!);
     this.enemyBars = new EnemyBars(document.getElementById('fx-layer')!);
+    this.lockMarker = new LockMarker(document.getElementById('fx-layer')!);
 
     // --- シーン ---
     this.scene.fog = new THREE.Fog(0xbfd9ff, 30, 120);
@@ -245,7 +255,28 @@ export class Game {
 
   private step(dt: number): void {
     const intent = this.input.beginStep();
-    this.cam.rotate(intent.camYaw, intent.camPitch);
+
+    // ロックオン: 対象の選択・切替・解除。ロック中はカメラが対象の方を向き（ヨーの入力は使わない）、プレイヤーは対象を照準にする
+    if (this.player.dead) this.lockOn.release();
+    this.lockCands.length = 0;
+    for (const e of this.enemySims) if (!e.dead) this.lockCands.push(e.body);
+    this.lockOn.update({
+      pressed: intent.lockPressed,
+      switchDir: intent.lockSwitch,
+      px: this.player.body.x,
+      pz: this.player.body.z,
+      camYaw: this.cam.yaw,
+      cands: this.lockCands,
+    });
+    const locked = this.lockedEnemy();
+    this.cam.rotate(locked ? 0 : intent.camYaw, intent.camPitch);
+    this.cam.stepLock(dt, this.player.body.x, this.player.body.z, locked ? locked.body : null);
+    this.player.setAim(locked ? locked.body : null);
+    if (this.lockOn.locked !== this.lockIndicator) {
+      this.lockIndicator = this.lockOn.locked;
+      this.touch.setLockIndicator(this.lockIndicator);
+    }
+
     this.player.step(dt, intent, this.cam.yaw);
 
     const alive = !this.player.dead;
@@ -281,6 +312,13 @@ export class Game {
     if (this.player.dead && ++this.playerDeadFrames >= DEFEAT_RESTART_FRAMES) this.restart();
   }
 
+  /** ロック中の敵（なければ null） */
+  private lockedEnemy(): Enemy | null {
+    const id = this.lockOn.targetId;
+    if (id === null) return null;
+    return this.enemySims.find((e) => e.id === id) ?? null;
+  }
+
   /** 戦闘を最初からやり直す（敵を消してプレイヤーを初期状態へ）。M3 の再戦もこれを呼ぶ */
   restart(): void {
     for (const { visual } of this.enemies) {
@@ -293,6 +331,7 @@ export class Game {
     this.respawnTimer = 0;
     this.playerDeadFrames = 0;
     this.player.reset();
+    this.lockOn.release();
     this.hitStop.reset();
     this.cam.shake.reset();
     this.hitFx.clear();
@@ -324,7 +363,16 @@ export class Game {
     this.hitFx.update(frameDt);
     this.post.render();
     this.damageNumbers.update(this.cam.camera, frameDt, this.host.width, this.host.height);
-    this.enemyBars.update(this.cam.camera, this.enemySims, this.host.width, this.host.height);
+    const locked = this.lockedEnemy();
+    this.enemyBars.update(this.cam.camera, this.enemySims, this.host.width, this.host.height, locked ? locked.id : null);
+    this.lockMarker.update(
+      this.cam.camera,
+      locked ? { id: locked.id, x: locked.body.x, y: locked.def.height * 0.6, z: locked.body.z } : null,
+      frameDt,
+      this.host.width,
+      this.host.height,
+    );
+    this.hud.setTarget(locked ? { name: locked.def.name, hp: locked.health.hp, max: locked.health.max } : null);
     // 実フレーム間隔で解像度を調整する。段が変わるとレンダターゲットを作り直すので、描画の後で行う
     const nextRatio = this.adaptive.update(frameDt * 1000);
     if (nextRatio !== null) this.host.setMaxPixelRatio(nextRatio);
@@ -332,7 +380,7 @@ export class Game {
       const info = this.host.renderer.info.render;
       const e0 = this.enemies[0]?.enemy;
       const foe = e0 ? `${e0.state} hp ${e0.health.hp}/${e0.health.max}` : '-';
-      return `sim ${this.loop.stepper.frame}  state ${this.player.state}:${this.player.stateFrame}  enemy ${foe}\n` +
+      return `sim ${this.loop.stepper.frame}  state ${this.player.state}:${this.player.stateFrame}  enemy ${foe}  lock ${this.lockOn.targetId ?? '-'}\n` +
         `calls ${info.calls}  tris ${(info.triangles / 1000).toFixed(0)}k  dpr ${this.host.pixelRatio.toFixed(2)}`;
     });
   }

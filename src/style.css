@@ -186,6 +186,35 @@ body {
   width: min(44vw, 420px);
   transform: translateX(-50%);
 }
+/* ロック対象の HP（プレイヤーの HP の下）。名前は左上に小さく */
+#hp-target {
+  position: absolute;
+  top: calc(40px + var(--safe-top));
+  left: 50%;
+  width: min(34vw, 320px);
+  height: 11px;
+  transform: translateX(-50%);
+  overflow: visible;
+}
+#hp-target .hp-fill {
+  background: linear-gradient(180deg, #ffb0a0, #e8503a);
+  border-radius: 5px;
+}
+#hp-target .hp-lag,
+#hp-target .hp-fill {
+  border-radius: 5px;
+}
+.hp-name {
+  position: absolute;
+  left: 2px;
+  top: 14px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+  white-space: nowrap;
+}
 .ebar {
   position: absolute;
   left: 0;
@@ -199,6 +228,27 @@ body {
 .ebar .hp-fill {
   background: linear-gradient(180deg, #ffb0a0, #e8503a);
 }
+
+/* ロックオンのマーカー（src/ui/lock-marker.ts）: 四隅の枠 */
+.lock-marker {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 56px;
+  height: 56px;
+  will-change: transform, opacity;
+  filter: drop-shadow(0 0 4px rgba(255, 60, 40, 0.9));
+}
+.lock-marker i {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border: 0 solid #fff;
+}
+.lock-marker .c0 { left: 0; top: 0; border-left-width: 3px; border-top-width: 3px; }
+.lock-marker .c1 { right: 0; top: 0; border-right-width: 3px; border-top-width: 3px; }
+.lock-marker .c2 { left: 0; bottom: 0; border-left-width: 3px; border-bottom-width: 3px; }
+.lock-marker .c3 { right: 0; bottom: 0; border-right-width: 3px; border-bottom-width: 3px; }
 
 /* 被弾の画面フラッシュ: 縁が赤くなってすぐ消える */
 #hurt-flash {

@@ -5,6 +5,11 @@ export class Hud {
   private readonly hpFill: HTMLElement;
   private readonly hpLag: HTMLElement;
   private readonly hurtFlashEl: HTMLElement;
+  private readonly targetEl: HTMLElement;
+  private readonly targetFill: HTMLElement;
+  private readonly targetLag: HTMLElement;
+  private readonly targetName: HTMLElement;
+  private targetShown = false;
   private lastDebugUpdate = 0;
   private fpsAccum = 0;
   private fpsCount = 0;
@@ -17,6 +22,36 @@ export class Hud {
     this.hpFill = hp.querySelector('.hp-fill') as HTMLElement;
     this.hpLag = hp.querySelector('.hp-lag') as HTMLElement;
     this.hurtFlashEl = document.getElementById('hurt-flash')!;
+    this.targetEl = document.getElementById('hp-target')!;
+    this.targetFill = this.targetEl.querySelector('.hp-fill') as HTMLElement;
+    this.targetLag = this.targetEl.querySelector('.hp-lag') as HTMLElement;
+    this.targetName = this.targetEl.querySelector('.hp-name') as HTMLElement;
+  }
+
+  /** ロック対象の HP バー（プレイヤーの HP の下）。null で隠す。毎フレーム呼んでよい（変化があったときだけ DOM を触る） */
+  setTarget(t: { name: string; hp: number; max: number } | null): void {
+    if (!t) {
+      if (this.targetShown) {
+        this.targetEl.style.display = 'none';
+        this.targetShown = false;
+      }
+      return;
+    }
+    if (!this.targetShown) {
+      this.targetEl.style.display = '';
+      this.targetShown = true;
+      // 別の対象に変わった直後は、白い遅れ帯を現在値に揃えてから縮み始めさせる
+      this.targetLag.style.transition = 'none';
+      this.targetLag.style.width = `${Math.max(0, Math.min(1, t.hp / t.max)) * 100}%`;
+      void this.targetLag.offsetWidth;
+      this.targetLag.style.transition = '';
+    }
+    if (this.targetName.textContent !== t.name) this.targetName.textContent = t.name;
+    const w = `${Math.max(0, Math.min(1, t.hp / t.max)) * 100}%`;
+    if (this.targetFill.style.width !== w) {
+      this.targetFill.style.width = w;
+      this.targetLag.style.width = w;
+    }
   }
 
   /** プレイヤーの HP バー。減った分は白い帯が遅れて縮む（CSS の transition） */

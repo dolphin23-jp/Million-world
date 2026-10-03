@@ -173,6 +173,38 @@ try {
   await sleep(120);
   await page.screenshot({ path: 'artifacts/shot-hurt.png' });
 
+  // 10〜11. ロックオン: 敵 3 体を並べてロック（カメラが対象を向き、枠と上部の HP バーが出る）→ 右へ切替
+  await page.evaluate(() => {
+    const g = window.__mw.game;
+    g.restart();
+    g.spawnEnemy();
+    g.spawnEnemy();
+    const place = [[-4.5, 7], [0.5, 8], [5, 7]];
+    g.enemies.forEach((e, i) => {
+      e.enemy.place(place[i][0], place[i][1], Math.PI);
+      if (i === 1) e.enemy.takeHit({ attackerId: 0, targetId: e.enemy.id, damage: 30, knockback: 0, hitStop: 0, dirX: 0, dirZ: -1, x: 0, z: 0 });
+    });
+    g.cam.yaw = Math.PI;
+    g.renderNow(20);
+    g.inject({ lockPressed: true });
+    g.stepNow(1);
+    // カメラの向きは sim で対象へ寄るので、sim を進めてから少数回だけ描く（描画を大量に積むと SwiftShader が追いつかない）
+    g.stepNow(90);
+    g.renderNow(24);
+  });
+  await sleep(120);
+  await page.screenshot({ path: 'artifacts/shot-lock.png' });
+
+  await page.evaluate(() => {
+    const g = window.__mw.game;
+    g.inject({ lockSwitch: 1 });
+    g.stepNow(1);
+    g.stepNow(90);
+    g.renderNow(24);
+  });
+  await sleep(120);
+  await page.screenshot({ path: 'artifacts/shot-lock-switch.png' });
+
   const errors = logs.filter((l) => l.startsWith('[error]') || l.startsWith('[pageerror]'));
   console.log(logs.join('\n'));
   if (errors.length) {
@@ -181,6 +213,10 @@ try {
   } else {
     console.log('\nartifacts/shot-*.png を出力しました');
   }
+} catch (e) {
+  // finally の process.exit で例外が消えないよう、ここで表示して異常終了にする
+  console.error(e);
+  process.exitCode = 1;
 } finally {
   await browser.close();
   if (server) {

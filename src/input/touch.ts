@@ -42,6 +42,10 @@ export class TouchInput implements InputSource {
   private camLastY = 0;
   private camDxPx = 0; // sim ステップ間に溜める
   private camDyPx = 0;
+  /** 1 回のドラッグで横に動いた量。しきい値を越えたら対象切替の入力を 1 回出す（ロック中だけゲームが使う） */
+  private swipePx = 0;
+  private swipeFired = false;
+  private switchEdge = 0;
 
   // ボタンのエッジ
   private attackEdge = false;
@@ -85,6 +89,7 @@ export class TouchInput implements InputSource {
     if (this.dodgeEdge) intent.dodgePressed = true;
     if (this.heavyEdge) intent.heavyPressed = true;
     if (this.lockEdge) intent.lockPressed = true;
+    if (this.switchEdge !== 0) intent.lockSwitch = this.switchEdge;
   }
 
   endStep(): void {
@@ -92,6 +97,7 @@ export class TouchInput implements InputSource {
     this.dodgeEdge = false;
     this.heavyEdge = false;
     this.lockEdge = false;
+    this.switchEdge = 0;
   }
 
   // ---------------- スティック ----------------
@@ -176,12 +182,20 @@ export class TouchInput implements InputSource {
       zone.setPointerCapture(e.pointerId);
       this.camLastX = e.clientX;
       this.camLastY = e.clientY;
+      this.swipePx = 0;
+      this.swipeFired = false;
     });
     zone.addEventListener('pointermove', (e) => {
       if (e.pointerId !== this.camPointer) return;
       e.preventDefault();
       this.camDxPx += e.clientX - this.camLastX;
       this.camDyPx += e.clientY - this.camLastY;
+      // 横スワイプで対象切替（右へ払えば右の敵）。1 回のドラッグで 1 回だけ
+      this.swipePx += e.clientX - this.camLastX;
+      if (!this.swipeFired && Math.abs(this.swipePx) >= TOUCH.lockSwitchSwipePx) {
+        this.switchEdge = this.swipePx > 0 ? 1 : -1;
+        this.swipeFired = true;
+      }
       this.camLastX = e.clientX;
       this.camLastY = e.clientY;
     });
