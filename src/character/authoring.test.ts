@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { Quaternion, Vector3 } from 'three';
-import { AuthoredSampler, bakeAttack, type AuthoredAttack, type LeftHold } from './authoring';
+import { AuthoredSampler, bakeAttack, TWO_HAND_POLE, type AuthoredAttack, type LeftHold, type TwoHand } from './authoring';
 import { AUTHORED_ATTACKS, hasShieldVariant } from './data/authored';
 import { SHIELD_CARRY, SHIELD_IDLE } from './data/guard';
-import { swordRotation } from './ik';
+import { polarToVector, swordRotation } from './ik';
 import { BONE } from './rig';
 import { makeRig } from './test-rig';
 
@@ -358,6 +358,96 @@ describe('leftHold（左腕を固定して焼く。盾を持つ側。ADR-020）'
     }
     for (const name of ['combo1', 'combo2', 'combo3', 'heavy', 'heavyCharge', 'lunge', 'dash', 'retreat', 'sweep', 'dodge', 'dodgeBack']) {
       expect(hasShieldVariant(name), name).toBe(true);
+    }
+  });
+});
+
+describe('twoHanded（両手持ち。左手が柄を握る。大剣。ADR-021）', () => {
+  const TH: TwoHand = { offset: 0.3 };
+  const def: AuthoredAttack = {
+    name: 'th',
+    duration: 1,
+    twoHanded: TH,
+    keys: [
+      { t: 0.3, ease: 'lin', grip: [10, 20, 0.36], blade: [0.2, 1, 0.1], left: [-40, -30, 0.2], chest: { yaw: 20 } },
+      { t: 0.8, ease: 'lin', grip: [-20, 50, 0.4], blade: [-0.6, 0.7, 0.3], chest: { yaw: -30 }, leftPole: [1, 0, 0] },
+    ],
+  };
+  const shoulderDelta = () => new Vector3().copy(rig.idleWorldP[rig.mustIndex(BONE.armR)]!).sub(rig.idleWorldP[rig.mustIndex(BONE.armL)]!);
+  /** 左手首の位置を右肩の基準で見る（右手の握りと同じ基準にそろえる） */
+  const leftFromRightShoulder = (p: ReturnType<typeof sampleAt>) => polarToVector(p.left.az, p.left.el, p.left.r, new Vector3()).sub(shoulderDelta());
+
+  it('左手首は、右手の握りから柄の石突き側（−刃の向き）へ offset だけ離れた位置になる。手付けの left のキーは使わない', () => {
+    const s = new AuthoredSampler(rig, def);
+    for (const t of [0, 0.15, 0.3, 0.55, 0.8, 1]) {
+      const p = s.sample(t, s.newInput());
+      const right = polarToVector(p.grip.az, p.grip.el, p.grip.r, new Vector3());
+      const want = right.clone().addScaledVector(p.blade, -TH.offset);
+      expect(leftFromRightShoulder(p).distanceTo(want), `t=${t}`).toBeLessThan(1e-6);
+    }
+    // left のキーを外しても同じ（キーは無視されている）
+    const noLeft: AuthoredAttack = { ...def, keys: def.keys.map(({ left: _left, ...k }) => k) };
+    const a = new AuthoredSampler(rig, def).sample(0.3, s.newInput());
+    const b = new AuthoredSampler(rig, noLeft).sample(0.3, s.newInput());
+    expect(a.left.az).toBeCloseTo(b.left.az, 9);
+    expect(a.left.r).toBeCloseTo(b.left.r, 9);
+  });
+
+  it('左肘の向き（leftPole）は、書かなければ両手持ちの既定（TWO_HAND_POLE）、書けばそのキーに従う', () => {
+    // 書かない手付け: 全時刻で既定
+    const plain: AuthoredAttack = { ...def, keys: def.keys.map(({ leftPole: _pole, ...k }) => k) };
+    const a = new AuthoredSampler(rig, plain);
+    for (const t of [0, 0.3, 0.8, 1]) expect(a.sample(t, a.newInput()).leftPole.distanceTo(new Vector3(...TWO_HAND_POLE)), `t=${t}`).toBeLessThan(1e-9);
+    // 書いた手付け: 既定から始まって、キーの時刻でそのキーの値になる
+    const s = new AuthoredSampler(rig, def);
+    expect(s.sample(0, s.newInput()).leftPole.distanceTo(new Vector3(...TWO_HAND_POLE))).toBeLessThan(1e-9);
+    expect(s.sample(0.8, s.newInput()).leftPole.distanceTo(new Vector3(1, 0, 0))).toBeLessThan(1e-9);
+  });
+
+  it('片手のクリップも、焼くときの指定（SamplerOptions.twoHanded）で両手持ちの版に焼ける。名前の接尾辞と長さは元のとおり', () => {
+    const one: AuthoredAttack = AUTHORED_ATTACKS.dodge!;
+    const free = new AuthoredSampler(rig, one);
+    const held = new AuthoredSampler(rig, one, { twoHanded: TH });
+    let moved = 0;
+    for (const t of [0.1, 0.2, 0.35, 0.5]) {
+      const p = held.sample(t, held.newInput());
+      const right = polarToVector(p.grip.az, p.grip.el, p.grip.r, new Vector3());
+      expect(leftFromRightShoulder(p).distanceTo(right.clone().addScaledVector(p.blade, -TH.offset)), `t=${t}`).toBeLessThan(1e-6);
+      const q = free.sample(t, free.newInput());
+      if (Math.abs(q.left.az - p.left.az) > 0.05 || Math.abs(q.left.r - p.left.r) > 0.02) moved++;
+    }
+    expect(moved).toBeGreaterThan(0); // 片手版とは左手が違う（このテストが意味を持つ確認）
+    const base = bakeAttack(rig, one);
+    const v = bakeAttack(rig, one, 60, [], { twoHanded: TH, suffix: '@greatsword' });
+    expect(v.clip.name).toBe(`${one.name}@greatsword`);
+    expect(v.clip.duration).toBeCloseTo(base.clip.duration, 9);
+  });
+
+  it('continueFrom: 両手持ちの技からの連鎖は、つなぎ目で左手が前の技の導いた位置から始まる（片手の技が続いても跳ばない）', () => {
+    const t0 = 0.55;
+    const prev = new AuthoredSampler(rig, def).sample(t0, new AuthoredSampler(rig, def).newInput());
+    // 次も両手持ち: 前の技の姿勢（右手の握り・剣の向き）から導くので、同じ位置から
+    const nextTwo: AuthoredAttack = { name: 'n2', duration: 0.5, twoHanded: TH, continueFrom: { attack: def, t: t0 }, keys: [{ t: 0.3, ease: 'lin', chest: { yaw: 0 } }] };
+    const a = new AuthoredSampler(rig, nextTwo);
+    const p2 = a.sample(0, a.newInput());
+    expect(p2.left.az).toBeCloseTo(prev.left.az, 6);
+    expect(p2.left.el).toBeCloseTo(prev.left.el, 6);
+    expect(p2.left.r).toBeCloseTo(prev.left.r, 6);
+    // 次が片手: 左手は前の技の導いた位置から出発する（ここから自分のキーで動く）
+    const nextOne: AuthoredAttack = { name: 'n1', duration: 0.5, continueFrom: { attack: def, t: t0 }, keys: [{ t: 0.3, ease: 'lin', left: [30, 10, 0.3] }] };
+    const b = new AuthoredSampler(rig, nextOne);
+    const p1 = b.sample(0, b.newInput());
+    expect(p1.left.az).toBeCloseTo(prev.left.az, 6);
+    expect(p1.left.el).toBeCloseTo(prev.left.el, 6);
+    expect(p1.left.r).toBeCloseTo(prev.left.r, 6);
+    expect(b.sample(0.3, b.newInput()).left.az).toBeCloseTo(30 * DEG, 9);
+  });
+
+  it('焼いたクリップはフレームごとに有限値で、前フレームと符号がそろう', () => {
+    const baked = bakeAttack(rig, def);
+    expect(baked.clip.duration).toBeCloseTo(def.duration, 6);
+    for (const tr of baked.clip.tracks) {
+      for (const v of tr.values) expect(Number.isFinite(v), tr.name).toBe(true);
     }
   });
 });
