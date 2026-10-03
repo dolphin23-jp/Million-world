@@ -74,7 +74,7 @@ export interface AuthoredAttack {
   /** 秒 */
   duration: number;
   keys: AuthoredKey[];
-  /** 両手持ち。あれば左手が柄を握る（TwoHand）。クリップごとに決めるが、焼くときの指定（SamplerOptions.twoHanded）でも与えられる */
+  /** 両手持ち。あれば左手が柄を握る（TwoHand） */
   twoHanded?: TwoHand;
   /**
    * 別の手付け攻撃の途中の姿勢から始める（コンボの連鎖用）。
@@ -195,8 +195,6 @@ export interface LeftHold {
 
 export interface SamplerOptions {
   leftHold?: LeftHold;
-  /** 両手持ちにして焼く（片手剣のクリップを大剣の両手持ちの版として焼き直す。例: ロール）。クリップ自身の twoHanded より優先 */
-  twoHanded?: TwoHand;
 }
 
 /**
@@ -296,16 +294,13 @@ export class AuthoredSampler {
   constructor(readonly rig: Rig, readonly def: AuthoredAttack, readonly opts: SamplerOptions = {}) {
     this.idle = idleChannels(rig);
     this.idlePose = idleInput(rig);
-    this.twoHand = opts.twoHanded ?? def.twoHanded;
+    this.twoHand = def.twoHanded;
     this.shoulderDelta.copy(rig.idleWorldP[rig.mustIndex(BONE.armR)]!).sub(rig.idleWorldP[rig.mustIndex(BONE.armL)]!);
     const hold = opts.leftHold;
     let start: Map<string, number>;
     if (def.continueFrom) {
-      // 前の技も同じ指定で作る（つなぎ目の姿勢が一致するように）。指定がなければ前の技自身の両手持ちを使う
-      const prev = def.continueFrom.attack;
-      const prevHand = opts.twoHanded ?? prev.twoHanded;
-      const prevOpts: SamplerOptions = { ...opts, ...(prevHand ? { twoHanded: prevHand } : {}) };
-      start = new AuthoredSampler(rig, prev, prevOpts).snapshot(def.continueFrom.t);
+      // 前の技も同じ指定で作る（つなぎ目の姿勢が一致するように）。両手持ちは前の技自身の指定（twoHanded）で決まる
+      start = new AuthoredSampler(rig, def.continueFrom.attack, opts).snapshot(def.continueFrom.t);
     } else {
       start = new Map(this.idle);
       if (hold) holdLeft(start, hold);

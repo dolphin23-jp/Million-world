@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import type { InputIntent } from '../input/intent';
 import { ATTACKS, CHARGES, DODGES, DODGE_RULES, HIT_STUN, MOVE, PLAYER_STATS, resolveAttack, rootMotionOf, type AttackDef, type AttackFrames, type ChargeDef, type DodgeKind } from '../combat/data/attacks';
-import { CHARGE_HOLD_FRAMES } from '../combat/data/moveset';
 import { DEFAULT_LOADOUT, LOADOUTS, type LoadoutDef, type LoadoutId } from '../combat/data/loadouts';
 import { PARRY_EFFECTS, type GuardDef, type ParryEffectDef } from '../combat/data/guard';
 import { guardOutcome as resolveGuardOutcome, guardedDamage, type GuardOutcome } from '../combat/guard';
@@ -333,7 +332,7 @@ export class Player {
 
     // 長押し: 1 段目を押し続けていたら、予備動作の途中で溜めへ移る（離したら通常の 1 段目のまま）
     if (!intent.attackHeld) this.heldSinceBegin = false;
-    if (a.id === this.loadout.moveset.light && this.heldSinceBegin && f >= CHARGE_HOLD_FRAMES && f < fr.startup) {
+    if (a.id === this.loadout.moveset.light && this.heldSinceBegin && f >= CHARGES[this.loadout.charge]!.holdFrames && f < fr.startup) {
       this.beginCharge(CHARGES[this.loadout.charge]!);
       return;
     }

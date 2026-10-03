@@ -404,25 +404,6 @@ describe('twoHanded（両手持ち。左手が柄を握る。大剣。ADR-021）
     expect(s.sample(0.8, s.newInput()).leftPole.distanceTo(new Vector3(1, 0, 0))).toBeLessThan(1e-9);
   });
 
-  it('片手のクリップも、焼くときの指定（SamplerOptions.twoHanded）で両手持ちの版に焼ける。名前の接尾辞と長さは元のとおり', () => {
-    const one: AuthoredAttack = AUTHORED_ATTACKS.dodge!;
-    const free = new AuthoredSampler(rig, one);
-    const held = new AuthoredSampler(rig, one, { twoHanded: TH });
-    let moved = 0;
-    for (const t of [0.1, 0.2, 0.35, 0.5]) {
-      const p = held.sample(t, held.newInput());
-      const right = polarToVector(p.grip.az, p.grip.el, p.grip.r, new Vector3());
-      expect(leftFromRightShoulder(p).distanceTo(right.clone().addScaledVector(p.blade, -TH.offset)), `t=${t}`).toBeLessThan(1e-6);
-      const q = free.sample(t, free.newInput());
-      if (Math.abs(q.left.az - p.left.az) > 0.05 || Math.abs(q.left.r - p.left.r) > 0.02) moved++;
-    }
-    expect(moved).toBeGreaterThan(0); // 片手版とは左手が違う（このテストが意味を持つ確認）
-    const base = bakeAttack(rig, one);
-    const v = bakeAttack(rig, one, 60, [], { twoHanded: TH, suffix: '@greatsword' });
-    expect(v.clip.name).toBe(`${one.name}@greatsword`);
-    expect(v.clip.duration).toBeCloseTo(base.clip.duration, 9);
-  });
-
   it('continueFrom: 両手持ちの技からの連鎖は、つなぎ目で左手が前の技の導いた位置から始まる（片手の技が続いても跳ばない）', () => {
     const t0 = 0.55;
     const prev = new AuthoredSampler(rig, def).sample(t0, new AuthoredSampler(rig, def).newInput());

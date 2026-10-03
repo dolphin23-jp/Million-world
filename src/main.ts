@@ -23,7 +23,7 @@ function saveLoadout(id: LoadoutId): void {
 declare global {
   interface Window {
     /** 開発・検証ツール用のフック */
-    __mw?: { game: Game; THREE: typeof THREE; sfxLab?: import('./debug/sfx-lab').SfxLab };
+    __mw?: { game: Game; THREE: typeof THREE; sfxLab?: import('./debug/sfx-lab').SfxLab; motionLab?: import('./debug/motion-lab').MotionLab };
   }
 }
 
@@ -52,6 +52,8 @@ function boot(): void {
   if (params.get('mute') === '1') game.audio.muted = true;
   // ?sfxlab=1: 効果音を書き出して数値検査するための開発用フック（tools/sfx-check.mjs が使う）
   if (params.has('sfxlab')) void import('./debug/sfx-lab').then((m) => (window.__mw!.sfxLab = m.installSfxLab()));
+  // ?motionlab=1: 手付けモーションを実リグで焼いて統計を返す開発用フック（手首のねじれを減らす値の探索など。通常起動では読み込まない）
+  if (params.has('motionlab')) void import('./debug/motion-lab').then((m) => (window.__mw!.motionLab = m.installMotionLab(game)));
   // ?perf=1: 実機で fps の原因を切り分ける計測モード（通常起動では読み込まない）
   if (params.has('perf')) void import('./debug/perf-probe').then((m) => m.installPerfProbe(game));
 

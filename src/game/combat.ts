@@ -1,4 +1,5 @@
 import type { AttackDef } from '../combat/data/attacks';
+import { HIT_FEEDBACK } from '../combat/data/hit-feedback';
 import type { ParryEffectDef } from '../combat/data/guard';
 import type { GuardOutcome } from '../combat/guard';
 import type { DamageResult } from '../combat/health';
@@ -76,7 +77,7 @@ export function resolvePlayerAttack<T extends CombatTarget>(
       damage: Math.round(atk.damage * p * (riposte ? riposte.riposteDamageScale : 1)),
       // ノックバックは威力の半分だけ倍率を掛ける（吹き飛びすぎない）。ヒットストップは威力に比例して伸びる
       knockback: atk.knockback * (1 + (p - 1) * 0.5) * (riposte ? riposte.riposteKnockbackScale : 1),
-      hitStop: Math.round(atk.hitStop * p),
+      hitStop: Math.min(Math.round(atk.hitStop * p), HIT_FEEDBACK.maxHitStop),
     });
     const result = target.takeHit(ev);
     onHit(ev, target, result, riposte !== null);

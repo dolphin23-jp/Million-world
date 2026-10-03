@@ -11,6 +11,8 @@ export const HIT_FEEDBACK = {
   shakeSeconds: { base: 0.1, perDamage: 0.003 },
   /** とどめで追加するヒットストップ（sim フレーム） */
   killExtraHitStop: 6,
+  /** 攻撃 1 発のヒットストップの上限（sim フレーム。溜めの威力倍率を掛けたあと。大剣の溜め斬りが止まりすぎないように） */
+  maxHitStop: 24,
   /** エフェクトの強さ = ダメージ / powerDamage を [powerMin, powerMax] に収めた値 */
   power: { damage: 40, min: 0.3, max: 1.2 },
   /** 命中エフェクト・ダメージ数字を出す高さ（敵の足元から m。胸のあたり） */

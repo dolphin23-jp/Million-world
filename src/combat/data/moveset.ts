@@ -15,12 +15,6 @@ export const STICK_RULES = {
 /** 回避が終わってから、この間（sim フレーム）に押した攻撃は「回避直後」の技になる */
 export const DASH_WINDOW_FRAMES = 12;
 
-/**
- * 長押し: 1 段目をこのフレーム数押し続けたら、溜めに移る（軽い攻撃を遅らせないよう、押した瞬間から 1 段目の予備動作に入り、そのまま続ける）。
- * 溜めのクリップは 1 段目の CHARGE_ENTER_T（0.15s = 9f）の姿勢から続くので、この値と合わせる（combo1 の斬りは 0.17s から始まる）。
- */
-export const CHARGE_HOLD_FRAMES = 9;
-
 /** 技のセット（攻撃 id）。ATTACKS のキー */
 export interface Moveset {
   /** スティックなし: 弱攻撃の 1 段目（以降は AttackDef.next で連なる） */
@@ -44,4 +38,17 @@ export const SWORD_MOVESET: Moveset = {
   sweep: 'sweep',
   dashRoll: 'dash',
   dashBack: 'lunge',
+};
+
+/**
+ * 大剣の技のセット（ADR-021）。長押しの溜め斬り（gsHeavy）は CHARGES.greatsword。
+ * ロール直後は跳び叩きつけ、後ろステップ直後は斬り上げ（片手剣は後ろステップ直後に踏み込み突き）。横は全方位の大回転、後ろは下がりながらの薙ぎ払い。
+ */
+export const GREATSWORD_MOVESET: Moveset = {
+  light: 'gs1',
+  lunge: 'gsLunge',
+  retreat: 'gsRetreat',
+  sweep: 'gsSpin',
+  dashRoll: 'gsDash',
+  dashBack: 'gsRise',
 };

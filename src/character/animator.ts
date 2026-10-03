@@ -50,6 +50,31 @@ export function sliceClip(src: THREE.AnimationClip, name: string, start: number,
   return new THREE.AnimationClip(name, dur, tracks);
 }
 
+/** トラックが動かす骨の名前（'LeftArm.quaternion' → 'LeftArm'） */
+function trackBone(track: THREE.KeyframeTrack): string {
+  return track.name.slice(0, track.name.lastIndexOf('.'));
+}
+
+/**
+ * base のクリップの、指定した骨（bones）のトラックを、pose のクリップの時刻 at の姿勢で固定したトラックに置き換えたクリップを作る。
+ * 上半身（腕）だけ別の姿勢のまま、下半身・胴は元の動きのままにしたいとき（大剣を構えたままの走り）に使う。
+ * 置き換える骨は、固定の姿勢を base の全長（2 キー）で保つ。胴は元の動きのままなので、腕は胴に付いたまま胴と一緒に揺れる。
+ */
+export function overlayPose(name: string, base: THREE.AnimationClip, pose: THREE.AnimationClip, bones: ReadonlySet<string>, at: number): THREE.AnimationClip {
+  const tracks = base.tracks.filter((t) => !bones.has(trackBone(t)));
+  for (const track of pose.tracks) {
+    if (!bones.has(trackBone(track))) continue;
+    const size = track.getValueSize();
+    const v = (trackInterpolant(track).evaluate(at) as Float32Array).subarray(0, size);
+    const values = new Float32Array(size * 2);
+    values.set(v, 0);
+    values.set(v, size);
+    const Ctor = track.constructor as new (name: string, times: ArrayLike<number>, values: ArrayLike<number>) => THREE.KeyframeTrack;
+    tracks.push(new Ctor(track.name, [0, base.duration], values));
+  }
+  return new THREE.AnimationClip(name, base.duration, tracks);
+}
+
 export class Animator {
   readonly mixer: THREE.AnimationMixer;
   private readonly clips = new Map<string, THREE.AnimationClip>();
@@ -64,6 +89,10 @@ export class Animator {
 
   has(name: string): boolean {
     return this.clips.has(name);
+  }
+
+  getClip(name: string): THREE.AnimationClip | undefined {
+    return this.clips.get(name);
   }
 
   /** できあがったクリップをそのまま登録する（手付けアニメ用） */

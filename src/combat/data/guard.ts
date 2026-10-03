@@ -3,13 +3,16 @@
  *
  * ガードは左手の役割（ADR-013）。盾を持つ（sword-shield）とき: 保持で盾を構えて敵の攻撃をほぼ防ぎ、構えに入った直後の短い間は「パリィ」（弾く）。
  * 素手が標準（sword）のとき: 剣を体の前に立てて受ける。軽減は盾より小さく、パリィはない。
+ * 大剣（greatsword）: 両手で剣を体の前に立てて受ける。盾がなくてもパリィができる（受付は盾より短い = シビア）。弾かれた敵は盾のときと違って弾き飛ばされて倒れる（PARRY_EFFECTS.down）。
+ * 受け止めるだけのときの軽減は盾より小さいので、失敗すると痛い。
  * 構えているあいだは動けない（向きだけ変えられる）。構えの正面から来る攻撃だけを防ぐ（横・背後からは防げない）。
  */
 
 import type { AuthoredAttack } from '../../character/authoring';
 import { SHIELD_GUARD, SHIELD_GUARD_HIT, SHIELD_PARRY, SWORD_GUARD, SWORD_GUARD_HIT } from '../../character/data/guard';
+import { GS_GUARD, GS_GUARD_HIT, GS_PARRY } from '../../character/data/gs-guard';
 
-export type GuardId = 'sword' | 'shield';
+export type GuardId = 'sword' | 'shield' | 'greatsword';
 
 export interface GuardDef {
   id: GuardId;
@@ -61,6 +64,20 @@ export const GUARDS: Record<GuardId, GuardDef> = {
     cancelFrame: 4,
     minHoldFrames: 8,
     lockFrames: 8,
+  },
+  // 大剣: 受付 6f（0.1 秒。盾の 10f より短い）で、構えの動き（0.1 秒）と同時に終わる。軽減は 65%（盾 85%・素手 50% の間）、受けた硬直は長め、構え直しも遅い（14f）
+  greatsword: {
+    id: 'greatsword',
+    clips: { enter: GS_GUARD, hit: GS_GUARD_HIT, parry: GS_PARRY },
+    parryFrames: 6,
+    parryEffect: 'down',
+    coneDeg: 70,
+    damageReduction: 0.65,
+    knockbackScale: 0.5,
+    hitStunFrames: 14,
+    cancelFrame: 4,
+    minHoldFrames: 8,
+    lockFrames: 14,
   },
 };
 

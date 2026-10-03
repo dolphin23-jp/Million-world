@@ -2,15 +2,18 @@ import * as THREE from 'three';
 import type { Player } from './player';
 import type { ToonMaterial } from '../render/toon';
 import type { CharacterAsset } from '../character/loader';
-import { Animator } from '../character/animator';
+import { Animator, overlayPose } from '../character/animator';
 import { bakeAttack, type BakeStats, type FrameTrace } from '../character/authoring';
-import { AUTHORED_ATTACKS, SHIELD_VARIANT, hasShieldVariant } from '../character/data/authored';
+import { AUTHORED_ATTACKS, GREATSWORD_VARIANT, SHIELD_VARIANT, hasShieldVariant } from '../character/data/authored';
+import { GS_IDLE, GS_STANCE } from '../character/data/greatsword';
 import { SHIELD_CARRY, SHIELD_IDLE } from '../character/data/guard';
+import type { WeaponId } from '../combat/data/loadouts';
 import { HERO } from '../character/data/hero';
 import { captureRig, type CapturedRig } from '../character/rig-capture';
 import { BONE } from '../character/rig';
 import { approach } from '../core/math';
 import { buildSword } from './sword';
+import { buildGreatsword } from './greatsword';
 import { buildShield, shieldMount } from './shield';
 
 /**
@@ -18,9 +21,18 @@ import { buildShield, shieldMount } from './shield';
  * player.ts から分けた（見た目の部品が増えたため）。sim 側は Player、ここは描画フレームで進める。
  */
 
-/** 剣の刃の根元寄り・先端（剣のローカル Y。src/game/sword.ts の刃は y = 0.1〜1.16） */
-const BLADE_BASE_Y = 0.3;
-const BLADE_TIP_Y = 1.17;
+/** 武器の見た目の部品: メッシュと、刃の素材（溜めの光り方を変える）、剣筋の帯の根元寄り・先端（武器のローカル Y） */
+interface WeaponView {
+  group: THREE.Group;
+  steel: ToonMaterial;
+  baseIntensity: number;
+  baseEmissive: THREE.Color;
+  baseY: number;
+  tipY: number;
+}
+
+/** 両手持ち（大剣）で、手付けの腕を持ち替える骨（走りは胴・脚だけ元の動きにして、腕は構えの姿勢で固定する） */
+const ARM_BONES: ReadonlySet<string> = new Set([BONE.shoulderR, BONE.armR, BONE.foreR, BONE.handR, BONE.shoulderL, BONE.armL, BONE.foreL, BONE.handL]);
 
 /** GLB キャラクターとアニメーションの見た目側 */
 export class HeroVisual {
@@ -37,14 +49,12 @@ export class HeroVisual {
   private flash = 0;
   /** 発光に使うキャラのマテリアル（トゥーン）。発光色は黒（なし）から始まる */
   private readonly skinMats: ToonMaterial[];
-  private readonly sword: THREE.Group;
+  /** 武器（片手剣・大剣。どちらも右手のソケットに付け、装備しているほうだけ見せる） */
+  private readonly weapons: Record<WeaponId, WeaponView>;
+  private weapon: WeaponView;
   /** 盾（左前腕）。盾を装備しているときだけ見せる */
   private readonly shield: THREE.Group;
   private readonly shieldMat: ToonMaterial;
-  /** 剣の刃のマテリアルと、素の発光（溜めの光り方はここから変える） */
-  private readonly steel: ToonMaterial;
-  private readonly steelBaseIntensity: number;
-  private readonly steelBaseEmissive = new THREE.Color();
   /** 溜めの光（0..1。段階に向けて近づく）と、段階が上がった瞬間の閃光（1 → 0 に減衰） */
   private swordGlow = 0;
   private glowPulse = 0;
@@ -86,18 +96,28 @@ export class HeroVisual {
     this.animator.addClip(shieldIdle.clip.name, shieldIdle.clip);
     this.authoredStats[shieldIdle.clip.name] = shieldIdle.stats;
     this.authoredTrace[shieldIdle.clip.name] = shieldIdle.trace;
-    // 剣: ボーン空間は cm（Armature 0.01 倍）なのでソケットを 100 倍にして m 単位の剣を置く
-    this.sword = buildSword();
-    this.steel = this.sword.userData.steel as ToonMaterial;
-    this.steelBaseIntensity = this.steel.emissiveIntensity;
-    this.steelBaseEmissive.copy(this.steel.emissive);
+    // 大剣を持つとき: 待機は構えの息づかい（'idle@greatsword'）、走りは構えの腕のまま胴・脚だけ走りの動き（ロールは AUTHORED_ATTACKS の 'dodge@greatsword'）
+    const gsIdle = bakeAttack(this.capture.rig, GS_IDLE, 60, this.capture.extras);
+    this.animator.addClip(gsIdle.clip.name, gsIdle.clip);
+    this.authoredStats[gsIdle.clip.name] = gsIdle.stats;
+    this.authoredTrace[gsIdle.clip.name] = gsIdle.trace;
+    const stance = this.animator.getClip(GS_STANCE.name);
+    const run = this.animator.getClip(HERO.clips.run);
+    if (stance && run) this.animator.addClip(HERO.clips.run + GREATSWORD_VARIANT, overlayPose(HERO.clips.run + GREATSWORD_VARIANT, run, stance, ARM_BONES, stance.duration));
+    // 武器: ボーン空間は cm（Armature 0.01 倍）なのでソケットを 100 倍にして m 単位の剣を置く。片手剣・大剣とも同じ右手のソケット（装備しているほうだけ見せる）
     const bone = asset.bones.get(HERO.sword.bone);
     const socket = new THREE.Group();
     socket.name = 'sword-socket';
     socket.position.fromArray(HERO.sword.position);
     socket.quaternion.fromArray(HERO.sword.quaternion);
     socket.scale.setScalar(100);
-    socket.add(this.sword);
+    const sword = this.makeWeapon(buildSword(), BLADE_RANGE.sword);
+    const greatsword = this.makeWeapon(buildGreatsword(), BLADE_RANGE.greatsword);
+    socket.add(sword.group);
+    socket.add(greatsword.group);
+    this.weapons = { sword, greatsword };
+    this.weapon = sword;
+    greatsword.group.visible = false;
     if (bone) bone.add(socket);
     else console.warn(`[hero] ボーンがありません: ${HERO.sword.bone}`);
 
@@ -121,13 +141,19 @@ export class HeroVisual {
     this.animator.play(HERO.clips.idle, { loop: true, fade: 0 });
   }
 
-  /** 刃（剣のローカル +Y が刃先方向）の根元寄りと先端の世界座標。アニメ更新直後の骨の位置から求める */
+  private makeWeapon(group: THREE.Group, range: { baseY: number; tipY: number }): WeaponView {
+    const steel = group.userData.steel as ToonMaterial;
+    return { group, steel, baseIntensity: steel.emissiveIntensity, baseEmissive: steel.emissive.clone(), baseY: range.baseY, tipY: range.tipY };
+  }
+
+  /** 刃（武器のローカル +Y が刃先方向）の根元寄りと先端の世界座標。アニメ更新直後の骨の位置から求める */
   getBladePoints(base: THREE.Vector3, tip: THREE.Vector3): boolean {
-    this.sword.updateWorldMatrix(true, false);
-    base.set(0, BLADE_BASE_Y, 0);
-    tip.set(0, BLADE_TIP_Y, 0);
-    this.sword.localToWorld(base);
-    this.sword.localToWorld(tip);
+    const w = this.weapon;
+    w.group.updateWorldMatrix(true, false);
+    base.set(0, w.baseY, 0);
+    tip.set(0, w.tipY, 0);
+    w.group.localToWorld(base);
+    w.group.localToWorld(tip);
     return true;
   }
 
@@ -179,14 +205,19 @@ export class HeroVisual {
     this.swordGlow = approach(this.swordGlow, target, frameDt / (target > this.swordGlow ? 0.15 : 0.45));
     this.glowPulse = Math.max(0, this.glowPulse - frameDt / 0.16);
     const k = Math.min(1, this.swordGlow + this.glowPulse * 0.5);
-    this.steel.emissive.copy(this.steelBaseEmissive).lerp(CHARGE_COLOR, k);
-    this.steel.emissiveIntensity = this.steelBaseIntensity + 1.8 * k;
+    const w = this.weapon;
+    w.steel.emissive.copy(w.baseEmissive).lerp(CHARGE_COLOR, k);
+    w.steel.emissiveIntensity = w.baseIntensity + 1.8 * k;
   }
 
   update(p: Player, dt: number, frameDt: number): void {
     if (p.equipSerial !== this.seenEquip) {
       this.seenEquip = p.equipSerial;
       this.shield.visible = p.loadout.offhand === 'shield';
+      this.weapon = this.weapons[p.loadout.weapon];
+      for (const [id, w] of Object.entries(this.weapons)) w.group.visible = id === p.loadout.weapon;
+      // 装備を替えたのは待機か走りのあいだ（Player.equip）。その状態のクリップを装備の版（盾・大剣の待機や走り）で選び直す
+      this.onStateEnter(p);
     }
     if (p.stateSerial !== this.seenSerial) {
       this.seenSerial = p.stateSerial;
@@ -230,7 +261,7 @@ export class HeroVisual {
         this.animator.play(this.clipName(HERO.clips.idle, p), { loop: true, fade: 0.25 });
         break;
       case 'run':
-        this.animator.play(HERO.clips.run, { loop: true, fade: 0.15 });
+        this.animator.play(this.clipName(HERO.clips.run, p), { loop: true, fade: 0.15 });
         break;
       case 'attack': {
         const a = p.attack!;
@@ -257,6 +288,12 @@ export class HeroVisual {
     }
   }
 }
+
+/** 剣筋の帯の根元寄りと先端（武器のローカル Y。刃は片手剣が y = 0.1〜1.16、大剣が 0.16〜1.62） */
+const BLADE_RANGE: Record<WeaponId, { baseY: number; tipY: number }> = {
+  sword: { baseY: 0.3, tipY: 1.17 },
+  greatsword: { baseY: 0.5, tipY: 1.62 },
+};
 
 /** パリィの受付中の盾の光（水色）と、受け止めた・弾いた瞬間の閃光（暖色） */
 const PARRY_COLOR = new THREE.Color(0.3, 0.8, 1);
