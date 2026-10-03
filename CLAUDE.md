@@ -6,7 +6,7 @@ iPad（Safari / PWA）で遊ぶ、三人称視点のアニメ調3Dアクショ�
 ## 最優先原則
 
 1. **デモ完成が最優先。** `docs/02-milestones.md` の M3 を越えるまで、新システム（武器種追加・魔法・成長要素・ステージ分岐など）には着手しない。思いついたら `docs/02-milestones.md` の「拡張フェーズ候補」に書き足すだけにする。
-2. **常に遊べる状態を保つ。** `main` は常にビルドが通り、GitHub Pages で iPad から開けること。壊れた状態でコミットしない。
+2. **常に遊べる状態を保つ。** `main` は常にビルドが通り、Vercel の本番 URL で iPad から開けること。壊れた状態でコミットしない。
 3. **見た目は最初から整える。** プレースホルダーでもトゥーン着色・輪郭線・影・ポストプロセスの枠組みの中に置く。「後で綺麗にする」を前提にしない。
 4. **設計判断は記録する。** 技術選択を変える・追加するときは `docs/01-decisions.md` に ADR を追記する（置き換えではなく追記し、旧 ADR に「superseded by」を書く）。
 
@@ -16,7 +16,7 @@ iPad（Safari / PWA）で遊ぶ、三人称視点のアニメ調3Dアクショ�
 - 物理エンジンなし（XZ平面のカプセル衝突 + 地面高さ）。必要になったら Rapier を検討
 - UI は DOM/CSS。React 等のフレームワークは入れない
 - テスト: vitest（戦闘ロジック・状態機械などの純粋関数）、Playwright（描画スクリーンショット）
-- 配信: GitHub Actions → GitHub Pages（`BASE_PATH=/Million-world/` でビルド）。Vercel 等に載せる場合は既定の `/`
+- 配信: Vercel（リポジトリ連携、push で自動デプロイ）。GitHub Actions は CI（typecheck/test/build）のみ
 
 ## コマンド
 
