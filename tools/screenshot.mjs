@@ -149,8 +149,13 @@ try {
     g.stepNow(90);
     e.place(0, g.player.body.z + 1.9, Math.PI);
     e.health.hp = 5;
-    g.inject({ heavyPressed: true });
+    // 攻撃を押し続けて溜めの構えに入り、離して重撃で倒す
+    g.inject({ attackPressed: true, attackHeld: true });
     g.stepNow(1);
+    for (let i = 0; i < 60 && g.player.state !== 'charge'; i++) {
+      g.inject({ attackHeld: true });
+      g.stepNow(1);
+    }
     for (let i = 0; i < 90 && !e.dead; i++) g.stepNow(1);
     g.stepNow(14);
     g.renderNow(14);

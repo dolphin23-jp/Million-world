@@ -6,6 +6,7 @@
  *   npm run build && node tools/motion-sheet.mjs <ラベル> [オプション]
  *
  *   --script "0:{...};22:{...}"   フレーム番号:入力(JSON) の列。0 番の入力で技が始まる（InputIntent の一部。下の例）。
+ *                                 "5-30:{...}" と書くと 5〜30 の毎フレームに同じ入力（長押し）
  *                                 "dir":[x,z] を書くと、ワールドの向き（キャラは +Z を向く）でスティックを倒す（カメラの向きに関わらず）
  *   --frames 0,6,12,18           撮るフレーム（開始から進めた sim ステップ数。0 = 待機の姿勢）。省略すると --end を --count 等分
  *   --end 36 --count 8           撮る範囲と枚数（--frames が無いとき）
@@ -13,6 +14,7 @@
  *   --focus 0.0                  注視点の z（前進する動きは中ほどに置く）  --dist 4.2  --height 1.0  --pitch 0.12
  *   --cols 4                     1 行に並べる枚数
  *   --weapon <id>                装備（ある場合）。例: greatsword
+ *   --aim 0,4                    ロックオン中にする（対象の位置 x,z。サンドボックスには敵がいないので、ロック中だけに出る技を撮るため）
  *
  *   例: 回避  node tools/motion-sheet.mjs dodge --script '0:{"dodgePressed":true,"dir":[0,1]}' --end 36 --focus 1.4
  *       1 段目 node tools/motion-sheet.mjs combo1 --script '0:{"attackPressed":true}' --end 40 --cam three
@@ -45,10 +47,14 @@ const height = Number(opt('height', 1.0));
 const pitch = Number(opt('pitch', 0.12));
 const cols = Number(opt('cols', 4));
 const weapon = opt('weapon', null);
+const aim = opt('aim', null) ? opt('aim').split(',').map(Number) : null;
 const script = {};
 for (const part of (opt('script', '0:{}') ?? '').split(';').filter(Boolean)) {
   const k = part.indexOf(':');
-  script[Number(part.slice(0, k))] = JSON.parse(part.slice(k + 1));
+  const value = JSON.parse(part.slice(k + 1));
+  // "a-b:{...}" は a〜b の毎フレーム（押し続ける入力に使う。同じフレームに複数あれば合成）
+  const [from, to = from] = part.slice(0, k).split('-').map(Number);
+  for (let f = from; f <= to; f++) script[f] = { ...script[f], ...value };
 }
 const CAMS = { side: Math.PI / 2, front: 0, back: Math.PI, three: Math.PI / 2 + 0.75, top: Math.PI / 2 };
 
@@ -76,18 +82,23 @@ try {
   await sleep(500);
   await page.addStyleTag({ content: '#touch-layer, #hud, #start-overlay, #banner, #result { display: none !important; }' });
 
-  await page.evaluate(([cam, yaw, focus, dist, h, pitch, weapon]) => {
+  await page.evaluate(([cam, yaw, focus, dist, h, pitch, weapon, aim]) => {
     const g = window.__mw.game;
     g.loop.stop();
     if (weapon && g.player.equip) g.player.equip(weapon);
     g.player.reset();
+    // ロック中にする: Game.step が毎フレーム setAim(null) を呼ぶので、差し替えて固定する
+    if (aim) {
+      g.player.setAim({ x: aim[0], z: aim[1] });
+      g.player.setAim = () => {};
+    }
     g.cam.yaw = yaw;
     g.cam.pitch = cam === 'top' ? 1.35 : pitch;
     g.cam.distance = dist;
     g.cam.pin(0, h, focus);
     g.stepNow(30);
     g.renderNow(3);
-  }, [camName, CAMS[camName] ?? CAMS.side, focusZ, dist, height, pitch, weapon]);
+  }, [camName, CAMS[camName] ?? CAMS.side, focusZ, dist, height, pitch, weapon, aim]);
 
   const shots = [];
   let at = 0;
