@@ -17,7 +17,7 @@
  *                                   //   全クリップで 15〜24° つま先が上がる（docs/05「足の接地」）。その系統的なずれを打ち消す
  *   "headPitchDeg": 0,              // 省略可: 頭を「上を向く向き」へ回す量(度)。クリップごとに上書きできる（例: 待機は 18° うつむくので 16）
  *   "textureSize": 2048,            // 省略時 1024
- *   "clips": {                       // name: { file, loop?, keepRootMotion?, footPitchDeg?, headPitchDeg? }  どちらもそのクリップだけ上書き
+ *   "clips": {                       // name: { file, loop?, keepRootMotion?, footPitchDeg?, headPitchDeg?, yawDeg?, plantFeet? }  足・頭・向きはそのクリップだけ上書き
  *     "idle":  { "file": "raw/clips/hero-idle.glb" },
  *     "run":   { "file": "raw/clips/hero-run.glb" },
  *     ...
@@ -405,6 +405,10 @@ function retargetClip(srcAnim, srcRig, dstRig, name, spec) {
   const headBones = new Set(manifest.headBones ?? ['Head', 'head_end', 'headfront']);
   const biasOf = (b) => (footBones.has(b) ? footPitchRad : headBones.has(b) ? -headPitchRad : 0); // 頭は「上を向く」を正にするので符号を反転
   const tmpAxis = vec3.create(), tmpBias = quat.create();
+  // クリップ全体を世界の +Y まわりに回す（度。正 = 上から見て反時計回り）。配信元のクリップが「右へ突く」ように
+  // 作られているときに、前へ突く向きへ直すために使う。全ボーンの世界回転に同じ回転を左から掛けるので、
+  // 親に対する子のローカル回転は変わらず、Hips のローカル回転だけが変わる
+  const yawQ = spec.yawDeg ? quat.setAxisAngle(quat.create(), [0, 1, 0], (spec.yawDeg * Math.PI) / 180) : null;
 
   for (let i = 0; i < n; i++) {
     const t = times[i];
@@ -425,6 +429,7 @@ function retargetClip(srcAnim, srcRig, dstRig, name, spec) {
       } else if (di.parent) {
         quat.multiply(wt, Wt.get(di.parent), tmpL);
       } else quat.copy(wt, tmpL);
+      if (yawQ) quat.multiply(wt, yawQ, wt);
       Wt.set(b, wt);
       // 凍結ボーン（つま先など、リグのボーン長が異常で回すと皮膚が伸びるもの）はバインド姿勢に固定する
       if (frozen.has(b) && di.bindRot) {
@@ -461,18 +466,25 @@ function retargetClip(srcAnim, srcRig, dstRig, name, spec) {
   }
   // 接地補正: 配信元のクリップは別の骨格の寸法で作られており、ボーン長を固定すると足が床を貫く。
   // 各フレームで最も低いジョイント（足・つま先）が床（y=0）を下回っていたら Hips を持ち上げる。
-  // 持ち上げる方向にしか補正しない（浮いているフレームは触らない）
+  // 持ち上げる方向にしか補正しない（浮いているフレームは触らない。clips.<name>.plantFeet:true のクリップだけ下げる）
   if (outTrans && spec.groundClamp !== false) {
     let maxLift = 0, soleMin = Infinity;
     if (soleProbes) {
       // 足裏の最低点が床（y=0 + 余白）を下回るフレームだけ、Hips を持ち上げる
       const target = manifest.groundMargin ?? 0.0;
+      // plantFeet: 両足が浮いているフレームでは Hips を下げて足を床へ着ける（常にどちらかの足が地面にある攻撃クリップ用。
+      // 跳ぶ・転がるクリップには使わない）。下げ幅は plantMaxDrop（m、既定 0.06）まで
+      const plant = spec.plantFeet === true;
+      const maxDrop = manifest.plantMaxDrop ?? 0.06;
+      let maxDropUsed = 0;
       for (let i = 0; i < n; i++) {
         const minY = lowestSoleY(dstRig, outRot, outTrans, i, soleProbes);
         soleMin = Math.min(soleMin, minY);
-        const lift = target - minY;
-        if (lift > 0) { outTrans[i * 3 + 1] += lift / rootScaleOf(dstRig); maxLift = Math.max(maxLift, lift); }
+        let lift = target - minY;
+        if (lift < 0 && plant) { lift = Math.max(lift, -maxDrop); maxDropUsed = Math.max(maxDropUsed, -lift); }
+        if (lift > 0 || (lift < 0 && plant)) { outTrans[i * 3 + 1] += lift / rootScaleOf(dstRig); if (lift > 0) maxLift = Math.max(maxLift, lift); }
       }
+      if (maxDropUsed > 0) console.log(`[${name}] 接地補正: 浮いた足を最大 ${(maxDropUsed * 100).toFixed(1)}cm 下げた（plantFeet）`);
     } else {
       const groundBones = (manifest.groundBones ?? ['LeftFoot', 'RightFoot', 'LeftToeBase', 'RightToeBase']).filter((b) => dstRig.info.has(b));
       // 基準はバインド姿勢（A ポーズで接地している）での同じボーン群の最低 y。つま先ボーンが床下にあるリグでも破綻しない

@@ -87,6 +87,16 @@
         return true;
       };
 
+      // 秒指定版（クリップ区間の検査用）
+      window.setAnimSec = (index, sec) => {
+        if (!mixer || !clips[index]) return false;
+        mixer.stopAllAction();
+        mixer.clipAction(clips[index]).play();
+        mixer.setTime(sec);
+        model.updateMatrixWorld(true);
+        return true;
+      };
+
       // view: yaw(度, 0=+Z正面から), pitch(度), focus: 'full' | 'head' | 'upper' | 'hands'
       window.setView = (yawDeg, focus = 'full', pitchDeg = 6) => {
         const size = box.getSize(new THREE.Vector3());

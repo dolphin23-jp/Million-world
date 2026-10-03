@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ATTACKS, resolveAttack } from './attacks';
+import { HERO } from '../../character/data/hero';
 
 describe('resolveAttack', () => {
   it('秒を rate で割って 60Hz フレームに変換する', () => {
@@ -47,5 +48,17 @@ describe('resolveAttack', () => {
       a = ATTACKS[a.next]!;
     }
     expect(a.id).toBe('combo3');
+  });
+
+  it('攻撃が参照するアニメ区間が存在し、長さが segmentDuration と一致する', () => {
+    const segs: Record<string, { start: number; end: number }> = HERO.segments;
+    for (const a of Object.values(ATTACKS)) {
+      const seg = segs[a.segment];
+      expect(seg, `${a.id} の区間 ${a.segment}`).toBeDefined();
+      expect(seg!.end - seg!.start, a.id).toBeCloseTo(a.segmentDuration, 2);
+      // 当たり判定は区間の中、次段の受付は持続の終わり以降
+      expect(a.activeStart, a.id).toBeGreaterThanOrEqual(0);
+      expect(a.activeEnd, a.id).toBeLessThanOrEqual(a.segmentDuration);
+    }
   });
 });

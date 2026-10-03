@@ -267,7 +267,7 @@ class HeroVisual {
         break;
       case 'attack': {
         const a = p.attack!;
-        this.animator.play(a.segment, { loop: false, fade: 0.08, rate: a.rate, clamp: true, restart: true });
+        this.animator.play(a.segment, { loop: false, fade: a.fade ?? 0.08, rate: a.rate, clamp: true, restart: true });
         break;
       }
       case 'dodge':

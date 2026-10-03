@@ -29,12 +29,13 @@ export const HERO = {
 
   /** 区間を切り出して使うクリップ（秒は元クリップ上） */
   segments: {
-    // Triple_Combo_Attack: 右手の速度ピークが 0.78 / 1.60 / 2.30 秒
-    combo1: { clip: 'combo', start: 0.0, end: 1.0 },
-    combo2: { clip: 'combo', start: 1.0, end: 1.8 },
-    combo3: { clip: 'combo', start: 1.8, end: 2.7 },
-    // Right_Hand_Sword_Slash: ピーク 0.55 秒
-    slash: { clip: 'slash', start: 0.1, end: 1.35 },
+    // 3 連コンボは「振りかぶりの小さい」3 本をつなぐ（上腕の挙上 130° 以下。脇が破れない。docs/05）。
+    // 1 段目 Right_Hand_Sword_Slash: 右手速度のピークが元クリップ上 0.55 秒（区間内 0.45 秒）
+    combo1: { clip: 'slash', start: 0.1, end: 1.35 },
+    // 2 段目 Left_Slash の 1 振り目: 速度ピーク 0.80 秒（区間内 0.60 秒）。2 振り目の振りかぶりは 0.85 秒ごろから始まるので手前で切る
+    combo2: { clip: 'leftslash', start: 0.2, end: 0.9 },
+    // 3 段目 Thrust_Slash の突き: 速度ピーク 0.75 秒（区間内 0.40 秒）。元クリップは右へ突く向きなので manifest で yawDeg:90 を掛けてある
+    combo3: { clip: 'thrust', start: 0.35, end: 1.2 },
     // Heavy_Hammer_Swing: 振り下ろし 1.45〜1.70 秒
     heavy: { clip: 'heavy', start: 0.3, end: 1.87 },
     // Roll_Dodge: 前転本体は 0.45〜1.55 秒

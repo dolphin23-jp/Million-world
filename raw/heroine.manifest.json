@@ -18,9 +18,6 @@
       "file": "raw/heroine/clips/run.glb",
       "headPitchDeg": 6
     },
-    "combo": {
-      "file": "raw/heroine/clips/combo.glb"
-    },
     "slash": {
       "file": "raw/heroine/clips/slash.glb"
     },
@@ -35,6 +32,14 @@
     },
     "death": {
       "file": "raw/heroine/clips/death.glb"
+    },
+    "leftslash": {
+      "file": "raw/heroine/clips/leftslash.glb"
+    },
+    "thrust": {
+      "file": "raw/heroine/clips/thrust.glb",
+      "yawDeg": 90,
+      "plantFeet": true
     }
   },
   "_provenance": {
@@ -42,14 +47,16 @@
     "mesh_job": "2106da46-4cc5-4af6-8495-9f7527cae121",
     "rig_jobs": {
       "run": "b9c479ac-08de-4fa6-ae9a-786bf9504763 (Run_02 14)",
-      "combo": "8d6d0b0c-c9b0-4f49-8e17-b2d9d9a40bdf (Triple_Combo_Attack 105)",
       "slash": "b636cdf9-174a-43af-9126-70865ae39b40 (Right_Hand_Sword_Slash 219)",
       "heavy": "4306cbec-9643-451b-a6c7-6432773d40e6 (Heavy_Hammer_Swing 128)",
       "dodge": "85587919-036a-4621-87a1-8f2438e8f1cb (Roll_Dodge 158)",
       "hit": "28218e60-3fc6-47d2-a231-58e638f77830 (Hit_Reaction_1 179)",
       "death": "1f932c53-2f45-4e41-8833-26c278705f0a (dying_backwards 189)",
       "idle(stand)": "91bd210b-7941-43a1-a5ee-a3fa99d1358b (Idle_02 11)",
-      "stance": "4011725b-8a0c-4c6b-bae2-705972c3febe (Combat_Stance 89)"
+      "stance": "4011725b-8a0c-4c6b-bae2-705972c3febe (Combat_Stance 89)",
+      "leftslash": "f4a3450d-bc7a-4a7d-938f-a78761071b20 (Left_Slash 97)",
+      "thrust": "3af8acc2-e9da-43b6-b8b8-1c071840d80e (Thrust_Slash 240)",
+      "combo(旧・未使用)": "8d6d0b0c-c9b0-4f49-8e17-b2d9d9a40bdf (Triple_Combo_Attack 105)"
     },
     "texture": "raw/heroine/heroine.glb のテクスチャを tools/clean-texture.py で腰まわりだけ塗り直したもの（docs/05 参照）",
     "foot": "配信元クリップは全クリップで足のつま先が 15〜24° 上がる（Idle_02 は 24°）。footPitchDeg で系統的なずれを打ち消し、idle だけ個別に上書き。接地補正は足裏の頂点で行う（docs/05「足の接地」）",
