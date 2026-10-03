@@ -35,6 +35,8 @@ export class Enemy {
   lastHit: HitEvent | null = null;
   /** この攻撃で当てた対象の記録（1 攻撃 1 対象 1 回）。攻撃に入るたびにリセットする */
   readonly hitTracker = new HitTracker();
+  /** 状態が切り替わるたびに増える（効果音など、遷移の瞬間に反応する側が検出するため） */
+  stateSerial = 0;
   /** 死亡の演出が終わって取り除いてよい */
   removable = false;
   /** 次の予備動作に入れるまでの残り（硬直が明けてから数える） */
@@ -204,5 +206,6 @@ export class Enemy {
     if (this.state === s && !forceRestart) return;
     this.state = s;
     this.stateFrame = 0;
+    this.stateSerial++;
   }
 }

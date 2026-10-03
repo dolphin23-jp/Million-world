@@ -137,11 +137,14 @@ export class Hud {
     el.classList.add('on');
   }
 
-  /** 開始画面のタップを待つ */
-  waitForStart(): Promise<void> {
+  /**
+   * 開始画面のタップを待つ。onTap はタップのイベントの中で同期的に呼ぶ（iOS は音声の解放を「ユーザーの操作の中」でしか許さない）
+   */
+  waitForStart(onTap?: () => void): Promise<void> {
     return new Promise((resolve) => {
       const go = (e: Event) => {
         e.preventDefault();
+        onTap?.();
         this.overlay.removeEventListener('pointerdown', go);
         this.overlay.classList.add('hidden');
         resolve();

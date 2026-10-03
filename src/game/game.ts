@@ -13,6 +13,9 @@ import { Player } from './player';
 import { resolveEnemyAttacks, resolvePlayerAttack } from './combat';
 import { Enemy } from '../ai/enemy';
 import { stepSwarm } from '../ai/swarm';
+import { AudioBus } from '../platform/audio';
+import { Sfx, distanceGain } from '../audio/sfx';
+import type { SfxName } from '../audio/data/sfx';
 import { ENEMIES } from '../ai/data/enemies';
 import { EnemyVisual } from './enemy-visual';
 import { HitStop } from '../core/hitstop';
@@ -60,7 +63,12 @@ const PIXEL_RATIO_LEVELS = [1.5, 1.25, 1.0];
 interface EnemyEntry {
   enemy: Enemy;
   visual: EnemyVisual;
+  /** 効果音を鳴らし終えた状態遷移（Enemy.stateSerial） */
+  seenSerial: number;
 }
+
+/** プレイヤーの攻撃ごとの振りの効果音 */
+const SWING_SFX: Record<string, SfxName> = { combo1: 'swing1', combo2: 'swing2', combo3: 'swing3', heavy: 'swingHeavy' };
 
 /** 最後の敵を倒したときのスローモーション（倍率、実時間の秒） */
 const FINISH_SLOW = { scale: 0.3, seconds: 0.9 };
@@ -81,6 +89,10 @@ export class Game {
   private nextEnemyId = 1;
   /** 戦闘の進行（ウェーブ・勝敗・リザルトの集計）。再戦のたびに作り直す */
   encounter: Encounter = new Encounter(DEMO_ENCOUNTER);
+  /** 音声の土台（解放は開始画面のタップ。platform/audio.ts）と、効果音の再生 */
+  readonly audio = new AudioBus();
+  readonly sfx = new Sfx(this.audio);
+  private seenPlayerSerial = 0;
   readonly hitStop = new HitStop();
   readonly hitFx = new HitFx();
   readonly damageNumbers: DamageNumbers;
@@ -143,7 +155,10 @@ export class Game {
     this.scene.add(this.player.root);
     this.scene.add(this.hitFx.group);
     this.scene.add(this.swordTrail.mesh);
-    this.hud.onRetry(() => this.restart());
+    this.hud.onRetry(() => {
+      this.sfx.play('ui');
+      this.restart();
+    });
     this.startEncounter();
 
     // --- 入力 ---
@@ -223,7 +238,7 @@ export class Game {
     enemy.place(x, z, Math.atan2(this.player.body.x - x, this.player.body.z - z));
     const visual = new EnemyVisual();
     this.scene.add(visual.root);
-    this.enemies.push({ enemy, visual });
+    this.enemies.push({ enemy, visual, seenSerial: enemy.stateSerial });
     this.enemySims.push(enemy);
     return enemy;
   }
@@ -248,9 +263,11 @@ export class Game {
     if (ev.type === 'spawn') {
       this.spawnWave(ev.wave);
       this.hud.showBanner(ev.last && this.encounter.waveCount > 1 ? 'FINAL WAVE' : `WAVE ${ev.wave + 1}`);
+      this.sfx.play('wave');
     } else {
       const r = this.encounter.result();
       if (r) this.hud.showResult(r);
+      this.sfx.play(ev.phase === 'victory' ? 'victory' : 'defeat');
     }
   }
 
@@ -262,6 +279,8 @@ export class Game {
     const y = HIT_FEEDBACK.impactHeight;
     this.hitFx.burst(ev.x, y, ev.z, ev.dirX, ev.dirZ, fb.power);
     this.damageNumbers.spawn(enemy.body.x, y + 0.5, enemy.body.z, result.dealt, fb.style);
+    this.sfx.play(fb.style === 'heavy' ? 'hitHeavy' : 'hit');
+    if (result.killed) this.sfx.play('kill');
     if (result.killed) {
       this.encounter.onKill();
       // 最後のウェーブの最後の 1 体: スローモーション
@@ -278,6 +297,7 @@ export class Game {
     this.damageNumbers.spawn(this.player.body.x, HIT_FEEDBACK.playerImpactHeight + 0.7, this.player.body.z, result.dealt, 'hurt');
     this.hud.flashHurt();
     this.hud.setPlayerHp(this.player.health.hp, this.player.health.max);
+    this.sfx.play('hurt');
     this.encounter.onPlayerHit(result.dealt);
     if (result.killed) this.hitStop.slow(DEFEAT_SLOW.scale, DEFEAT_SLOW.seconds);
   }
@@ -299,7 +319,7 @@ export class Game {
     if (this.player.dead) this.lockOn.release();
     this.lockCands.length = 0;
     for (const e of this.enemySims) if (!e.dead) this.lockCands.push(e.body);
-    this.lockOn.update({
+    const lockEvent = this.lockOn.update({
       pressed: intent.lockPressed,
       switchDir: intent.lockSwitch,
       px: this.player.body.x,
@@ -307,6 +327,7 @@ export class Game {
       camYaw: this.cam.yaw,
       cands: this.lockCands,
     });
+    if (lockEvent) this.sfx.play(lockEvent);
     const locked = this.lockedEnemy();
     this.cam.rotate(locked ? 0 : intent.camYaw, intent.camPitch);
     this.cam.stepLock(dt, this.player.body.x, this.player.body.z, locked ? locked.body : null);
@@ -317,10 +338,12 @@ export class Game {
     }
 
     this.player.step(dt, intent, this.cam.yaw);
+    this.soundPlayerState();
 
     const alive = !this.player.dead;
     // 攻撃権: 同時に予備動作〜攻撃に入れる敵の数を制限する（残りは近くで構えて待つ）
     stepSwarm(this.enemySims, dt, this.player.body.x, this.player.body.z, alive, this.encounter.def.maxAttackers);
+    this.soundEnemyStates();
     // 先にプレイヤーの攻撃を解決する。同じフレームに当たり合うなら、プレイヤーが先に当てて敵の攻撃を中断する
     resolvePlayerAttack(this.player, this.enemySims, (ev, enemy, result) => this.onPlayerHit(ev, enemy, result));
     resolveEnemyAttacks(this.enemySims, this.player, (ev, _enemy, result) => this.onEnemyHit(ev, result));
@@ -352,6 +375,32 @@ export class Game {
     for (const e of this.enemySims) if (!e.dead) living++;
     this.applyEncounterEvent(this.encounter.step(living, this.player.dead));
     this.input.endStep();
+  }
+
+  /** プレイヤーの状態が変わった瞬間の効果音: 攻撃の振り（当たりの少し前に鳴らす）・回避 */
+  private soundPlayerState(): void {
+    const p = this.player;
+    if (p.stateSerial === this.seenPlayerSerial) return;
+    this.seenPlayerSerial = p.stateSerial;
+    if (p.state === 'attack' && p.attack) {
+      const name = SWING_SFX[p.attack.id];
+      if (name) this.sfx.play(name, { delay: Math.max(0, p.attack.activeStart - 0.07) / p.attack.rate });
+    } else if (p.state === 'dodge') {
+      this.sfx.play('dodge');
+    }
+  }
+
+  /** 敵の状態が変わった瞬間の効果音: 予備動作の合図・攻撃の振り（距離で音量が変わる） */
+  private soundEnemyStates(): void {
+    for (const entry of this.enemies) {
+      const e = entry.enemy;
+      if (e.stateSerial === entry.seenSerial) continue;
+      entry.seenSerial = e.stateSerial;
+      if (e.state !== 'windup' && e.state !== 'attack') continue;
+      const gain = distanceGain(Math.hypot(e.body.x - this.player.body.x, e.body.z - this.player.body.z));
+      if (e.state === 'windup') this.sfx.play('telegraph', { gain });
+      else this.sfx.play('enemySwing', { gain, delay: 0.02 });
+    }
   }
 
   /** ロック中の敵（なければ null） */
