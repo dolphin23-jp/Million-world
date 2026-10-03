@@ -5,6 +5,7 @@ import { TouchInput } from '../input/touch';
 import { KeyboardInput } from '../input/keyboard';
 import { RendererHost } from '../render/renderer';
 import { PostPipeline } from '../render/post';
+import { AdaptiveResolution, buildLevels } from '../render/adaptive-resolution';
 import { SkyDome } from '../render/sky';
 import { Arena } from '../world/arena';
 import { clampInsideArena } from '../world/collision';
@@ -25,7 +26,14 @@ const SUN_DIR = new THREE.Vector3(0.55, 0.75, 0.35).normalize();
 export interface GameOptions {
   canvas: HTMLCanvasElement;
   debug?: boolean;
+  /** 描画の pixelRatio を固定する（動的解像度を止める）。?dpr= から渡す */
+  pixelRatio?: number;
+  /** false で動的解像度を止める（既定は有効）。?adaptive=0 から渡す */
+  adaptive?: boolean;
 }
+
+/** 動的解像度の段（大きい順）。デバイスの DPR を超える段は buildLevels が潰す */
+const PIXEL_RATIO_LEVELS = [1.5, 1.25, 1.0];
 
 export class Game {
   readonly host: RendererHost;
@@ -39,6 +47,7 @@ export class Game {
   readonly touch: TouchInput;
   readonly hud: Hud;
   readonly loop: GameLoop;
+  readonly adaptive: AdaptiveResolution;
   private readonly startTime = performance.now();
   /** 開発用: 外部（スクリーンショットツール等）から入力を注入する */
   private injected: Partial<InputIntent> | null = null;
@@ -46,7 +55,9 @@ export class Game {
   ready = false;
 
   constructor(opts: GameOptions) {
-    this.host = new RendererHost({ canvas: opts.canvas, maxPixelRatio: 1.5 });
+    this.adaptive = new AdaptiveResolution({ levels: buildLevels(window.devicePixelRatio || 1, PIXEL_RATIO_LEVELS) });
+    if (opts.pixelRatio !== undefined || opts.adaptive === false) this.adaptive.lock();
+    this.host = new RendererHost({ canvas: opts.canvas, maxPixelRatio: opts.pixelRatio ?? this.adaptive.ratio });
     this.cam = new ThirdPersonCamera(this.host.width / this.host.height);
     this.hud = new Hud();
     this.hud.setDebugVisible(opts.debug ?? true);
@@ -162,6 +173,9 @@ export class Game {
     this.sky.follow(this.cam.camera);
     this.arena.animate(t);
     this.post.render();
+    // 実フレーム間隔で解像度を調整する。段が変わるとレンダターゲットを作り直すので、描画の後で行う
+    const nextRatio = this.adaptive.update(frameDt * 1000);
+    if (nextRatio !== null) this.host.setMaxPixelRatio(nextRatio);
     this.hud.updateDebug(frameDt, now, () => {
       const info = this.host.renderer.info.render;
       return `sim ${this.loop.stepper.frame}  state ${this.player.state}:${this.player.stateFrame}\n` +

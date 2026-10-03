@@ -14,7 +14,14 @@ function boot(): void {
   if (!canvas) throw new Error('#game canvas が見つかりません');
 
   const params = new URLSearchParams(location.search);
-  const game = new Game({ canvas, debug: params.get('debug') !== '0' });
+  const dprParam = Number(params.get('dpr'));
+  const game = new Game({
+    canvas,
+    debug: params.get('debug') !== '0',
+    // ?dpr=1.25 で解像度を固定、?adaptive=0 で動的解像度だけ止める（計測・スクリーンショット用）
+    ...(dprParam > 0 ? { pixelRatio: dprParam } : {}),
+    adaptive: params.get('adaptive') !== '0',
+  });
   window.__mw = { game };
   // ?perf=1: 実機で fps の原因を切り分ける計測モード（通常起動では読み込まない）
   if (params.has('perf')) void import('./debug/perf-probe').then((m) => m.installPerfProbe(game));

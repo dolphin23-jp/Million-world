@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { Game } from '../game/game';
+import type { SceneFormat } from '../render/post';
 
 /**
  * 実機（iPad Safari）で fps の原因を切り分ける計測モード。URL に `?perf=1` を付けると有効になる。
@@ -14,7 +15,7 @@ import type { Game } from '../game/game';
  *
  * Safari の WebGL は EXT_disjoint_timer_query を持たないため、GPU 時間は readPixels の待ちで近似する。
  * 「gpu 待ち」は フレーム全体(total) − JS が命令を出し終えるまで(js) で、CPU と GPU が重なる分は含まれない近似値。
- * 本体のコードに入れる最適化の候補（出力側 MSAA を外す、RGBA8 にする等）も同じ表に並べる。
+ * ポスト構成を軽くした後（ADR-011）の確認用に、MSAA・ブルーム・シーン精度の切り替えも同じ表に並べる。
  * 通常起動では読み込まれない（main.ts が動的 import する）。
  */
 
@@ -56,6 +57,8 @@ function percentile(a: number[], p: number): number {
 }
 
 export function installPerfProbe(game: Game): void {
+  // 計測中に動的解像度が pixelRatio を動かすと比較にならないので止める（起動時の段で固定される）
+  game.adaptive.lock();
   const renderer = game.host.renderer;
   const gl = renderer.getContext() as WebGL2RenderingContext;
   const post = game.post;
@@ -81,19 +84,28 @@ export function installPerfProbe(game: Game): void {
     for (const o of objs) o.visible = v;
     return () => objs.forEach((o, i) => (o.visible = prev[i] ?? true));
   };
-  /** コンポーザのレンダターゲットのサンプル数・型を変える。変更後は dispose して作り直させる */
-  const setTarget = (rt: THREE.WebGLRenderTarget, opts: { samples?: number; type?: THREE.TextureDataType }): (() => void) => {
-    const prevSamples = rt.samples;
-    const prevType = rt.texture.type;
-    if (opts.samples !== undefined) rt.samples = opts.samples;
-    if (opts.type !== undefined) rt.texture.type = opts.type;
-    rt.dispose();
-    return () => {
-      rt.samples = prevSamples;
-      rt.texture.type = prevType;
-      rt.dispose();
-    };
+  /** シーン用ターゲットのサンプル数・精度を変える。元に戻す関数を返す */
+  const setScene = (opts: { samples?: number; format?: SceneFormat }): (() => void) => {
+    const prevSamples = post.sceneSamples;
+    const prevFormat = post.sceneFormat;
+    post.setSceneTarget(opts);
+    return () => post.setSceneTarget({ samples: prevSamples, format: prevFormat });
   };
+  /** R11F_G11F_B10F が MSAA 付きで描けるか（端末による）。描けない端末ではその行を測らない */
+  const canR11 = ((): boolean => {
+    if (!gl.getExtension('EXT_color_buffer_float')) return false;
+    const fb = gl.createFramebuffer();
+    const rb = gl.createRenderbuffer();
+    gl.bindRenderbuffer(gl.RENDERBUFFER, rb);
+    gl.renderbufferStorageMultisample(gl.RENDERBUFFER, 4, gl.R11F_G11F_B10F, 64, 64);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, rb);
+    const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.deleteFramebuffer(fb);
+    gl.deleteRenderbuffer(rb);
+    return ok;
+  })();
   const stack = (...fns: Array<() => () => void>): (() => void) => {
     const undo = fns.map((f) => f());
     return () => undo.reverse().forEach((u) => u());
@@ -125,9 +137,9 @@ export function installPerfProbe(game: Game): void {
     return () => resize(prev);
   };
   const setDpr = (v: number): (() => void) => {
-    const prev = game.host.pixelRatio;
+    const prev = game.host.maxRatio;
     game.host.setMaxPixelRatio(v);
-    return () => game.host.setMaxPixelRatio(Math.max(prev, 1.5));
+    return () => game.host.setMaxPixelRatio(prev);
   };
   const addStyle = (css: string): (() => void) => {
     const el = document.createElement('style');
@@ -141,21 +153,21 @@ export function installPerfProbe(game: Game): void {
       renderer.render(game.scene, game.cam.camera);
     });
 
-  const rt1 = (): THREE.WebGLRenderTarget => post.composer.renderTarget1;
-  const rt2 = (): THREE.WebGLRenderTarget => post.composer.renderTarget2;
-
-  // 現行のポスト構成: 3D 描画 → rt2（MSAA）→ ブルーム（rt2 へ加算）→ グレード（rt1 へ。ここも MSAA）→ 出力（画面）
+  // 現行のポスト構成: シーン → sceneRT（MSAA・RGBA8）→ ブルーム（半解像度）→ 最終 1 パス（画面へ）
   const configs: Config[] = [
     { label: '慣らし', hidden: true, apply: () => NOOP },
     { label: '基準（現状）', apply: () => NOOP },
     { label: '描画なし（JS・rAF だけ）', apply: () => setPostRender(NOOP) },
     { label: 'ポスト全部なし（直描き）', apply: direct },
-    { label: 'ブルーム切', apply: () => setProp(post.bloom, 'enabled', false) },
-    { label: 'グレード切', apply: () => setProp(post.grade, 'enabled', false) },
-    { label: '出力側 MSAA 切（rt1）', apply: () => setTarget(rt1(), { samples: 0 }) },
-    { label: 'MSAA 全部切', apply: () => stack(() => setTarget(rt1(), { samples: 0 }), () => setTarget(rt2(), { samples: 0 })) },
-    { label: 'MSAA 2 倍', apply: () => stack(() => setTarget(rt1(), { samples: 0 }), () => setTarget(rt2(), { samples: 2 })) },
-    { label: 'RGBA8 ターゲット', apply: () => stack(() => setTarget(rt1(), { type: THREE.UnsignedByteType }), () => setTarget(rt2(), { type: THREE.UnsignedByteType })) },
+    { label: 'ブルーム切', apply: () => setProp(post, 'bloomEnabled', false) },
+    { label: 'ブルーム 1/4 解像度', apply: () => { post.setBloomScale(0.25); return () => post.setBloomScale(0.5); } },
+    { label: 'MSAA 切', apply: () => setScene({ samples: 0 }) },
+    { label: 'MSAA 2 倍', apply: () => setScene({ samples: 2 }) },
+    {
+      label: canR11 ? 'シーン R11G11B10（HDR・4byte）' : 'シーン R11G11B10（この端末は非対応）',
+      apply: () => (canR11 ? setScene({ format: 'r11g11b10' }) : NOOP),
+    },
+    { label: 'シーン RGBA8（ブルームが弱くなる）', apply: () => setScene({ format: 'rgba8' }) },
     { label: '影パス切', apply: () => { const l = sun(); return l ? setProp(l, 'castShadow', false) : NOOP; } },
     { label: '影マップ 1024', apply: () => setShadowMapSize(1024) },
     { label: '輪郭線切', apply: () => setVisible(findOutlines(), false) },
@@ -168,18 +180,8 @@ export function installPerfProbe(game: Game): void {
     { label: 'UI の blur 切', apply: () => addStyle('.tbtn{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}') },
     { label: 'UI 全部非表示', apply: () => addStyle('#touch-layer,#hud{display:none!important}') },
     {
-      label: '案A: 出力側MSAA切+RGBA8',
-      apply: () => stack(() => setTarget(rt1(), { samples: 0, type: THREE.UnsignedByteType }), () => setTarget(rt2(), { type: THREE.UnsignedByteType })),
-    },
-    {
-      label: '案B: 案A+ブルーム切+影1024',
-      apply: () =>
-        stack(
-          () => setTarget(rt1(), { samples: 0, type: THREE.UnsignedByteType }),
-          () => setTarget(rt2(), { type: THREE.UnsignedByteType }),
-          () => setProp(post.bloom, 'enabled', false),
-          () => setShadowMapSize(1024),
-        ),
+      label: '軽量案: ブルーム切+影1024',
+      apply: () => stack(() => setProp(post, 'bloomEnabled', false), () => setShadowMapSize(1024)),
     },
     { label: '基準（再）', apply: () => NOOP },
   ];

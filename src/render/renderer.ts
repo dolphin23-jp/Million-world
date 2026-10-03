@@ -69,6 +69,10 @@ export class RendererHost {
     return Math.min(window.devicePixelRatio || 1, this.maxPixelRatio);
   }
 
+  get maxRatio(): number {
+    return this.maxPixelRatio;
+  }
+
   setMaxPixelRatio(v: number): void {
     this.maxPixelRatio = v;
     this.applySize();
