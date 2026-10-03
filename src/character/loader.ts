@@ -27,7 +27,10 @@ export interface LoadCharacterOptions {
   faceBones?: string[];
   /** 顔の陰影の平坦化量（0..1） */
   faceFlat?: number;
-  /** 顔の輪郭線の太さ倍率 */
+  /**
+   * 顔（頭ボーンに乗る頂点）の輪郭線の太さ倍率。輪郭線の太さは画面上で一定なので、ゲームの距離（約 5m）では
+   * 目鼻・唇・前髪の筋より輪郭線のほうが太くなり、顔が黒い塊になる。0.35 → 0.12 でも残り、0.04 でほぼ消える（docs/05「横顔」）
+   */
   faceOutlineScale?: number;
 }
 
@@ -117,7 +120,7 @@ export async function loadCharacter(url: string, opts: LoadCharacterOptions = {}
     mesh.receiveShadow = false;
     // スキンの変形で境界球が外れるのでカリングしない
     mesh.frustumCulled = false;
-    addOutline(mesh, { thickness: opts.outlineThickness ?? 0.028, faceScale: opts.faceOutlineScale ?? 0.35 });
+    addOutline(mesh, { thickness: opts.outlineThickness ?? 0.028, faceScale: opts.faceOutlineScale ?? 0.04 });
   }
 
   const clips = new Map<string, THREE.AnimationClip>();
