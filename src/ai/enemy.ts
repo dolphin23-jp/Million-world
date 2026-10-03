@@ -72,6 +72,11 @@ export class Enemy {
     return this.def.attack;
   }
 
+  /** 予備動作〜攻撃中か（同時に攻撃できる数の制限＝攻撃権の数え方に使う） */
+  get attacking(): boolean {
+    return this.state === 'windup' || this.state === 'attack';
+  }
+
   /** 攻撃の判定が出ているフレームか（ヒット判定の入力）。step() の後に読む */
   get attackActive(): boolean {
     const a = this.def.attack;
@@ -113,7 +118,11 @@ export class Enemy {
     return r;
   }
 
-  step(dt: number, targetX: number, targetZ: number, targetAlive = true): void {
+  /**
+   * canAttack は攻撃権（Game が、同時に攻撃している敵の数が上限未満かで決める）。false のあいだは、攻撃の距離に入っても
+   * 予備動作に入らず、近くで構えて待つ
+   */
+  step(dt: number, targetX: number, targetZ: number, targetAlive = true, canAttack = true): void {
     this.prevX = this.body.x;
     this.prevZ = this.body.z;
     this.prevYaw = this.yaw;
@@ -144,7 +153,7 @@ export class Enemy {
           moveX = Math.sin(this.yaw) * def.moveSpeed;
           moveZ = Math.cos(this.yaw) * def.moveSpeed;
         }
-        if (dist <= atk.range && this.cooldown <= 0) this.setState('windup');
+        if (dist <= atk.range && this.cooldown <= 0 && canAttack) this.setState('windup');
         break;
       case 'windup':
         if (!targetAlive) {

@@ -8,10 +8,11 @@ import { PostPipeline } from '../render/post';
 import { AdaptiveResolution, buildLevels } from '../render/adaptive-resolution';
 import { SkyDome } from '../render/sky';
 import { Arena } from '../world/arena';
-import { clampInsideArena, pushOutOfCircle } from '../world/collision';
+import { clampInsideArena, pushOutOfCircle, separateCircles } from '../world/collision';
 import { Player } from './player';
 import { resolveEnemyAttacks, resolvePlayerAttack } from './combat';
 import { Enemy } from '../ai/enemy';
+import { stepSwarm } from '../ai/swarm';
 import { ENEMIES } from '../ai/data/enemies';
 import { EnemyVisual } from './enemy-visual';
 import { HitStop } from '../core/hitstop';
@@ -21,6 +22,8 @@ import { DamageNumbers } from '../ui/damage-numbers';
 import { EnemyBars } from '../ui/enemy-bars';
 import { LockMarker } from '../ui/lock-marker';
 import { LockOn } from '../combat/lockon-state';
+import { Encounter, spawnPoint, type EncounterEvent } from './encounter';
+import { DEMO_ENCOUNTER, type EncounterDef } from '../ai/data/encounters';
 import type { Hurtbox } from '../combat/hit';
 import { hitFeedback } from '../combat/feedback';
 import { HIT_FEEDBACK } from '../combat/data/hit-feedback';
@@ -59,12 +62,10 @@ interface EnemyEntry {
   visual: EnemyVisual;
 }
 
-/** 敵が全滅してから次を出すまで（sim フレーム）。M3 のリザルト・再戦ができるまでの暫定 */
-const RESPAWN_FRAMES = 150;
-/** プレイヤーが倒れてから最初からやり直すまで（sim フレーム）。M3 のリザルト・再戦ができるまでの暫定 */
-const DEFEAT_RESTART_FRAMES = 180;
-/** スポーン位置（アリーナ中心から）。順に使う */
-const SPAWN_RADIUS = 5.5;
+/** 最後の敵を倒したときのスローモーション（倍率、実時間の秒） */
+const FINISH_SLOW = { scale: 0.3, seconds: 0.9 };
+/** プレイヤーが倒れたときのスローモーション */
+const DEFEAT_SLOW = { scale: 0.35, seconds: 1.2 };
 
 export class Game {
   readonly host: RendererHost;
@@ -78,8 +79,8 @@ export class Game {
   /** enemies の sim だけを並べた配列（毎ステップ配列を作らないため。spawn / 取り除きで同期する） */
   private readonly enemySims: Enemy[] = [];
   private nextEnemyId = 1;
-  private spawnCount = 0;
-  private respawnTimer = 0;
+  /** 戦闘の進行（ウェーブ・勝敗・リザルトの集計）。再戦のたびに作り直す */
+  encounter: Encounter = new Encounter(DEMO_ENCOUNTER);
   readonly hitStop = new HitStop();
   readonly hitFx = new HitFx();
   readonly damageNumbers: DamageNumbers;
@@ -90,7 +91,6 @@ export class Game {
   /** ロックできる敵の体（生きているものだけ。毎ステップ作り直して使い回す） */
   private readonly lockCands: Hurtbox[] = [];
   private lockIndicator = false;
-  private playerDeadFrames = 0;
   readonly swordTrail = new SwordTrail();
   readonly input = new InputAggregator();
   readonly touch: TouchInput;
@@ -143,8 +143,8 @@ export class Game {
     this.scene.add(this.player.root);
     this.scene.add(this.hitFx.group);
     this.scene.add(this.swordTrail.mesh);
-    this.spawnEnemy();
-    this.hud.setPlayerHp(this.player.health.hp, this.player.health.max);
+    this.hud.onRetry(() => this.restart());
+    this.startEncounter();
 
     // --- 入力 ---
     this.touch = new TouchInput();
@@ -217,19 +217,41 @@ export class Game {
     for (let i = 0; i < count; i++) this.render(1, 1 / 60);
   }
 
-  /** 敵を 1 体出す。位置はアリーナ中心から SPAWN_RADIUS の円周を順に回り、プレイヤーの方を向く */
-  spawnEnemy(): Enemy {
-    const a = Math.PI / 2 + this.spawnCount * 2.4;
-    this.spawnCount++;
-    const x = Math.cos(a) * SPAWN_RADIUS;
-    const z = Math.sin(a) * SPAWN_RADIUS;
-    const enemy = new Enemy(ENEMIES.imp, this.nextEnemyId++, x, z);
+  /** 敵を 1 体、(x, z) に出す。プレイヤーの方を向く */
+  spawnEnemy(type: keyof typeof ENEMIES, x: number, z: number): Enemy {
+    const enemy = new Enemy(ENEMIES[type], this.nextEnemyId++, x, z);
     enemy.place(x, z, Math.atan2(this.player.body.x - x, this.player.body.z - z));
     const visual = new EnemyVisual();
     this.scene.add(visual.root);
     this.enemies.push({ enemy, visual });
     this.enemySims.push(enemy);
     return enemy;
+  }
+
+  /** ウェーブの敵を出す（出現位置はプレイヤーから見てアリーナの向こう側。encounter.ts の spawnPoint） */
+  private spawnWave(index: number): void {
+    for (const w of this.encounter.def.waves[index] ?? []) {
+      const p = spawnPoint(w, this.player.body.x, this.player.body.z, this.arena.radius);
+      this.spawnEnemy(w.type, p.x, p.z);
+    }
+  }
+
+  /** 戦闘を始める（最初のウェーブがすぐ出る）。def を渡すと別の構成で始められる（開発・スクリーンショット用） */
+  private startEncounter(def: EncounterDef = DEMO_ENCOUNTER): void {
+    this.encounter = new Encounter(def);
+    this.hud.setPlayerHp(this.player.health.hp, this.player.health.max);
+    this.applyEncounterEvent(this.encounter.step(0, false));
+  }
+
+  private applyEncounterEvent(ev: EncounterEvent | null): void {
+    if (!ev) return;
+    if (ev.type === 'spawn') {
+      this.spawnWave(ev.wave);
+      this.hud.showBanner(ev.last && this.encounter.waveCount > 1 ? 'FINAL WAVE' : `WAVE ${ev.wave + 1}`);
+    } else {
+      const r = this.encounter.result();
+      if (r) this.hud.showResult(r);
+    }
   }
 
   /** プレイヤーの攻撃が敵に当たった。ヒットストップ・画面の揺れ・エフェクト・ダメージ数字を起こす */
@@ -240,6 +262,11 @@ export class Game {
     const y = HIT_FEEDBACK.impactHeight;
     this.hitFx.burst(ev.x, y, ev.z, ev.dirX, ev.dirZ, fb.power);
     this.damageNumbers.spawn(enemy.body.x, y + 0.5, enemy.body.z, result.dealt, fb.style);
+    if (result.killed) {
+      this.encounter.onKill();
+      // 最後のウェーブの最後の 1 体: スローモーション
+      if (this.encounter.onLastWave && !this.enemySims.some((e) => !e.dead)) this.hitStop.slow(FINISH_SLOW.scale, FINISH_SLOW.seconds);
+    }
   }
 
   /** 敵の攻撃がプレイヤーに当たった。ヒットストップ・画面の揺れ・赤いフラッシュ・エフェクト・ダメージ数字・HP バー */
@@ -251,10 +278,22 @@ export class Game {
     this.damageNumbers.spawn(this.player.body.x, HIT_FEEDBACK.playerImpactHeight + 0.7, this.player.body.z, result.dealt, 'hurt');
     this.hud.flashHurt();
     this.hud.setPlayerHp(this.player.health.hp, this.player.health.max);
+    this.encounter.onPlayerHit(result.dealt);
+    if (result.killed) this.hitStop.slow(DEFEAT_SLOW.scale, DEFEAT_SLOW.seconds);
   }
 
   private step(dt: number): void {
     const intent = this.input.beginStep();
+    if (this.encounter.ended) {
+      // リザルトの間は操作を受け付けない（カメラだけ回せる）
+      intent.moveX = 0;
+      intent.moveY = 0;
+      intent.attackPressed = false;
+      intent.dodgePressed = false;
+      intent.heavyPressed = false;
+      intent.lockPressed = false;
+      intent.lockSwitch = 0;
+    }
 
     // ロックオン: 対象の選択・切替・解除。ロック中はカメラが対象の方を向き（ヨーの入力は使わない）、プレイヤーは対象を照準にする
     if (this.player.dead) this.lockOn.release();
@@ -280,19 +319,26 @@ export class Game {
     this.player.step(dt, intent, this.cam.yaw);
 
     const alive = !this.player.dead;
-    for (const { enemy } of this.enemies) enemy.step(dt, this.player.body.x, this.player.body.z, alive);
+    // 攻撃権: 同時に予備動作〜攻撃に入れる敵の数を制限する（残りは近くで構えて待つ）
+    stepSwarm(this.enemySims, dt, this.player.body.x, this.player.body.z, alive, this.encounter.def.maxAttackers);
     // 先にプレイヤーの攻撃を解決する。同じフレームに当たり合うなら、プレイヤーが先に当てて敵の攻撃を中断する
     resolvePlayerAttack(this.player, this.enemySims, (ev, enemy, result) => this.onPlayerHit(ev, enemy, result));
     resolveEnemyAttacks(this.enemySims, this.player, (ev, _enemy, result) => this.onEnemyHit(ev, result));
 
-    // 生きている敵は体を持つ（プレイヤーを押し出す）。アリーナの外へは出ない
-    for (const { enemy } of this.enemies) {
-      if (!enemy.dead) pushOutOfCircle(this.player.body, enemy.body);
-      clampInsideArena(enemy.body, 0, 0, this.arena.radius);
+    // 生きている敵は体を持つ（プレイヤーを押し出し、敵どうしは重ならない）。アリーナの外へは出ない
+    for (let i = 0; i < this.enemySims.length; i++) {
+      const a = this.enemySims[i]!;
+      if (a.dead) continue;
+      pushOutOfCircle(this.player.body, a.body);
+      for (let j = i + 1; j < this.enemySims.length; j++) {
+        const b = this.enemySims[j]!;
+        if (!b.dead) separateCircles(a.body, b.body);
+      }
     }
+    for (const { enemy } of this.enemies) clampInsideArena(enemy.body, 0, 0, this.arena.radius);
     clampInsideArena(this.player.body, 0, 0, this.arena.radius);
 
-    // 演出が終わった敵を取り除く。全滅したら少し待って次を出す（M3 のリザルト・再戦までの暫定）
+    // 演出が終わった敵を取り除く
     for (let i = this.enemies.length - 1; i >= 0; i--) {
       const entry = this.enemies[i]!;
       if (!entry.enemy.removable) continue;
@@ -301,15 +347,11 @@ export class Game {
       this.enemies.splice(i, 1);
       this.enemySims.splice(i, 1);
     }
-    if (this.enemies.length === 0 && alive) {
-      if (++this.respawnTimer >= RESPAWN_FRAMES) {
-        this.respawnTimer = 0;
-        this.spawnEnemy();
-      }
-    }
+    // 戦闘の進行: 全滅でウェーブが進み、最後を倒すか倒されるかでリザルト
+    let living = 0;
+    for (const e of this.enemySims) if (!e.dead) living++;
+    this.applyEncounterEvent(this.encounter.step(living, this.player.dead));
     this.input.endStep();
-    // 倒れたらしばらく見せてから、最初からやり直す（M3 のリザルト・再戦までの暫定）
-    if (this.player.dead && ++this.playerDeadFrames >= DEFEAT_RESTART_FRAMES) this.restart();
   }
 
   /** ロック中の敵（なければ null） */
@@ -319,17 +361,14 @@ export class Game {
     return this.enemySims.find((e) => e.id === id) ?? null;
   }
 
-  /** 戦闘を最初からやり直す（敵を消してプレイヤーを初期状態へ）。M3 の再戦もこれを呼ぶ */
-  restart(): void {
+  /** 戦闘を最初からやり直す（敵を消してプレイヤーを初期状態へ、ウェーブを 1 波目から）。リザルトの「もう一度」もこれを呼ぶ。def で構成を替えられる（開発用） */
+  restart(def: EncounterDef = DEMO_ENCOUNTER): void {
     for (const { visual } of this.enemies) {
       this.scene.remove(visual.root);
       visual.dispose();
     }
     this.enemies.length = 0;
     this.enemySims.length = 0;
-    this.spawnCount = 0;
-    this.respawnTimer = 0;
-    this.playerDeadFrames = 0;
     this.player.reset();
     this.lockOn.release();
     this.hitStop.reset();
@@ -337,8 +376,8 @@ export class Game {
     this.hitFx.clear();
     this.swordTrail.clear();
     this.damageNumbers.clear();
-    this.spawnEnemy();
-    this.hud.setPlayerHp(this.player.health.hp, this.player.health.max);
+    this.hud.hideResult();
+    this.startEncounter(def);
   }
 
   private render(alpha: number, frameDt: number): void {

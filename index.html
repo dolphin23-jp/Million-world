@@ -40,6 +40,23 @@
       <div id="debug"></div>
     </div>
 
+    <div id="banner"><span></span></div>
+
+    <!-- リザルト（勝ち・負け）。「もう一度」で最初から -->
+    <div id="result" class="hidden">
+      <div class="result-card">
+        <div class="result-title"></div>
+        <div class="result-rank"><span></span></div>
+        <div class="result-rows">
+          <div><dt>撃破</dt><dd id="r-kills"></dd></div>
+          <div><dt>タイム</dt><dd id="r-time"></dd></div>
+          <div><dt>被ダメージ</dt><dd id="r-damage"></dd></div>
+          <div><dt>被弾</dt><dd id="r-hits"></dd></div>
+        </div>
+        <button id="result-retry" type="button">もう一度</button>
+      </div>
+    </div>
+
     <div id="start-overlay">
       <div class="title">
         <div class="title-main">MILLION WORLD</div>
