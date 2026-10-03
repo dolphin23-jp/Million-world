@@ -35,6 +35,7 @@ node tools/clip-arm-height.mjs <glb>   # クリップごとの腕の挙上角（
 node tools/sfx-check.mjs   # 効果音を書き出して数値検査し、artifacts/audio/*.wav を出す（先に npm run build）
 node tools/motion-sheet.mjs <label> --script '0:{"attackPressed":true}' --end 36   # 手付けクリップの姿勢を 1 枚に並べる（npm run build の後。--cam side|three|top、--aim x,z、--weapon <装備 id>、--clip <名前> でクリップを直接再生。詳細はファイル先頭）
 node tools/motion-check.mjs <clip> | --stats | --trace <clip>   # 手付けクリップの数値検査: 骨の床からの高さ・剣先の速さ / 全クリップの焼き込み統計 / フレームごとの腕・手首
+（?motionlab=1 を付けて開くと window.__mw.motionLab が使え、ページ内で実リグに対して AuthoredAttack を焼いて統計を返す。手首のねじれを減らす roll の探索用。motion-check は --weapon <装備 id> で大剣などを装備して測る）
 ```
 
 ## ディレクトリ
@@ -50,6 +51,7 @@ src/ai/         敵の行動（FSM・攻撃権）、敵とウェーブの数値�
 src/audio/      効果音（WebAudio 合成のレシピと再生。ADR-017）
 src/ui/         HUD（DOM）: HP バー・ダメージ数字・ロックの枠・リザルト
 src/game/       上記を束ねるシーン・エンティティ管理
+src/debug/      開発用フック（?sfxlab=1 / ?perf=1 / ?motionlab=1。通常起動では読み込まない）
 public/assets/  実行時に読む資産（GLB, テクスチャ, 音）
 tools/          資産変換スクリプト（キャラ GLB の正規化・削減など）
 docs/           設計文書
