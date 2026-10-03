@@ -56,3 +56,10 @@ export function easeOutCubic(t: number): number {
 export function easeInCubic(t: number): number {
   return t * t * t;
 }
+
+/** v を target へ、1 回に最大 maxDelta だけ近づける（行き過ぎない） */
+export function approach(v: number, target: number, maxDelta: number): number {
+  const d = target - v;
+  if (Math.abs(d) <= maxDelta) return target;
+  return v + Math.sign(d) * maxDelta;
+}
