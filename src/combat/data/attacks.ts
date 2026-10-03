@@ -4,10 +4,15 @@
  * これにより再生速度（rate）を変えても発生・持続・硬直の対応が崩れない。
  */
 
+import { rootZCurve, type AuthoredAttack } from '../../character/authoring';
+import { COMBO1 } from '../../character/data/combo1';
+
 export interface AttackDef {
   id: string;
-  /** 使うアニメーション区間名（src/character/data/hero.ts の segments） */
+  /** 使うアニメーション区間名（src/character/data/hero.ts の segments）。手付けの攻撃ではクリップ名（authored.name） */
   segment: string;
+  /** 手付けアニメ（ADR-012）。あれば前進は lunge ではなく、この rootZ のカーブに従う */
+  authored?: AuthoredAttack;
   /** 区間の長さ（秒）。resolve 時にアニメーター側の実測で上書きしてもよい */
   segmentDuration: number;
   /** 区間先頭からの秒: ヒット判定の開始・終了、次段キャンセル受付の開始 */
@@ -16,7 +21,7 @@ export interface AttackDef {
   cancelAt: number;
   /** 再生速度 */
   rate: number;
-  /** 持続中に前進する距離（m） */
+  /** 持続中に前進する距離（m）。手付け（authored）の攻撃では使わない */
   lunge: number;
   /** 次段の攻撃 id。なければコンボ終端 */
   next?: string;
@@ -50,19 +55,29 @@ export function resolveAttack(a: AttackDef): AttackFrames {
   };
 }
 
+/** 手付けの攻撃の前進カーブ（開始からの秒 → ルートの前進量 m）。初回に作って使い回す */
+const rootCurves = new Map<string, (t: number) => number>();
+export function rootMotionOf(a: AttackDef): ((t: number) => number) | null {
+  if (!a.authored) return null;
+  let c = rootCurves.get(a.id);
+  if (!c) rootCurves.set(a.id, (c = rootZCurve(a.authored)));
+  return c;
+}
+
 export const ATTACKS: Record<string, AttackDef> = {
-  // 1 段目: Right_Hand_Sword_Slash（区間 0.1〜1.35s）。剣先の速度（tools/scratch/game-tip.mjs で実測）では
-  // 頭上へ振りかぶって前へ斬り下ろす一撃が主で、剣先は 区間内 0.35〜0.5s に体の前を通る（ピーク 0.39s）。
-  // その後の振り上げ（0.55〜0.65s）は当たり判定なしの余韻なので、次段は斬り下ろしの直後から受け付ける。
+  // 1 段目: 手付けの右袈裟斬り（src/character/data/combo1.ts、0.6s）。予備動作 0 → 0.18、斬り 0.18 → 0.30。
+  // 剣先は 0.235s に体の前を通る最高速（tools/scratch/game-foot.mjs で実測 22m/s）なので、当たりはその前後 0.2〜0.28s。
+  // 振り抜き（〜0.37s）の終わりから次段を受け付ける。踏み込みは rootZ（0.3m）。
   combo1: {
     id: 'combo1',
     segment: 'combo1',
-    segmentDuration: 1.25,
-    activeStart: 0.35,
-    activeEnd: 0.53,
-    cancelAt: 0.55,
-    rate: 1.6,
-    lunge: 0.6,
+    authored: COMBO1,
+    segmentDuration: COMBO1.duration,
+    activeStart: 0.2,
+    activeEnd: 0.28,
+    cancelAt: 0.37,
+    rate: 1,
+    lunge: 0,
     next: 'combo2',
     damage: 10,
     hitStop: 4,

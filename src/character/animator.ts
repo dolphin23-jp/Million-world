@@ -20,19 +20,22 @@ export interface PlayOptions {
   restart?: boolean;
 }
 
+/** トラックの補間器。createInterpolant は実行時には存在するが型定義に無いので、補間方式に応じて明示的に呼ぶ */
+export function trackInterpolant(track: THREE.KeyframeTrack): THREE.Interpolant {
+  return track.getInterpolation() === THREE.InterpolateDiscrete
+    ? track.InterpolantFactoryMethodDiscrete()
+    : track.getInterpolation() === THREE.InterpolateSmooth
+      ? track.InterpolantFactoryMethodSmooth()
+      : track.InterpolantFactoryMethodLinear();
+}
+
 export function sliceClip(src: THREE.AnimationClip, name: string, start: number, end: number, fps = 30): THREE.AnimationClip {
   const dur = Math.max(0, end - start);
   const n = Math.max(2, Math.round(dur * fps) + 1);
   const tracks: THREE.KeyframeTrack[] = [];
   for (const track of src.tracks) {
     const size = track.getValueSize();
-    // createInterpolant は実行時には存在するが型定義に無いので、補間方式に応じて明示的に呼ぶ
-    const interp =
-      track.getInterpolation() === THREE.InterpolateDiscrete
-        ? track.InterpolantFactoryMethodDiscrete()
-        : track.getInterpolation() === THREE.InterpolateSmooth
-          ? track.InterpolantFactoryMethodSmooth()
-          : track.InterpolantFactoryMethodLinear();
+    const interp = trackInterpolant(track);
     const times = new Float32Array(n);
     const values = new Float32Array(n * size);
     for (let i = 0; i < n; i++) {
@@ -61,6 +64,11 @@ export class Animator {
 
   has(name: string): boolean {
     return this.clips.has(name);
+  }
+
+  /** できあがったクリップをそのまま登録する（手付けアニメ用） */
+  addClip(name: string, clip: THREE.AnimationClip): void {
+    this.clips.set(name, clip);
   }
 
   /** 既存クリップの区間から新しい名前のクリップを作る */

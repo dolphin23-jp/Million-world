@@ -1,11 +1,14 @@
 import * as THREE from 'three';
 import type { InputIntent } from '../input/intent';
-import { ATTACKS, DODGE, MOVE, resolveAttack, type AttackDef, type AttackFrames } from '../combat/data/attacks';
+import { ATTACKS, DODGE, MOVE, resolveAttack, rootMotionOf, type AttackDef, type AttackFrames } from '../combat/data/attacks';
 import { clamp, easeInCubic, lerp, lerpAngle, rotateTowards } from '../core/math';
 import type { Circle } from '../world/collision';
 import type { CharacterAsset } from '../character/loader';
 import { Animator } from '../character/animator';
+import { bakeAttack, type BakeStats, type FrameTrace } from '../character/authoring';
+import { AUTHORED_ATTACKS } from '../character/data/authored';
 import { HERO } from '../character/data/hero';
+import { captureRig, type CapturedRig } from '../character/rig-capture';
 import { buildSword } from './sword';
 
 /**
@@ -130,8 +133,16 @@ export class Player {
     const activeStart = fr.startup;
     const activeEnd = fr.startup + fr.active;
 
-    // 持続中は前進（踏み込み）
-    if (f >= activeStart && f < activeEnd) {
+    const root = rootMotionOf(a);
+    if (root) {
+      // 手付け: ステップ f の後の累計の前進量が rootZ(((f + 1) * rate)/60) になるよう、毎ステップの差分で動く。
+      // 見た目のアニメは攻撃開始の描画で 1 フレーム進んでいる（開始ステップの次の描画で時間 1/60）ので、sim を 1 フレーム先にそろえる。
+      // ずれると接地した足が（ルート速度 × 1 フレーム）だけ滑る（実測で最大 3cm）
+      const v = (root(((f + 1) * a.rate) / 60) - root((f * a.rate) / 60)) * 60;
+      this.velX = Math.sin(this.yaw) * v;
+      this.velZ = Math.cos(this.yaw) * v;
+    } else if (f >= activeStart && f < activeEnd) {
+      // 持続中は前進（踏み込み）
       const v = a.lunge / (fr.active / 60);
       this.velX = Math.sin(this.yaw) * v;
       this.velZ = Math.cos(this.yaw) * v;
@@ -223,12 +234,29 @@ class HeroVisual {
   private readonly animator: Animator;
   private seenSerial = -1;
   private readonly sword: THREE.Group;
+  /** 手付けアニメの元になったリグ情報と、焼いたときの統計（デバッグ・検証用） */
+  readonly capture: CapturedRig;
+  readonly authoredStats: Record<string, BakeStats> = {};
+  readonly authoredTrace: Record<string, FrameTrace[]> = {};
 
   constructor(asset: CharacterAsset) {
     this.root = asset.root;
     this.animator = new Animator(asset.root, asset.clips);
     for (const [name, seg] of Object.entries(HERO.segments)) {
       this.animator.defineSegment(name, seg.clip, seg.start, seg.end);
+    }
+    // 手付けの攻撃: 資産の骨から Rig を作り、キー → IK → 60fps のクリップに焼く（ADR-012）
+    this.capture = captureRig(asset, {
+      idleClip: HERO.clips.idle,
+      hingeClip: HERO.clips.run,
+      handFinger: HERO.hand.right.f,
+      grip: { posCm: HERO.sword.position, quat: HERO.sword.quaternion },
+    });
+    for (const def of Object.values(AUTHORED_ATTACKS)) {
+      const { clip, stats, trace } = bakeAttack(this.capture.rig, def, 60, this.capture.extras);
+      this.animator.addClip(def.name, clip);
+      this.authoredStats[def.name] = stats;
+      this.authoredTrace[def.name] = trace;
     }
     // 剣: ボーン空間は cm（Armature 0.01 倍）なのでソケットを 100 倍にして m 単位の剣を置く
     this.sword = buildSword();

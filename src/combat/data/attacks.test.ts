@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { ATTACKS, resolveAttack } from './attacks';
+import { ATTACKS, resolveAttack, rootMotionOf } from './attacks';
+import { AUTHORED_ATTACKS } from '../../character/data/authored';
 import { HERO } from '../../character/data/hero';
 
 describe('resolveAttack', () => {
@@ -50,15 +51,36 @@ describe('resolveAttack', () => {
     expect(a.id).toBe('combo3');
   });
 
-  it('攻撃が参照するアニメ区間が存在し、長さが segmentDuration と一致する', () => {
+  it('攻撃が参照するアニメ区間（Meshy の切り出し）／手付けクリップが存在し、長さが segmentDuration と一致する', () => {
     const segs: Record<string, { start: number; end: number }> = HERO.segments;
     for (const a of Object.values(ATTACKS)) {
-      const seg = segs[a.segment];
-      expect(seg, `${a.id} の区間 ${a.segment}`).toBeDefined();
-      expect(seg!.end - seg!.start, a.id).toBeCloseTo(a.segmentDuration, 2);
+      if (a.authored) {
+        expect(AUTHORED_ATTACKS[a.segment], `${a.id} の手付けクリップ ${a.segment}`).toBe(a.authored);
+        expect(a.authored.name, a.id).toBe(a.segment);
+        expect(a.authored.duration, a.id).toBeCloseTo(a.segmentDuration, 6);
+      } else {
+        const seg = segs[a.segment];
+        expect(seg, `${a.id} の区間 ${a.segment}`).toBeDefined();
+        expect(seg!.end - seg!.start, a.id).toBeCloseTo(a.segmentDuration, 2);
+      }
       // 当たり判定は区間の中、次段の受付は持続の終わり以降
       expect(a.activeStart, a.id).toBeGreaterThanOrEqual(0);
       expect(a.activeEnd, a.id).toBeLessThanOrEqual(a.segmentDuration);
     }
+  });
+
+  it('手付けの攻撃の前進は rootZ のカーブに従い、単調に進んで終端で止まる', () => {
+    const a = ATTACKS.combo1!;
+    const root = rootMotionOf(a)!;
+    expect(root).toBeTypeOf('function');
+    expect(root(0)).toBe(0);
+    let prev = 0;
+    for (let f = 1; f <= Math.round(a.segmentDuration * 60); f++) {
+      const z = root(f / 60);
+      expect(z).toBeGreaterThanOrEqual(prev - 1e-12);
+      prev = z;
+    }
+    expect(root(a.segmentDuration)).toBeCloseTo(0.3, 6);
+    expect(rootMotionOf(ATTACKS.combo2!)).toBeNull();
   });
 });

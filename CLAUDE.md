@@ -41,7 +41,7 @@ src/core/       ゲームループ（固定タイムステップ）、時間（�
 src/input/      タッチ（仮想スティック・ボタン・カメラドラッグ）→ 入力意図への変換
 src/render/     レンダラ初期化、トゥーンマテリアル、輪郭線、ポストプロセス、VFX（トレイル・パーティクル）
 src/world/      アリーナ、衝突、環境オブジェクト
-src/character/  キャラクター読込、アニメーション状態機械、リターゲット
+src/character/  キャラクター読込、アニメーション状態機械、リターゲット、手付け攻撃アニメ（ik / rig / pose-solver / authoring。ADR-012）
 src/combat/     攻撃データ（フレームデータ）、ヒット判定、ダメージ
 src/ai/         敵の行動（FSM）
 src/ui/         HUD（DOM）
