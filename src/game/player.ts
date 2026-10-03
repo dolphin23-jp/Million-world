@@ -47,6 +47,13 @@ export class Player {
   private dodgeDirZ = 1;
   /** 直近の速度の大きさ（見た目用） */
   speed = 0;
+  /**
+   * 照準（ロックオン中の対象の位置。Game が毎ステップ設定する）。あれば、攻撃は対象の方を向いて始まり、
+   * 立ち止まっているときも対象の方を向く（走るときはスティックの向き）
+   */
+  private aimX = 0;
+  private aimZ = 0;
+  private hasAim = false;
   /** 状態が切り替わるたびに増える（見た目側が遷移を検出するため） */
   stateSerial = 0;
 
@@ -70,6 +77,15 @@ export class Player {
   }
 
   // ======================= sim =======================
+
+  /** ロックオン対象の位置を教える（null で照準なし）。step() の前に呼ぶ */
+  setAim(target: { x: number; z: number } | null): void {
+    this.hasAim = target !== null;
+    if (target) {
+      this.aimX = target.x;
+      this.aimZ = target.z;
+    }
+  }
 
   step(dt: number, intent: InputIntent, cameraYaw: number): void {
     this.prevX = this.body.x;
@@ -184,6 +200,8 @@ export class Player {
     } else {
       this.velX = approach(this.velX, 0, MOVE.decel * dt);
       this.velZ = approach(this.velZ, 0, MOVE.decel * dt);
+      // 立ち止まっているときは対象の方を向く
+      if (this.hasAim) this.yaw = rotateTowards(this.yaw, Math.atan2(this.aimX - this.body.x, this.aimZ - this.body.z), MOVE.turnSpeed * dt);
       if (Math.hypot(this.velX, this.velZ) < 0.05) {
         this.velX = 0;
         this.velZ = 0;
@@ -198,8 +216,12 @@ export class Player {
     this.attackFrames = resolveAttack(def);
     this.hitTracker.reset();
     this.setState('attack', true);
-    // 入力方向があれば即座にそちらを向く（タッチでは向き直りの猶予が重要）
-    if (mLen > 0.2) this.yaw = Math.atan2(mx, mz);
+    // 照準（ロックオン対象）があれば即座にそちらを向く。なければ入力方向（タッチでは向き直りの猶予が重要）
+    if (this.hasAim && Math.hypot(this.aimX - this.body.x, this.aimZ - this.body.z) > 0.05) {
+      this.yaw = Math.atan2(this.aimX - this.body.x, this.aimZ - this.body.z);
+    } else if (mLen > 0.2) {
+      this.yaw = Math.atan2(mx, mz);
+    }
     this.velX = 0;
     this.velZ = 0;
   }

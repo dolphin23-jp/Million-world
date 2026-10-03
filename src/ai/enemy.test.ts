@@ -272,6 +272,26 @@ describe('Enemy: 攻撃（予備動作 → 攻撃 → 硬直）', () => {
     expect(e.dead).toBe(true);
   });
 
+  it('攻撃権がないあいだは、攻撃の距離に入っても予備動作に入らない。得たらすぐ入る', () => {
+    const e = make(ATK.range - 0.1);
+    until(e, 'chase');
+    for (let i = 0; i < 120; i++) e.step(DT, 0, 0, true, false);
+    expect(e.state).toBe('chase');
+    expect(e.attacking).toBe(false);
+    e.step(DT, 0, 0, true, true);
+    expect(e.state).toBe('windup');
+    expect(e.attacking).toBe(true);
+  });
+
+  it('attacking は予備動作と攻撃のあいだだけ true（硬直・追跡・被弾では false）', () => {
+    const e = inRange();
+    expect(e.attacking).toBe(true);
+    until(e, 'attack');
+    expect(e.attacking).toBe(true);
+    until(e, 'chase');
+    expect(e.attacking).toBe(false);
+  });
+
   it('攻撃に入るたびに命中の記録（hitTracker）がリセットされる', () => {
     const e = inRange();
     e.hitTracker.add(0);

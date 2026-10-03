@@ -32,6 +32,7 @@ node tools/mesh-check.mjs <glb>     # メッシュ自体の欠陥（穴・裏返
 node tools/build-character.mjs <manifest.json>   # クリップ結合・リターゲット・接地補正
 python3 tools/clean-texture.py <glb> <tex.png> <out.png>   # 生成テクスチャの描き崩れ（腰まわり）を塗り直す。docs/05 参照
 node tools/clip-arm-height.mjs <glb>   # クリップごとの腕の挙上角（脇の破綻の目安）
+node tools/sfx-check.mjs   # 効果音を書き出して数値検査し、artifacts/audio/*.wav を出す（先に npm run build）
 ```
 
 ## ディレクトリ
@@ -42,9 +43,10 @@ src/input/      タッチ（仮想スティック・ボタン・カメラドラ�
 src/render/     レンダラ初期化、トゥーンマテリアル、輪郭線、ポストプロセス、VFX（トレイル・パーティクル）
 src/world/      アリーナ、衝突、環境オブジェクト
 src/character/  キャラクター読込、アニメーション状態機械、リターゲット、手付け攻撃アニメ（ik / rig / pose-solver / authoring。ADR-012）
-src/combat/     攻撃データ（フレームデータ）、ヒット判定、ダメージ
-src/ai/         敵の行動（FSM）
-src/ui/         HUD（DOM）
+src/combat/     攻撃データ（フレームデータ）、ヒット判定、ダメージ、ロックオン、演出の数値
+src/ai/         敵の行動（FSM・攻撃権）、敵とウェーブの数値（data/）
+src/audio/      効果音（WebAudio 合成のレシピと再生。ADR-017）
+src/ui/         HUD（DOM）: HP バー・ダメージ数字・ロックの枠・リザルト
 src/game/       上記を束ねるシーン・エンティティ管理
 public/assets/  実行時に読む資産（GLB, テクスチャ, 音）
 tools/          資産変換スクリプト（キャラ GLB の正規化・削減など）

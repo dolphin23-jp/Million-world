@@ -35,6 +35,8 @@ export class Enemy {
   lastHit: HitEvent | null = null;
   /** この攻撃で当てた対象の記録（1 攻撃 1 対象 1 回）。攻撃に入るたびにリセットする */
   readonly hitTracker = new HitTracker();
+  /** 状態が切り替わるたびに増える（効果音など、遷移の瞬間に反応する側が検出するため） */
+  stateSerial = 0;
   /** 死亡の演出が終わって取り除いてよい */
   removable = false;
   /** 次の予備動作に入れるまでの残り（硬直が明けてから数える） */
@@ -70,6 +72,11 @@ export class Enemy {
 
   get attackDef(): EnemyAttackDef {
     return this.def.attack;
+  }
+
+  /** 予備動作〜攻撃中か（同時に攻撃できる数の制限＝攻撃権の数え方に使う） */
+  get attacking(): boolean {
+    return this.state === 'windup' || this.state === 'attack';
   }
 
   /** 攻撃の判定が出ているフレームか（ヒット判定の入力）。step() の後に読む */
@@ -113,7 +120,11 @@ export class Enemy {
     return r;
   }
 
-  step(dt: number, targetX: number, targetZ: number, targetAlive = true): void {
+  /**
+   * canAttack は攻撃権（Game が、同時に攻撃している敵の数が上限未満かで決める）。false のあいだは、攻撃の距離に入っても
+   * 予備動作に入らず、近くで構えて待つ
+   */
+  step(dt: number, targetX: number, targetZ: number, targetAlive = true, canAttack = true): void {
     this.prevX = this.body.x;
     this.prevZ = this.body.z;
     this.prevYaw = this.yaw;
@@ -144,7 +155,7 @@ export class Enemy {
           moveX = Math.sin(this.yaw) * def.moveSpeed;
           moveZ = Math.cos(this.yaw) * def.moveSpeed;
         }
-        if (dist <= atk.range && this.cooldown <= 0) this.setState('windup');
+        if (dist <= atk.range && this.cooldown <= 0 && canAttack) this.setState('windup');
         break;
       case 'windup':
         if (!targetAlive) {
@@ -195,5 +206,6 @@ export class Enemy {
     if (this.state === s && !forceRestart) return;
     this.state = s;
     this.stateFrame = 0;
+    this.stateSerial++;
   }
 }

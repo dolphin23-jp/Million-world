@@ -6,6 +6,7 @@ import * as THREE from 'three';
  */
 
 interface BarTarget {
+  readonly id: number;
   readonly health: { hp: number; max: number };
   readonly dead: boolean;
   readonly body: { x: number; z: number };
@@ -33,11 +34,12 @@ export class EnemyBars {
   }
 
   /** 毎描画フレーム。カメラの行列は更新済みであること（描画のあとに呼ぶ）。width/height は CSS px */
-  update(camera: THREE.Camera, targets: readonly BarTarget[], width: number, height: number): void {
+  update(camera: THREE.Camera, targets: readonly BarTarget[], width: number, height: number, skipId: number | null = null): void {
     for (let i = 0; i < this.bars.length; i++) {
       const bar = this.bars[i]!;
       const t = targets[i];
-      const visible = t !== undefined && !t.dead && t.health.hp < t.health.max;
+      // ロック対象の HP は画面上部のバーに出すので、頭上のバーは出さない
+      const visible = t !== undefined && !t.dead && t.health.hp < t.health.max && t.id !== skipId;
       if (!visible) {
         if (bar.shown) {
           bar.el.style.display = 'none';

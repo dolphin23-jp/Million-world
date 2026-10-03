@@ -5,7 +5,7 @@ import { installGestureGuards } from './platform/safari';
 declare global {
   interface Window {
     /** 開発・検証ツール用のフック */
-    __mw?: { game: Game; THREE: typeof THREE };
+    __mw?: { game: Game; THREE: typeof THREE; sfxLab?: import('./debug/sfx-lab').SfxLab };
   }
 }
 
@@ -24,6 +24,10 @@ function boot(): void {
     adaptive: params.get('adaptive') !== '0',
   });
   window.__mw = { game, THREE };
+  // ?mute=1 で効果音を鳴らさない
+  if (params.get('mute') === '1') game.audio.muted = true;
+  // ?sfxlab=1: 効果音を書き出して数値検査するための開発用フック（tools/sfx-check.mjs が使う）
+  if (params.has('sfxlab')) void import('./debug/sfx-lab').then((m) => (window.__mw!.sfxLab = m.installSfxLab()));
   // ?perf=1: 実機で fps の原因を切り分ける計測モード（通常起動では読み込まない）
   if (params.has('perf')) void import('./debug/perf-probe').then((m) => m.installPerfProbe(game));
 
@@ -41,7 +45,7 @@ function boot(): void {
     });
   } else {
     // 読込完了まではタップしても始まらないが、タップ自体は受け付ける（音声解放に使う予定）
-    void Promise.all([loaded.then(() => game.hud.setStartHint('タップして開始')), game.hud.waitForStart()]).then(() => game.start());
+    void Promise.all([loaded.then(() => game.hud.setStartHint('タップして開始')), game.hud.waitForStart(() => game.audio.unlock())]).then(() => game.start());
   }
 }
 
