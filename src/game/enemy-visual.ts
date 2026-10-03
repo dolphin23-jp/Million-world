@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { Enemy } from '../ai/enemy';
-import { clamp, lerp, lerpAngle } from '../core/math';
+import { clamp, easeOutCubic, lerp, lerpAngle } from '../core/math';
 import { addOutline, createToonMaterial, type ToonMaterial } from '../render/toon';
 
 /**
@@ -12,6 +12,9 @@ import { addOutline, createToonMaterial, type ToonMaterial } from '../render/too
  */
 
 const WHITE = new THREE.Color(0xffffff);
+/** 予備動作の発光色（赤。紫の体の上で「これから攻撃する」が読める色） */
+const DANGER = new THREE.Color(1, 0.22, 0.16);
+const AXIS_X = new THREE.Vector3(1, 0, 0);
 const _q = new THREE.Quaternion();
 const _axis = new THREE.Vector3();
 
@@ -164,19 +167,52 @@ export class EnemyVisual {
     this.idleTime += animDt;
 
     const dead = e.dead;
-    // 出だしの数フレームは白く飛ぶが、体の形（輪郭と色の塊）は読める強さにとどめる
-    this.setGlow(this.flash * 0.7);
+    const atk = e.def.attack;
 
-    // 待機のゆらぎ（上下・腕）
-    const bob = Math.sin(this.idleTime * 3.2) * 0.025;
-    this.armL.rotation.z = -(0.28 + Math.sin(this.idleTime * 3.2 + 1) * 0.05);
-    this.armR.rotation.z = 0.28 + Math.sin(this.idleTime * 3.2) * 0.05;
+    // --- 攻撃の予備動作（テレグラフ）と攻撃 ---
+    // windup: 腕を振り上げ、体が赤く光り、しゃがんで後ろへ反る。attack: 腕を前へ叩きつけて前のめり、そのあと硬直で戻る
+    let raise = 0; // 腕の振り上げ 0..1
+    let swing = 0; // 腕の叩きつけ 0..1
+    let danger = 0; // 赤い発光 0..1
+    let crouch = 0; // しゃがみ 0..1（縦に縮む）
+    let pitch = 0; // 前後の傾き（+ で前のめり）
+    if (e.state === 'windup') {
+      const w = clamp(e.stateFrame / atk.windupFrames, 0, 1);
+      raise = easeOutCubic(clamp(w * 1.5, 0, 1));
+      danger = 0.25 + 0.45 * w + 0.12 * Math.sin(e.stateFrame * 0.9);
+      crouch = 0.12 * w;
+      pitch = -0.28 * w;
+    } else if (e.state === 'attack') {
+      const swingEnd = atk.startupFrames + 1;
+      const t = clamp(e.stateFrame / swingEnd, 0, 1);
+      const back = clamp((e.stateFrame - atk.startupFrames - atk.activeFrames) / atk.recoverFrames, 0, 1);
+      swing = t * (1 - easeOutCubic(back));
+      raise = (1 - t) * (1 - easeOutCubic(back));
+      danger = 0.4 * (1 - t);
+      pitch = 0.45 * swing;
+      crouch = 0.05 * (1 - back);
+    }
 
-    // つぶれ（被弾直後に縦に縮んで横に広がり、戻る）
-    const sq = this.squash * this.squash * 0.22;
+    // 白（被弾）が強いあいだは白、そうでなければ赤（予備動作）
+    const white = this.flash * 0.7;
+    const red = Math.max(0, danger);
+    if (white >= red) this.setGlow(white);
+    else this.setGlow(red * 0.8, DANGER);
+
+    // 待機のゆらぎ（上下・腕）と、腕の姿勢
+    const bob = Math.sin(this.idleTime * 3.2) * 0.025 * (1 - raise);
+    const sway = 1 - Math.max(raise, swing);
+    const armBase = 0.28 + Math.sin(this.idleTime * 3.2) * 0.05 * sway;
+    const spread = lerp(armBase, 2.55, raise);
+    const spreadSwing = lerp(spread, 0.3, swing);
+    this.armL.rotation.set(-swing * 1.5, 0, -spreadSwing);
+    this.armR.rotation.set(-swing * 1.5, 0, spreadSwing);
+
+    // つぶれ（被弾直後に縦に縮んで横に広がり、戻る）と、しゃがみ
+    const sq = this.squash * this.squash * 0.22 + crouch * 0.5;
     this.pivot.scale.set(1 + sq, 1 - sq * 1.1, 1 + sq);
 
-    // のけぞり（攻撃の向きへ頭が傾く）。死亡では倒れる
+    // のけぞり（攻撃の向きへ頭が傾く）。死亡では倒れる。予備動作・攻撃の前後の傾きは別に掛ける
     let tilt = this.lean * 0.4;
     let sink = 0;
     let shrink = 1;
@@ -201,6 +237,10 @@ export class EnemyVisual {
       this.pivot.quaternion.copy(_q);
     } else {
       this.pivot.quaternion.identity();
+    }
+    if (pitch !== 0) {
+      _q.setFromAxisAngle(AXIS_X, pitch);
+      this.pivot.quaternion.multiply(_q);
     }
     this.pivot.scale.multiplyScalar(shrink);
 

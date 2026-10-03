@@ -1,9 +1,12 @@
 import * as THREE from 'three';
 import type { InputIntent } from '../input/intent';
-import { ATTACKS, DODGE, MOVE, dodgeRoot, resolveAttack, rootMotionOf, type AttackDef, type AttackFrames } from '../combat/data/attacks';
-import { HitTracker, isActiveFrame } from '../combat/hit';
+import { ATTACKS, DODGE, HIT_STUN, MOVE, PLAYER_STATS, dodgeRoot, resolveAttack, rootMotionOf, type AttackDef, type AttackFrames } from '../combat/data/attacks';
+import { applyDamage, createHealth, type DamageResult } from '../combat/health';
+import { HitTracker, isActiveFrame, type HitEvent, type Hurtbox } from '../combat/hit';
+import { Knockback } from '../combat/knockback';
 import { lerp, lerpAngle, rotateTowards } from '../core/math';
-import type { Circle } from '../world/collision';
+import { PLAYER_ID } from './combat';
+import type { ToonMaterial } from '../render/toon';
 import type { CharacterAsset } from '../character/loader';
 import { Animator } from '../character/animator';
 import { bakeAttack, type BakeStats, type FrameTrace } from '../character/authoring';
@@ -17,11 +20,13 @@ import { buildSword } from './sword';
  * 見た目は補間係数 alpha で sim ステップ間を滑らかにし、状態の変化を見てクリップを切り替える。
  */
 
-export type PlayerState = 'idle' | 'run' | 'attack' | 'dodge';
+export type PlayerState = 'idle' | 'run' | 'attack' | 'dodge' | 'hit' | 'dead';
 
 export class Player {
   // ---- sim 状態 ----
-  readonly body: Circle = { x: 0, z: 0, r: MOVE.radius };
+  /** 当たり判定。被弾側のハートボックスを兼ねる（円 + id + 無敵）。invulnerable は refreshHurtbox() で更新する */
+  readonly body: Hurtbox = { id: PLAYER_ID, x: 0, z: 0, r: MOVE.radius, invulnerable: false };
+  readonly health = createHealth(PLAYER_STATS.maxHp);
   yaw = 0;
   velX = 0;
   velZ = 0;
@@ -31,6 +36,12 @@ export class Player {
   attackFrames: AttackFrames | null = null;
   /** この攻撃で当てた対象の記録（1 攻撃 1 対象 1 回）。攻撃を始めるたびにリセットする */
   readonly hitTracker = new HitTracker();
+  /** 被弾の記録。hitSerial は被弾のたびに増える（見た目側が被弾を検出するため） */
+  hitSerial = 0;
+  lastHit: HitEvent | null = null;
+  private readonly knockback = new Knockback();
+  /** 被弾後の無敵の残りフレーム */
+  private hurtInvuln = 0;
   private attackBuffered = false;
   private dodgeDirX = 0;
   private dodgeDirZ = 1;
@@ -94,12 +105,73 @@ export class Player {
       case 'dodge':
         this.stepDodge(dt, intent);
         break;
+      case 'hit':
+        // ひるみ: 操作できない。ノックバックの速度で動き、終わったら待機へ（先行入力は残る）
+        this.velX = this.knockback.velX;
+        this.velZ = this.knockback.velZ;
+        this.knockback.step();
+        if (this.stateFrame >= HIT_STUN.frames) this.setState('idle');
+        break;
+      case 'dead':
+        this.velX = this.knockback.velX;
+        this.velZ = this.knockback.velZ;
+        this.knockback.step();
+        break;
     }
 
     this.body.x += this.velX * dt;
     this.body.z += this.velZ * dt;
     this.speed = Math.hypot(this.velX, this.velZ);
     this.stateFrame++;
+    if (this.hurtInvuln > 0) this.hurtInvuln--;
+    this.refreshHurtbox();
+  }
+
+  /**
+   * 敵の攻撃を受ける。ダメージを適用し、攻撃・回避を中断してひるみ（HP が 0 なら死亡）に入り、ノックバックを受ける。
+   * 無敵（回避の無敵フレーム・被弾後の無敵・死亡）の間は呼ばれない想定（body.invulnerable で当たり判定が除外する）
+   */
+  takeHit(ev: HitEvent): DamageResult {
+    const r = applyDamage(this.health, ev.damage);
+    this.hitSerial++;
+    this.lastHit = ev;
+    this.attack = null;
+    this.attackFrames = null;
+    this.attackBuffered = false;
+    this.hurtInvuln = HIT_STUN.invulnFrames;
+    this.velX = 0;
+    this.velZ = 0;
+    // 攻撃してきた側を向いて受ける（ひるみのアニメは正面から受けた姿）
+    this.yaw = Math.atan2(-ev.dirX, -ev.dirZ);
+    this.knockback.start(ev.dirX, ev.dirZ, ev.knockback, HIT_STUN.knockbackFrames);
+    this.setState(r.killed ? 'dead' : 'hit', true);
+    this.refreshHurtbox();
+    return r;
+  }
+
+  get dead(): boolean {
+    return this.state === 'dead';
+  }
+
+  /** 最初の状態に戻す（再戦。M3 のリザルト・再戦ができるまでは死亡から自動で呼ぶ） */
+  reset(): void {
+    this.health.hp = this.health.max;
+    this.attack = null;
+    this.attackFrames = null;
+    this.attackBuffered = false;
+    this.hurtInvuln = 0;
+    this.knockback.cancel();
+    this.velX = 0;
+    this.velZ = 0;
+    this.body.x = this.prevX = 0;
+    this.body.z = this.prevZ = 0;
+    this.yaw = this.prevYaw = 0;
+    this.setState('idle', true);
+    this.refreshHurtbox();
+  }
+
+  private refreshHurtbox(): void {
+    this.body.invulnerable = this.invulnerable;
   }
 
   private stepLocomotion(dt: number, mx: number, mz: number, mLen: number): void {
@@ -234,8 +306,14 @@ export class Player {
     return t >= a.trail[0] && t <= a.trail[1];
   }
 
-  /** 無敵中か（敵の攻撃のヒット判定で使う） */
+  /** 被弾後の無敵の残りフレーム（0 = 無敵ではない）。見た目の点滅用 */
+  get hurtInvulnFrames(): number {
+    return this.state === 'dead' ? 0 : this.hurtInvuln;
+  }
+
+  /** 無敵中か（敵の攻撃のヒット判定で使う）: 回避の無敵フレーム、被弾後の無敵、死亡後 */
   get invulnerable(): boolean {
+    if (this.state === 'dead' || this.hurtInvuln > 0) return true;
     return this.state === 'dodge' && this.stateFrame >= DODGE.invulnStart && this.stateFrame <= DODGE.invulnEnd;
   }
 
@@ -251,11 +329,11 @@ export class Player {
     return this.visual?.getBladePoints(base, tip) ?? false;
   }
 
-  /** 毎描画フレーム。animDt はヒットストップ等のスケール済み時間 */
-  syncVisual(alpha: number, animDt: number): void {
+  /** 毎描画フレーム。animDt はヒットストップ等のスケール済み時間、frameDt は実時間（フラッシュの減衰用） */
+  syncVisual(alpha: number, animDt: number, frameDt: number): void {
     this.root.position.set(lerp(this.prevX, this.body.x, alpha), 0, lerp(this.prevZ, this.body.z, alpha));
     this.root.rotation.y = lerpAngle(this.prevYaw, this.yaw, alpha) + HERO.forwardYawOffset;
-    this.visual?.update(this, animDt);
+    this.visual?.update(this, animDt, frameDt);
   }
 }
 
@@ -268,6 +346,11 @@ class HeroVisual {
   readonly root: THREE.Group;
   private readonly animator: Animator;
   private seenSerial = -1;
+  private seenHit = 0;
+  /** 被弾のフラッシュ（0..1 で減衰。実時間で減らす） */
+  private flash = 0;
+  /** 発光に使うキャラのマテリアル（トゥーン）。発光色は黒（なし）から始まる */
+  private readonly skinMats: ToonMaterial[];
   private readonly sword: THREE.Group;
   /** 手付けアニメの元になったリグ情報と、焼いたときの統計（デバッグ・検証用） */
   readonly capture: CapturedRig;
@@ -276,6 +359,7 @@ class HeroVisual {
 
   constructor(asset: CharacterAsset) {
     this.root = asset.root;
+    this.skinMats = asset.meshes.map((m) => m.material as ToonMaterial);
     this.animator = new Animator(asset.root, asset.clips);
     for (const [name, seg] of Object.entries(HERO.segments)) {
       this.animator.defineSegment(name, seg.clip, seg.start, seg.end);
@@ -318,11 +402,28 @@ class HeroVisual {
     return true;
   }
 
-  update(p: Player, dt: number): void {
+  /** 被弾のフラッシュと、被弾後の無敵中の点滅（発光）。frameDt は実時間 */
+  private updateGlow(p: Player, frameDt: number): void {
+    if (p.hitSerial !== this.seenHit) {
+      this.seenHit = p.hitSerial;
+      this.flash = 1;
+    }
+    this.flash = Math.max(0, this.flash - frameDt / 0.14);
+    // 無敵のあいだ 3 フレームおきに明滅（回避の無敵とは区別する。被弾後だけ）
+    const blink = p.hurtInvulnFrames > 0 && Math.floor(p.hurtInvulnFrames / 3) % 2 === 0 ? 0.28 : 0;
+    const amount = Math.max(this.flash * 0.75, blink);
+    for (const m of this.skinMats) {
+      m.emissive.setRGB(1, 0.55 + 0.45 * (1 - amount), 0.5 + 0.5 * (1 - amount));
+      m.emissiveIntensity = amount;
+    }
+  }
+
+  update(p: Player, dt: number, frameDt: number): void {
     if (p.stateSerial !== this.seenSerial) {
       this.seenSerial = p.stateSerial;
       this.onStateEnter(p);
     }
+    this.updateGlow(p, frameDt);
     if (p.state === 'run') {
       const rate = Math.max(HERO.runRateMin, p.speed / HERO.runCycleSpeed);
       this.animator.setRate(rate);
@@ -345,6 +446,12 @@ class HeroVisual {
       }
       case 'dodge':
         this.animator.play('dodge', { loop: false, fade: 0.08, rate: 1, clamp: true, restart: true });
+        break;
+      case 'hit':
+        this.animator.play('hit', { loop: false, fade: 0.04, rate: HERO.hit.rate, clamp: true, restart: true });
+        break;
+      case 'dead':
+        this.animator.play(HERO.clips.death, { loop: false, fade: 0.1, rate: 1, clamp: true, restart: true });
         break;
     }
   }

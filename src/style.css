@@ -152,6 +152,73 @@ body {
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
 }
 
+/* ---------- HP バー ---------- */
+.hp {
+  position: relative;
+  height: 14px;
+  border-radius: 7px;
+  background: rgba(14, 12, 30, 0.7);
+  border: 2px solid rgba(255, 255, 255, 0.55);
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+.hp-fill,
+.hp-lag {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 100%;
+}
+.hp-fill {
+  background: linear-gradient(180deg, #9dffb0, #3bd16f);
+  transition: width 60ms linear;
+}
+/* 減った分が遅れて縮む白い帯（どれだけ食らったかが見える） */
+.hp-lag {
+  background: #fff;
+  transition: width 450ms linear 350ms;
+}
+#hp-player {
+  position: absolute;
+  top: calc(14px + var(--safe-top));
+  left: 50%;
+  width: min(44vw, 420px);
+  transform: translateX(-50%);
+}
+.ebar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 78px;
+  height: 9px;
+  border-width: 1.5px;
+  border-radius: 5px;
+  will-change: transform;
+}
+.ebar .hp-fill {
+  background: linear-gradient(180deg, #ffb0a0, #e8503a);
+}
+
+/* 被弾の画面フラッシュ: 縁が赤くなってすぐ消える */
+#hurt-flash {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  background: radial-gradient(ellipse at 50% 50%, rgba(255, 40, 30, 0) 45%, rgba(255, 40, 30, 0.55) 100%);
+}
+#hurt-flash.on {
+  animation: hurt 380ms ease-out;
+}
+@keyframes hurt {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
 /* ---------- ダメージ数字（src/ui/damage-numbers.ts） ---------- */
 #fx-layer {
   position: absolute;
@@ -180,6 +247,9 @@ body {
 }
 .dmg-kill {
   color: #ff8a6a;
+}
+.dmg-hurt {
+  color: #ff5d5d;
 }
 
 /* ---------- 開始画面 ---------- */

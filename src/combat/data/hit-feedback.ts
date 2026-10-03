@@ -15,4 +15,6 @@ export const HIT_FEEDBACK = {
   power: { damage: 40, min: 0.3, max: 1.2 },
   /** 命中エフェクト・ダメージ数字を出す高さ（敵の足元から m。胸のあたり） */
   impactHeight: 1.05,
+  /** プレイヤーが被弾したときのエフェクト・数字の高さ（プレイヤーの足元から m。胸のあたり） */
+  playerImpactHeight: 1.1,
 } as const;

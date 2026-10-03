@@ -182,9 +182,18 @@ export const DODGE = {
 /** 回避の前進カーブ（開始からの秒 → ルートの前進量 m） */
 export const dodgeRoot: (t: number) => number = rootZCurve(DODGE_CLIP);
 
+/** プレイヤーの被弾（敵の攻撃を受けたとき） */
 export const HIT_STUN = {
-  /** ひるみフレーム（アニメ区間 0.6 秒 / rate 1.5 = 0.4 秒） */
+  /** ひるみフレーム（アニメ区間 0.6 秒 / rate 1.5 = 0.4 秒）。この間は何もできない */
   frames: 24,
+  /** ノックバックをかけるフレーム数（距離は敵の攻撃データ） */
+  knockbackFrames: 10,
+  /** 被弾から無敵になるフレーム（ひるみの 24f を含む。起き上がってから少し動ける） */
+  invulnFrames: 56,
+} as const;
+
+export const PLAYER_STATS = {
+  maxHp: 100,
 } as const;
 
 export const MOVE = {

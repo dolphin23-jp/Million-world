@@ -10,7 +10,7 @@ import { SkyDome } from '../render/sky';
 import { Arena } from '../world/arena';
 import { clampInsideArena, pushOutOfCircle } from '../world/collision';
 import { Player } from './player';
-import { resolvePlayerAttack } from './combat';
+import { resolveEnemyAttacks, resolvePlayerAttack } from './combat';
 import { Enemy } from '../ai/enemy';
 import { ENEMIES } from '../ai/data/enemies';
 import { EnemyVisual } from './enemy-visual';
@@ -18,6 +18,7 @@ import { HitStop } from '../core/hitstop';
 import { HitFx } from '../render/hit-fx';
 import { SwordTrail } from '../render/sword-trail';
 import { DamageNumbers } from '../ui/damage-numbers';
+import { EnemyBars } from '../ui/enemy-bars';
 import { hitFeedback } from '../combat/feedback';
 import { HIT_FEEDBACK } from '../combat/data/hit-feedback';
 import type { HitEvent } from '../combat/hit';
@@ -57,6 +58,8 @@ interface EnemyEntry {
 
 /** 敵が全滅してから次を出すまで（sim フレーム）。M3 のリザルト・再戦ができるまでの暫定 */
 const RESPAWN_FRAMES = 150;
+/** プレイヤーが倒れてから最初からやり直すまで（sim フレーム）。M3 のリザルト・再戦ができるまでの暫定 */
+const DEFEAT_RESTART_FRAMES = 180;
 /** スポーン位置（アリーナ中心から）。順に使う */
 const SPAWN_RADIUS = 5.5;
 
@@ -77,6 +80,8 @@ export class Game {
   readonly hitStop = new HitStop();
   readonly hitFx = new HitFx();
   readonly damageNumbers: DamageNumbers;
+  readonly enemyBars: EnemyBars;
+  private playerDeadFrames = 0;
   readonly swordTrail = new SwordTrail();
   readonly input = new InputAggregator();
   readonly touch: TouchInput;
@@ -97,6 +102,7 @@ export class Game {
     this.hud = new Hud();
     this.hud.setDebugVisible(opts.debug ?? true);
     this.damageNumbers = new DamageNumbers(document.getElementById('fx-layer')!);
+    this.enemyBars = new EnemyBars(document.getElementById('fx-layer')!);
 
     // --- シーン ---
     this.scene.fog = new THREE.Fog(0xbfd9ff, 30, 120);
@@ -128,6 +134,7 @@ export class Game {
     this.scene.add(this.hitFx.group);
     this.scene.add(this.swordTrail.mesh);
     this.spawnEnemy();
+    this.hud.setPlayerHp(this.player.health.hp, this.player.health.max);
 
     // --- 入力 ---
     this.touch = new TouchInput();
@@ -225,13 +232,27 @@ export class Game {
     this.damageNumbers.spawn(enemy.body.x, y + 0.5, enemy.body.z, result.dealt, fb.style);
   }
 
+  /** 敵の攻撃がプレイヤーに当たった。ヒットストップ・画面の揺れ・赤いフラッシュ・エフェクト・ダメージ数字・HP バー */
+  private onEnemyHit(ev: HitEvent, result: DamageResult): void {
+    const fb = hitFeedback(ev, result.killed);
+    this.hitStop.trigger(fb.hitStop);
+    this.cam.shake.trigger(fb.shakeAmp, fb.shakeSeconds);
+    this.hitFx.burst(ev.x, HIT_FEEDBACK.playerImpactHeight, ev.z, ev.dirX, ev.dirZ, fb.power);
+    this.damageNumbers.spawn(this.player.body.x, HIT_FEEDBACK.playerImpactHeight + 0.7, this.player.body.z, result.dealt, 'hurt');
+    this.hud.flashHurt();
+    this.hud.setPlayerHp(this.player.health.hp, this.player.health.max);
+  }
+
   private step(dt: number): void {
     const intent = this.input.beginStep();
     this.cam.rotate(intent.camYaw, intent.camPitch);
     this.player.step(dt, intent, this.cam.yaw);
 
-    for (const { enemy } of this.enemies) enemy.step(dt, this.player.body.x, this.player.body.z);
+    const alive = !this.player.dead;
+    for (const { enemy } of this.enemies) enemy.step(dt, this.player.body.x, this.player.body.z, alive);
+    // 先にプレイヤーの攻撃を解決する。同じフレームに当たり合うなら、プレイヤーが先に当てて敵の攻撃を中断する
     resolvePlayerAttack(this.player, this.enemySims, (ev, enemy, result) => this.onPlayerHit(ev, enemy, result));
+    resolveEnemyAttacks(this.enemySims, this.player, (ev, _enemy, result) => this.onEnemyHit(ev, result));
 
     // 生きている敵は体を持つ（プレイヤーを押し出す）。アリーナの外へは出ない
     for (const { enemy } of this.enemies) {
@@ -249,13 +270,36 @@ export class Game {
       this.enemies.splice(i, 1);
       this.enemySims.splice(i, 1);
     }
-    if (this.enemies.length === 0) {
+    if (this.enemies.length === 0 && alive) {
       if (++this.respawnTimer >= RESPAWN_FRAMES) {
         this.respawnTimer = 0;
         this.spawnEnemy();
       }
     }
     this.input.endStep();
+    // 倒れたらしばらく見せてから、最初からやり直す（M3 のリザルト・再戦までの暫定）
+    if (this.player.dead && ++this.playerDeadFrames >= DEFEAT_RESTART_FRAMES) this.restart();
+  }
+
+  /** 戦闘を最初からやり直す（敵を消してプレイヤーを初期状態へ）。M3 の再戦もこれを呼ぶ */
+  restart(): void {
+    for (const { visual } of this.enemies) {
+      this.scene.remove(visual.root);
+      visual.dispose();
+    }
+    this.enemies.length = 0;
+    this.enemySims.length = 0;
+    this.spawnCount = 0;
+    this.respawnTimer = 0;
+    this.playerDeadFrames = 0;
+    this.player.reset();
+    this.hitStop.reset();
+    this.cam.shake.reset();
+    this.hitFx.clear();
+    this.swordTrail.clear();
+    this.damageNumbers.clear();
+    this.spawnEnemy();
+    this.hud.setPlayerHp(this.player.health.hp, this.player.health.max);
   }
 
   private render(alpha: number, frameDt: number): void {
@@ -267,7 +311,7 @@ export class Game {
     // ヒットストップ: sim だけ止める。アニメは sim の時間スケールに従い、カメラ・エフェクト・UI は実時間で進む
     this.loop.stepper.timeScale = this.hitStop.update(frameDt);
     const animDt = frameDt * this.loop.stepper.timeScale;
-    this.player.syncVisual(alpha, animDt);
+    this.player.syncVisual(alpha, animDt, frameDt);
     for (const { enemy, visual } of this.enemies) visual.update(enemy, alpha, animDt, frameDt);
     // 剣筋: アニメ更新直後の刃の位置を記録する。時間はアニメの時間（ヒットストップで止まる）
     if (this.player.getBladePoints(_bladeBase, _bladeTip)) {
@@ -280,6 +324,7 @@ export class Game {
     this.hitFx.update(frameDt);
     this.post.render();
     this.damageNumbers.update(this.cam.camera, frameDt, this.host.width, this.host.height);
+    this.enemyBars.update(this.cam.camera, this.enemySims, this.host.width, this.host.height);
     // 実フレーム間隔で解像度を調整する。段が変わるとレンダターゲットを作り直すので、描画の後で行う
     const nextRatio = this.adaptive.update(frameDt * 1000);
     if (nextRatio !== null) this.host.setMaxPixelRatio(nextRatio);

@@ -38,7 +38,7 @@ export class DamageNumbers {
   }
 
   /** world は命中位置。style で大きさと色が変わる */
-  spawn(x: number, y: number, z: number, value: number, style: HitStyle): void {
+  spawn(x: number, y: number, z: number, value: number, style: HitStyle | 'hurt'): void {
     // 空きがなければ一番古いものを使う（リングバッファ）
     const it = this.items[this.next]!;
     this.next = (this.next + 1) % this.items.length;

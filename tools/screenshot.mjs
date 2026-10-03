@@ -151,6 +151,28 @@ try {
   });
   await page.screenshot({ path: 'artifacts/shot-combat-defeat.png' });
 
+  // 8〜9. 敵の攻撃: 予備動作（腕を上げ赤く光る）→ 被弾の直後（赤いフラッシュ・HP バー・数字）
+  await page.evaluate(() => {
+    const g = window.__mw.game;
+    g.restart();
+    g.enemies[0].enemy.place(0, 2.4, Math.PI);
+    g.stepNow(1);
+    const e = g.enemies[0].enemy;
+    for (let i = 0; i < 300 && !(e.state === 'windup' && e.stateFrame >= 24); i++) g.stepNow(1);
+    g.renderNow(6);
+  });
+  await sleep(120);
+  await page.screenshot({ path: 'artifacts/shot-telegraph.png' });
+
+  await page.evaluate(() => {
+    const g = window.__mw.game;
+    const serial = g.player.hitSerial;
+    for (let i = 0; i < 60 && g.player.hitSerial === serial; i++) g.stepNow(1);
+    g.renderNow(4);
+  });
+  await sleep(120);
+  await page.screenshot({ path: 'artifacts/shot-hurt.png' });
+
   const errors = logs.filter((l) => l.startsWith('[error]') || l.startsWith('[pageerror]'));
   console.log(logs.join('\n'));
   if (errors.length) {
