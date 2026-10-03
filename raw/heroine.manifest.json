@@ -1,0 +1,30 @@
+{
+  "out": "public/assets/characters/hero.glb",
+  "base": "raw/heroine/base.glb",
+  "textureSize": 2048,
+  "freezeBones": [],
+  "clips": {
+    "idle":  { "file": "raw/heroine/clips/idle.glb" },
+    "run":   { "file": "raw/heroine/clips/run.glb" },
+    "combo": { "file": "raw/heroine/clips/combo.glb" },
+    "slash": { "file": "raw/heroine/clips/slash.glb" },
+    "heavy": { "file": "raw/heroine/clips/heavy.glb" },
+    "dodge": { "file": "raw/heroine/clips/dodge.glb" },
+    "hit":   { "file": "raw/heroine/clips/hit.glb" },
+    "death": { "file": "raw/heroine/clips/death.glb" }
+  },
+  "_provenance": {
+    "note": "Higgsfield 経由。3面図(front/side/back) → tripo_h3_1_multiview_to_3d(quad, detailed) → FBX→GLB 変換・正規化 → 3d_rigging(+animation) ×8。土台は run の出力を tools/weld-by-position.mjs → tools/smooth-weights.mjs(0.5×3) で処理",
+    "mesh_job": "2106da46-4cc5-4af6-8495-9f7527cae121",
+    "rig_jobs": {
+      "run": "b9c479ac-08de-4fa6-ae9a-786bf9504763 (Run_02 14)",
+      "idle": "4011725b-8a0c-4c6b-bae2-705972c3febe (Combat_Stance 89)",
+      "combo": "8d6d0b0c-c9b0-4f49-8e17-b2d9d9a40bdf (Triple_Combo_Attack 105)",
+      "slash": "b636cdf9-174a-43af-9126-70865ae39b40 (Right_Hand_Sword_Slash 219)",
+      "heavy": "4306cbec-9643-451b-a6c7-6432773d40e6 (Heavy_Hammer_Swing 128)",
+      "dodge": "85587919-036a-4621-87a1-8f2438e8f1cb (Roll_Dodge 158)",
+      "hit": "28218e60-3fc6-47d2-a231-58e638f77830 (Hit_Reaction_1 179)",
+      "death": "1f932c53-2f45-4e41-8833-26c278705f0a (dying_backwards 189)"
+    }
+  }
+}

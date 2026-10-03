@@ -27,6 +27,8 @@ npm run typecheck
 npm test             # vitest
 npm run build
 npm run shot         # Playwright でヘッドレス描画してスクリーンショットを artifacts/ に出力（目視検証用）
+node tools/skin-stress.mjs <glb>    # キャラ資産の変形破綻を数値検査（採用前に必須。docs/05 参照）
+node tools/build-character.mjs <manifest.json>   # クリップ結合・リターゲット・接地補正
 ```
 
 ## ディレクトリ

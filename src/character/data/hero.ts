@@ -13,7 +13,7 @@ export interface ClipSegment {
 export const HERO = {
   /** import.meta.env.BASE_URL からの相対 */
   url: 'assets/characters/hero.glb',
-  height: 1.7,
+  height: 1.68,
   /** クリップはすべて +Z 正面（tools/scratch で確認済み） */
   forwardYawOffset: 0,
 
@@ -53,6 +53,6 @@ export const HERO = {
     /** ソケットの位置（cm） */
     position: [0, 8, 0] as [number, number, number],
     /** ソケットの回転（オイラー、ラジアン、XYZ 順） */
-    rotation: [Math.PI * 0.5, 0, 0] as [number, number, number],
+    rotation: [0, 0, -Math.PI * 0.5] as [number, number, number],
   },
 } as const;

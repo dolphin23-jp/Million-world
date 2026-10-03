@@ -50,6 +50,7 @@
         scene.add(model);
         clips = gltf.animations;
         if (clips.length) mixer = new THREE.AnimationMixer(model);
+        window.__model = model; window.__mixer = mixer; window.__THREE = THREE;
         box.setFromObject(model);
         const stats = { tris: 0, meshes: 0, skinned: 0, bones: 0, textures: [], animations: gltf.animations.map(a => `${a.name}:${a.duration.toFixed(2)}s`) };
         const seenTex = new Set();
@@ -112,6 +113,50 @@
         camera.position.set(Math.sin(yaw) * Math.cos(pitch) * dist, targetY + Math.sin(pitch) * dist, Math.cos(yaw) * Math.cos(pitch) * dist);
         camera.lookAt(0, targetY, 0);
         renderer.render(scene, camera);
+      };
+      // スキン変形の伸び率を three.js 自身のスキニング（applyBoneTransform）で測る
+      window.measureStress = (clipIndex, step = 0.05, thresh = 1.8) => {
+        const clip = clips[clipIndex];
+        if (!clip || !mixer) return null;
+        const meshes = []; model.traverse((o) => { if (o.isSkinnedMesh) meshes.push(o); });
+        const results = [];
+        for (const mesh of meshes) {
+          const geo = mesh.geometry; const posAttr = geo.attributes.position; const nV = posAttr.count;
+          const index = geo.index ? geo.index.array : null; const nTri = index ? index.length / 3 : nV / 3;
+          const edgeKeys = new Set(); const edges = [];
+          const add = (a, b) => { const k = a < b ? a * nV + b : b * nV + a; if (edgeKeys.has(k)) return; edgeKeys.add(k); edges.push(a, b); };
+          for (let t = 0; t < nTri; t++) { const a = index ? index[t*3] : t*3, b = index ? index[t*3+1] : t*3+1, c = index ? index[t*3+2] : t*3+2; add(a,b); add(b,c); add(c,a); }
+          const nE = edges.length / 2;
+          const bind = new Float32Array(nE);
+          const pa = new THREE.Vector3(), pb = new THREE.Vector3();
+          for (let e = 0; e < nE; e++) { pa.fromBufferAttribute(posAttr, edges[e*2]); pb.fromBufferAttribute(posAttr, edges[e*2+1]); bind[e] = pa.distanceTo(pb); }
+          let nanCount = 0, degenerate = 0; for (let e = 0; e < nE; e++) if (bind[e] < 2e-3) degenerate++;
+          const skinned = new Float32Array(nV * 3);
+          const v = new THREE.Vector3();
+          let max = 0, maxT = 0, maxEdge = -1, over = 0, total = 0; const all = []; let minY = Infinity, minYT = 0; const wp = new THREE.Vector3();
+          mixer.stopAllAction(); const action = mixer.clipAction(clip); action.play();
+          for (let t = 0; t <= clip.duration + 1e-6; t += step) {
+            mixer.setTime(Math.min(t, clip.duration)); model.updateMatrixWorld(true); mesh.skeleton.update();
+            for (const b of mesh.skeleton.bones) { b.getWorldPosition(wp); if (wp.y < minY) { minY = wp.y; minYT = t; } }
+            // applyBoneTransform はメッシュローカル（bindMatrixInverse 適用後）を返すので、world へ戻して bind 座標（=world と同スケール）と比べる
+            for (let i = 0; i < nV; i++) { v.fromBufferAttribute(posAttr, i); mesh.applyBoneTransform(i, v); v.applyMatrix4(mesh.matrixWorld); skinned[i*3] = v.x; skinned[i*3+1] = v.y; skinned[i*3+2] = v.z; }
+            for (let e = 0; e < nE; e++) {
+              const a = edges[e*2], b = edges[e*2+1];
+              const L = Math.hypot(skinned[a*3]-skinned[b*3], skinned[a*3+1]-skinned[b*3+1], skinned[a*3+2]-skinned[b*3+2]);
+              if (bind[e] < 2e-3) continue; const r = L / bind[e]; if (!Number.isFinite(r)) { nanCount++; continue; } all.push(r); total++; if (r > thresh) over++; if (r > max) { max = r; maxT = t; maxEdge = e; }
+            }
+          }
+          all.sort((x, y) => x - y);
+          const p999 = all[Math.floor(all.length * 0.999)], p99 = all[Math.floor(all.length * 0.99)], median = all[Math.floor(all.length * 0.5)];
+          let bones = [];
+          if (maxEdge >= 0) {
+            const si = geo.attributes.skinIndex, sw = geo.attributes.skinWeight; const contrib = new Map();
+            for (const vi of [edges[maxEdge*2], edges[maxEdge*2+1]]) for (let k = 0; k < 4; k++) { const w = sw.getComponent(vi, k); if (w > 0.05) { const name = mesh.skeleton.bones[si.getComponent(vi, k)].name; contrib.set(name, (contrib.get(name) ?? 0) + w); } }
+            bones = [...contrib.entries()].sort((x, y) => y[1] - x[1]).slice(0, 3).map(([n, w]) => `${n}:${w.toFixed(2)}`);
+          }
+          results.push({ mesh: mesh.name, nanCount, degenerate, median: +median.toFixed(3), minJointY: +minY.toFixed(3), minJointYAt: +minYT.toFixed(2), clip: clip.name, duration: +clip.duration.toFixed(2), max: +max.toFixed(2), maxAt: +maxT.toFixed(2), p999: +p999.toFixed(2), p99: +p99.toFixed(2), overPct: +((over/total)*100).toFixed(3), worstBones: bones, verdict: max < 2.0 && p999 < 1.6 ? 'OK' : max < 3.0 ? 'WARN' : 'BAD' });
+        }
+        return results;
       };
       window.__ready = true;
     </script>

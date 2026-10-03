@@ -8,4 +8,4 @@ raw/*
 test-results/
 tools/scratch/
 
-!raw/hero.manifest.json
+!raw/*.manifest.json
