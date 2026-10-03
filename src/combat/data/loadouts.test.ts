@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { ATTACKS, CHARGES } from './attacks';
-import { GUARDS, PARRY } from './guard';
+import { GUARDS, PARRY_EFFECTS } from './guard';
 import { DEFAULT_LOADOUT, LOADOUTS, LOADOUT_ORDER, isLoadoutId, nextLoadout } from './loadouts';
 import { AuthoredSampler, type AuthoredAttack } from '../../character/authoring';
 import type { PoseInput } from '../../character/pose-solver';
-import { AUTHORED_ATTACKS, SHIELD_VARIANT } from '../../character/data/authored';
+import { AUTHORED_ATTACKS, GREATSWORD_VARIANT, SHIELD_VARIANT } from '../../character/data/authored';
 import { SHIELD_GUARD, SHIELD_GUARD_HIT, SHIELD_PARRY, SWORD_GUARD, SWORD_GUARD_HIT } from '../../character/data/guard';
 import { makeRig } from '../../character/test-rig';
 
@@ -33,6 +33,7 @@ describe('ロードアウト（素手が標準・盾は装備。ADR-020）', () 
   it('isLoadoutId は定義された id だけ true（保存値・URL の検査に使う）', () => {
     expect(isLoadoutId('sword')).toBe(true);
     expect(isLoadoutId('sword-shield')).toBe(true);
+    expect(isLoadoutId('greatsword')).toBe(true);
     for (const v of ['', 'greatsword?', 'toString', '__proto__', null, undefined, 3]) expect(isLoadoutId(v)).toBe(false);
   });
 
@@ -46,9 +47,15 @@ describe('ロードアウト（素手が標準・盾は装備。ADR-020）', () 
     }
   });
 
-  it('盾の有無と、ガード・クリップの版・走る速さが対応している', () => {
+  it('盾の有無と、ガード・クリップの版・走る速さが対応している（大剣は両手持ちで盾は持たず、大剣版のクリップ・専用のガード・重さで遅い）', () => {
     for (const l of Object.values(LOADOUTS)) {
-      if (l.offhand === 'shield') {
+      if (l.weapon === 'greatsword') {
+        expect(l.offhand).toBe('none');
+        expect(l.guard.id).toBe('greatsword');
+        expect(l.clipVariant).toBe(GREATSWORD_VARIANT);
+        expect(l.runSpeedScale).toBeLessThan(1);
+        expect(l.charge).toBe('greatsword');
+      } else if (l.offhand === 'shield') {
         expect(l.guard.id).toBe('shield');
         expect(l.clipVariant).toBe(SHIELD_VARIANT);
         expect(l.runSpeedScale).toBeLessThan(1); // 盾の重さ
@@ -62,13 +69,25 @@ describe('ロードアウト（素手が標準・盾は装備。ADR-020）', () 
 });
 
 describe('ガードの数値', () => {
-  it('パリィがあるのは盾だけ。盾のほうが防ぐ割合が大きく、押されにくい', () => {
+  it('パリィがあるのは盾と大剣だけ（素手の剣にはない）。盾のほうが防ぐ割合が大きく、押されにくい', () => {
     expect(GUARDS.shield.parryFrames).toBeGreaterThan(0);
+    expect(GUARDS.greatsword.parryFrames).toBeGreaterThan(0);
     expect(GUARDS.sword.parryFrames).toBe(0);
     expect(GUARDS.shield.clips.parry).toBeDefined();
+    expect(GUARDS.greatsword.clips.parry).toBeDefined();
     expect(GUARDS.sword.clips.parry).toBeUndefined();
     expect(GUARDS.shield.damageReduction).toBeGreaterThan(GUARDS.sword.damageReduction);
     expect(GUARDS.shield.knockbackScale).toBeLessThan(GUARDS.sword.knockbackScale);
+  });
+
+  it('大剣のパリィは盾よりシビア（受付が短い。受け止めるだけの軽減も小さく、構え直しも遅い）で、弾かれた敵は倒れる（盾は体勢を崩す）', () => {
+    expect(GUARDS.greatsword.parryFrames).toBeLessThan(GUARDS.shield.parryFrames);
+    expect(GUARDS.greatsword.parryFrames).toBeGreaterThanOrEqual(4); // 指で狙える下限（0.07 秒）
+    expect(GUARDS.greatsword.damageReduction).toBeLessThan(GUARDS.shield.damageReduction);
+    expect(GUARDS.greatsword.damageReduction).toBeGreaterThan(GUARDS.sword.damageReduction);
+    expect(GUARDS.greatsword.lockFrames).toBeGreaterThan(GUARDS.shield.lockFrames);
+    expect(GUARDS.greatsword.parryEffect).toBe('down');
+    expect(GUARDS.shield.parryEffect).toBe('stagger');
   });
 
   it('値の範囲: 軽減は 0..1 未満（防ぎきらない）、キャンセルは最短の構えより早い、パリィの受付は構えの動きの中', () => {
@@ -85,10 +104,36 @@ describe('ガードの数値', () => {
   });
 
   it('パリィで体勢を崩す時間は、1 段目から 2 段目まで続けて当てられる長さ。反撃はダメージが増え、ノックバックは減る', () => {
-    expect(PARRY.staggerFrames).toBeGreaterThanOrEqual(45);
-    expect(PARRY.riposteDamageScale).toBeGreaterThan(1);
-    expect(PARRY.riposteKnockbackScale).toBeLessThan(1);
-    expect(PARRY.riposteKnockbackScale).toBeGreaterThan(0);
+    const fx = PARRY_EFFECTS.stagger;
+    expect(fx.frames).toBeGreaterThanOrEqual(45);
+    expect(fx.riposteFrames).toBeLessThanOrEqual(fx.frames);
+    expect(fx.riposteDamageScale).toBeGreaterThan(1);
+    expect(fx.riposteKnockbackScale).toBeLessThan(1);
+    expect(fx.riposteKnockbackScale).toBeGreaterThan(0);
+  });
+
+  it('弾かれた敵の効果（PARRY_EFFECTS）は、どれも反撃の受付が動けない時間の中にあり、倍率は妥当。構えは存在する効果を指す', () => {
+    for (const fx of Object.values(PARRY_EFFECTS)) {
+      expect(fx.riposteFrames, fx.id).toBeGreaterThan(0);
+      expect(fx.riposteFrames, fx.id).toBeLessThanOrEqual(fx.frames);
+      expect(fx.riposteDamageScale, fx.id).toBeGreaterThan(1);
+      expect(fx.riposteKnockbackScale, fx.id).toBeGreaterThan(0);
+      expect(fx.riposteKnockbackScale, fx.id).toBeLessThan(1);
+      expect(fx.enemyKnockback, fx.id).toBeGreaterThan(0);
+      expect(fx.hitStop, fx.id).toBeGreaterThan(0);
+      expect(fx.recoverCooldownFrames, fx.id).toBeGreaterThan(0);
+    }
+    for (const g of Object.values(GUARDS)) expect(PARRY_EFFECTS[g.parryEffect], g.id).toBeDefined();
+  });
+
+  it('盾のパリィは体勢を崩す（stagger）、大剣のパリィは弾き飛ばして倒す（down）。倒れるほうが長く・遠く・反撃の倍率も大きい', () => {
+    expect(GUARDS.shield.parryEffect).toBe('stagger');
+    const s = PARRY_EFFECTS.stagger;
+    const d = PARRY_EFFECTS.down;
+    expect(d.frames).toBeGreaterThan(s.frames);
+    expect(d.enemyKnockback).toBeGreaterThan(s.enemyKnockback);
+    expect(d.riposteDamageScale).toBeGreaterThan(s.riposteDamageScale);
+    expect(d.hitStop).toBeGreaterThan(s.hitStop);
   });
 });
 

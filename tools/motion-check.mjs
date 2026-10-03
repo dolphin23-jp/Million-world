@@ -10,6 +10,7 @@
  *   末尾に要約: 最低の高さ（床下 = めり込み）と、その部位・時刻、剣先の最高速。
  * クリップ名は game.player のアニメーターに登録された名前（combo1 / combo2 / combo3 / heavy / dodge など）。
  *
+ *   node tools/motion-check.mjs <クリップ名> --weapon greatsword   装備（ロードアウトの id）を替えて測る（剣先の高さ・速さは武器ごとの刃の長さ）
  *   node tools/motion-check.mjs --trace <クリップ名>   フレームごとの腕の挙上角・肘・手首の曲がり/ねじれ・握りの誤差（BakeStats の元の値。どこで超えたかを探す）
  *   node tools/motion-check.mjs --stats      全クリップの焼き込み統計（BakeStats）を 1 行ずつ出す。
  *     腕/脚のクランプ（到達不能で諦めたフレーム数。0 が目標）、腰の沈み、握りの誤差、右上腕の最大挙上角（130° 以下）、
@@ -34,6 +35,8 @@ if (!statsMode && !traceName && (!name || name.startsWith('--'))) {
 }
 const stepIdx = argv.indexOf('--step');
 const step = stepIdx >= 0 ? Number(argv[stepIdx + 1]) : 2;
+const weaponIdx = argv.indexOf('--weapon');
+const weapon = weaponIdx >= 0 ? argv[weaponIdx + 1] : null;
 
 const port = 4170 + Math.floor(Math.random() * 9);
 const server = spawn(process.execPath, ['node_modules/vite/bin/vite.js', 'preview', '--port', String(port), '--strictPort', '--host', '127.0.0.1'], { stdio: 'ignore', detached: true });
@@ -50,6 +53,16 @@ try {
   page.on('pageerror', (e) => console.error('[pageerror]', e.message));
   await page.goto(url);
   await page.waitForFunction(() => Boolean(window.__mw?.game?.ready), null, { timeout: 60000 });
+  if (weapon) {
+    // 装備を替えて、見た目（武器のメッシュ）に反映させる（描画ループを回さないので update を 1 回呼ぶ）
+    const ok = await page.evaluate((id) => {
+      const g = window.__mw.game;
+      if (!g.setLoadout(id)) return false;
+      g.player.visual.update(g.player, 0, 0);
+      return true;
+    }, weapon);
+    if (!ok) throw new Error(`装備を替えられません: ${weapon}`);
+  }
   if (traceName) {
     const trace = await page.evaluate((n) => window.__mw.game.player.visual.authoredTrace[n] ?? null, traceName);
     if (!trace) throw new Error(`クリップがありません: ${traceName}`);
@@ -81,6 +94,8 @@ try {
     const an = vis.animator;
     if (!an.has(clipName)) return { error: `クリップがありません: ${clipName}` };
     const dur = an.duration(clipName);
+    // 直前に再生していたクリップ（装備を替えたときの待機など）が重みを残して姿勢に混ざらないよう、すべて止めてから再生する
+    an.mixer.stopAllAction();
     const act = an.play(clipName, { loop: false, fade: 0, restart: true, rate: 1, clamp: true });
     // 直前のクリップからのクロスフェード（長さ 0）はミキサーの時間が進まないと完了しない。1 度だけ進めて、このクリップだけが効く状態にする
     an.mixer.update(0.01);

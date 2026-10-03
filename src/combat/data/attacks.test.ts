@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ATTACKS, CHARGES, DODGE, DODGES, resolveAttack, rootMotionOf } from './attacks';
-import { CHARGE_HOLD_FRAMES, SWORD_MOVESET } from './moveset';
+import { GREATSWORD_MOVESET, SWORD_MOVESET } from './moveset';
+import { GS_DODGE, GS_DODGE_BACK, GS_STANCE } from '../../character/data/greatsword';
 import { AuthoredSampler } from '../../character/authoring';
 import { AUTHORED_ATTACKS } from '../../character/data/authored';
 import { HERO } from '../../character/data/hero';
@@ -205,6 +206,12 @@ describe('踏み込み（手付けの下半身）', () => {
       ['combo2', 'footR', 0.16],
       ['combo3', 'footR', 0.17],
       ['heavy', 'footR', 0.18],
+      // 大剣（幅の広い踏み込み）
+      ['gs1', 'footL', 0.37],
+      ['gs2', 'footR', 0.21],
+      ['gsLunge', 'footR', 0.35],
+      ['gsRise', 'footR', 0.23],
+      ['gsHeavy', 'footL', 0.22],
     ];
     for (const [id, foot, t] of plants) {
       const s = sampler(id);
@@ -226,7 +233,7 @@ describe('踏み込み（手付けの下半身）', () => {
   });
 
   it('次段の始まりの足は、前の技の受付時点の足の位置と世界で一致する（足の z + 原点の付け替え）', () => {
-    for (const id of ['combo1', 'combo2']) {
+    for (const id of ['combo1', 'combo2', 'gs1']) {
       const prev = ATTACKS[id]!;
       const next = ATTACKS[prev.next!]!;
       const sp = sampler(id);
@@ -240,7 +247,7 @@ describe('踏み込み（手付けの下半身）', () => {
   });
 
   it('次段の始まりの 1 フレームは足が動かない（前の技から受け取る足の位置と、最初の保持キーの値が合っている）', () => {
-    for (const id of ['combo2', 'combo3']) {
+    for (const id of ['combo2', 'combo3', 'gs2']) {
       const s = sampler(id);
       const a = s.sample(0, s.newInput());
       const b = s.sample(1 / 60, s.newInput());
@@ -283,7 +290,116 @@ describe('溜め（長押し）の定義', () => {
   it('溜めに入るフレームは、構えのクリップが 1 段目から続く時刻と一致し、1 段目の斬りが始まる前', () => {
     const from = c.clip.continueFrom!;
     expect(from.attack).toBe(ATTACKS[SWORD_MOVESET.light]!.authored);
-    expect(CHARGE_HOLD_FRAMES).toBe(Math.round(from.t * 60));
-    expect(CHARGE_HOLD_FRAMES).toBeLessThan(resolveAttack(ATTACKS[SWORD_MOVESET.light]!).startup);
+    expect(c.holdFrames).toBe(Math.round(from.t * 60));
+    expect(c.holdFrames).toBeLessThan(resolveAttack(ATTACKS[SWORD_MOVESET.light]!).startup);
+  });
+});
+
+describe('大剣の技（手付け・両手持ち。ADR-021）', () => {
+  const gsIds = Object.values(GREATSWORD_MOVESET).concat('gs2', CHARGES.greatsword!.next).filter((v, i, a) => a.indexOf(v) === i);
+
+  it('技のセットはすべて実在し、手付けクリップとして登録された両手持ち（twoHanded）で、長さが segmentDuration と一致する', () => {
+    for (const id of gsIds) {
+      const a = ATTACKS[id]!;
+      expect(a, id).toBeDefined();
+      expect(a.authored, id).toBeDefined();
+      expect(AUTHORED_ATTACKS[a.segment], id).toBe(a.authored);
+      expect(a.authored!.twoHanded, id).toBeDefined();
+      expect(a.authored!.continueFrom, `${id} は構えか前の技の姿勢から続く`).toBeDefined();
+      expect(a.authored!.duration, id).toBeCloseTo(a.segmentDuration, 6);
+    }
+  });
+
+  it('1 段目 → 2 段目で終わる（手数が少ない）。2 段目は 1 段目の受付時点の姿勢から続く', () => {
+    let a = ATTACKS[GREATSWORD_MOVESET.light]!;
+    const chain = [a.id];
+    while (a.next) {
+      const n = ATTACKS[a.next]!;
+      expect(n.authored!.continueFrom!.attack, n.id).toBe(a.authored);
+      expect(n.authored!.continueFrom!.t, n.id).toBeCloseTo(a.cancelAt, 6);
+      chain.push(n.id);
+      a = n;
+    }
+    expect(chain).toEqual(['gs1', 'gs2']);
+  });
+
+  it('ロール直後・後ろステップ直後の技は、それぞれの回避（大剣版）の受付の姿勢から続く', () => {
+    const dash = ATTACKS[GREATSWORD_MOVESET.dashRoll]!;
+    const rise = ATTACKS[GREATSWORD_MOVESET.dashBack]!;
+    expect(dash.authored!.continueFrom!.attack).toBe(GS_DODGE);
+    expect(rise.authored!.continueFrom!.attack).toBe(GS_DODGE_BACK);
+    // 回避のキャンセル（攻撃を出せる）フレームの時刻に合っている
+    expect(dash.authored!.continueFrom!.t).toBeCloseTo(DODGES.roll.cancelFrame / 60, 1);
+    expect(rise.authored!.continueFrom!.t).toBeCloseTo(DODGES.back.cancelFrame / 60, 1);
+  });
+
+  it('大剣のロールは、ルートの前進・長さが片手剣のロールと同じ（sim の移動・無敵はそのクリップの数値に従うので、見た目とずれない）', () => {
+    for (const [gs, sword] of [[GS_DODGE, DODGES.roll.clip], [GS_DODGE_BACK, DODGES.back.clip]] as const) {
+      expect(gs.duration).toBeCloseTo(sword.duration, 9);
+      const root = rootMotionOf({ ...ATTACKS.combo1!, id: gs.name, authored: gs })!;
+      const swordRoot = rootMotionOf({ ...ATTACKS.combo1!, id: sword.name, authored: sword })!;
+      for (let f = 0; f <= Math.round(sword.duration * 60); f++) expect(root(f / 60), `${gs.name} f${f}`).toBeCloseTo(swordRoot(f / 60), 9);
+    }
+    expect(AUTHORED_ATTACKS[GS_DODGE.name]).toBe(GS_DODGE);
+    expect(AUTHORED_ATTACKS[GS_DODGE_BACK.name]).toBe(GS_DODGE_BACK);
+    expect(AUTHORED_ATTACKS[GS_STANCE.name]).toBe(GS_STANCE);
+  });
+
+  it('片手剣の同種の技より重い: 発生が遅く、ダメージ・ヒットストップ・ノックバックが大きい', () => {
+    const pairs: [string, string][] = [
+      ['gs1', 'combo1'],
+      ['gs2', 'combo2'],
+      ['gsLunge', 'lunge'],
+      ['gsRetreat', 'retreat'],
+      ['gsSpin', 'sweep'],
+      ['gsDash', 'dash'],
+      ['gsRise', 'lunge'],
+      ['gsHeavy', 'heavy'],
+    ];
+    for (const [gs, sw] of pairs) {
+      const a = ATTACKS[gs]!;
+      const b = ATTACKS[sw]!;
+      expect(resolveAttack(a).startup, `${gs} の発生`).toBeGreaterThan(resolveAttack(b).startup);
+      expect(a.damage, `${gs} のダメージ`).toBeGreaterThan(b.damage);
+      expect(a.hitStop, `${gs} のヒットストップ`).toBeGreaterThanOrEqual(b.hitStop);
+      expect(a.knockback, `${gs} のノックバック`).toBeGreaterThanOrEqual(b.knockback);
+    }
+  });
+
+  it('範囲が広い: 扇の技は片手剣より届く距離が長く、半角が広い。突きの線も長い。大回転は全方位', () => {
+    const arc = (id: string) => {
+      const h = ATTACKS[id]!.hitbox;
+      if (h.kind !== 'arc') throw new Error(`${id} は扇ではない`);
+      return h;
+    };
+    for (const [gs, sw] of [['gs1', 'combo1'], ['gs2', 'combo2'], ['gsRetreat', 'retreat'], ['gsSpin', 'sweep'], ['gsHeavy', 'heavy']] as const) {
+      expect(arc(gs).range, gs).toBeGreaterThan(arc(sw).range);
+      expect(arc(gs).halfAngle, gs).toBeGreaterThan(arc(sw).halfAngle);
+    }
+    const line = (id: string) => {
+      const h = ATTACKS[id]!.hitbox;
+      if (h.kind !== 'line') throw new Error(`${id} は線ではない`);
+      return h;
+    };
+    expect(line('gsLunge').length).toBeGreaterThan(line('lunge').length);
+    expect(arc('gsSpin').halfAngle).toBeGreaterThanOrEqual(Math.PI);
+  });
+
+  it('スーパーアーマーを割れる重さ: 子鬼の armorBreakDamage（30）以上は 2 段目・大回転・跳び叩きつけ・溜め斬り', () => {
+    const breakers = gsIds.filter((id) => ATTACKS[id]!.damage >= 30).sort();
+    expect(breakers).toEqual(['gs2', 'gsDash', 'gsHeavy', 'gsSpin']);
+  });
+
+  it('溜め: 構えは 1 段目の予備動作の途中から続き、押し続ける長さは構えのクリップが続く時刻と一致する。段階の威力は片手剣より大きく伸びる', () => {
+    const c = CHARGES.greatsword!;
+    const from = c.clip.continueFrom!;
+    expect(from.attack).toBe(ATTACKS[GREATSWORD_MOVESET.light]!.authored);
+    expect(c.holdFrames).toBe(Math.round(from.t * 60));
+    expect(c.holdFrames).toBeLessThan(resolveAttack(ATTACKS[GREATSWORD_MOVESET.light]!).startup);
+    expect(c.frames).toBe(Math.ceil(c.clip.duration * 60));
+    expect(ATTACKS[c.next]!.authored!.continueFrom!.attack).toBe(c.clip);
+    expect(c.levelPower).toHaveLength(c.levels.length + 1);
+    expect(c.levelPower[c.levelPower.length - 1]).toBeGreaterThan(CHARGES.sword!.levelPower[CHARGES.sword!.levelPower.length - 1]!);
+    expect(c.maxHoldFrames).toBeGreaterThan(c.levels[c.levels.length - 1]!);
   });
 });

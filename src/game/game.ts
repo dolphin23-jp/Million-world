@@ -30,7 +30,7 @@ import { DEMO_ENCOUNTER, type EncounterDef } from '../ai/data/encounters';
 import type { Hurtbox } from '../combat/hit';
 import { hitFeedback } from '../combat/feedback';
 import { HIT_FEEDBACK } from '../combat/data/hit-feedback';
-import { GUARD_FEEDBACK, PARRY } from '../combat/data/guard';
+import { GUARD_FEEDBACK, type ParryEffectDef } from '../combat/data/guard';
 import { LOADOUTS, nextLoadout, type LoadoutId } from '../combat/data/loadouts';
 import { FX_TINT } from '../render/hit-fx';
 import type { HitEvent } from '../combat/hit';
@@ -82,6 +82,15 @@ const SWING_SFX: Record<string, SfxName> = {
   dash: 'swingDash',
   retreat: 'swingRetreat',
   sweep: 'swingSweep',
+  // 大剣（片手剣より低く長い）
+  gs1: 'gsSwing1',
+  gs2: 'gsSwing2',
+  gsLunge: 'gsSwingLunge',
+  gsRetreat: 'gsSwingRetreat',
+  gsSpin: 'gsSwingSpin',
+  gsDash: 'gsSwingDash',
+  gsRise: 'gsSwingRise',
+  gsHeavy: 'gsSwingHeavy',
 };
 /** 溜めの段階が上がったときの合図 */
 const CHARGE_LEVEL_SFX: readonly SfxName[] = ['chargeLevel1', 'chargeLevel2'];
@@ -351,13 +360,16 @@ export class Game {
     if (result.killed) this.hitStop.slow(DEFEAT_SLOW.scale, DEFEAT_SLOW.seconds);
   }
 
-  /** 敵の攻撃をパリィで弾いた。強いヒットストップと揺れ、水色の大きな閃光、「PARRY」の文字。敵は体勢を崩す（Enemy.parried） */
-  private onEnemyParried(ev: HitEvent, enemy: Enemy): void {
-    this.hitStop.trigger(PARRY.hitStop);
-    this.cam.shake.trigger(PARRY.shake.amp, PARRY.shake.seconds);
-    this.hitFx.burst(ev.x, HIT_FEEDBACK.playerImpactHeight, ev.z, ev.dirX, ev.dirZ, 1.2, FX_TINT.parry);
-    this.damageNumbers.spawnText(enemy.body.x, enemy.def.height + 0.35, enemy.body.z, 'PARRY', 'parry');
-    this.sfx.play('parry');
+  /**
+   * 敵の攻撃をパリィで弾いた。強いヒットストップと揺れ、水色の大きな閃光、「PARRY」の文字（強さは構えごとの効果 fx。大剣のダウンは盾の体勢崩しより大きい）。
+   * 敵は体勢を崩す・倒れる（Enemy.parried）
+   */
+  private onEnemyParried(ev: HitEvent, enemy: Enemy, fx: ParryEffectDef): void {
+    this.hitStop.trigger(fx.hitStop);
+    this.cam.shake.trigger(fx.shake.amp, fx.shake.seconds);
+    this.hitFx.burst(ev.x, HIT_FEEDBACK.playerImpactHeight, ev.z, ev.dirX, ev.dirZ, fx.burst, FX_TINT.parry);
+    this.damageNumbers.spawnText(enemy.body.x, enemy.def.height + 0.35, enemy.body.z, 'PARRY', 'parry', fx.labelScale);
+    this.sfx.play(fx.sfx);
     this.encounter.onParry();
   }
 
@@ -428,7 +440,7 @@ export class Game {
     resolvePlayerAttack(this.player, this.enemySims, (ev, enemy, result, riposte) => this.onPlayerHit(ev, enemy, result, riposte));
     resolveEnemyAttacks(this.enemySims, this.player, (ev, _enemy, result) => this.onEnemyHit(ev, result), {
       onGuard: (ev, _enemy, result) => this.onEnemyGuarded(ev, result),
-      onParry: (ev, enemy) => this.onEnemyParried(ev, enemy),
+      onParry: (ev, enemy, fx) => this.onEnemyParried(ev, enemy, fx),
     });
 
     // 生きている敵は体を持つ（プレイヤーを押し出し、敵どうしは重ならない）。アリーナの外へは出ない
@@ -494,8 +506,10 @@ export class Game {
       const e = entry.enemy;
       if (e.stateSerial === entry.seenSerial) continue;
       entry.seenSerial = e.stateSerial;
-      if (e.state !== 'windup' && e.state !== 'attack') continue;
       const gain = distanceGain(Math.hypot(e.body.x - this.player.body.x, e.body.z - this.player.body.z));
+      // 弾き飛ばされて倒れた敵が地面に落ちる音（倒れ切る 14f ≒ 0.23 秒の少し手前）
+      if (e.state === 'down') this.sfx.play('knockdown', { gain, delay: 0.17 });
+      if (e.state !== 'windup' && e.state !== 'attack') continue;
       if (e.state === 'windup') this.sfx.play('telegraph', { gain });
       else this.sfx.play('enemySwing', { gain, delay: 0.02 });
     }

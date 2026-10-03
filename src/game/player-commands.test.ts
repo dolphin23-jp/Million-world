@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Player } from './player';
 import { createEmptyIntent, type InputIntent } from '../input/intent';
 import { ATTACKS, CHARGES, DODGES } from '../combat/data/attacks';
-import { CHARGE_HOLD_FRAMES, DASH_WINDOW_FRAMES } from '../combat/data/moveset';
+import { DASH_WINDOW_FRAMES } from '../combat/data/moveset';
 import { wrapAngle } from '../core/math';
 
 /**
@@ -120,12 +120,13 @@ describe('長押しの溜め', () => {
     return n;
   };
 
-  it(`${CHARGE_HOLD_FRAMES}f 押し続けると溜めの構えに入る（1 段目の斬りが出る前）。構えのあいだは動けない`, () => {
+  const HOLD = CHARGES.sword!.holdFrames;
+  it(`${HOLD}f 押し続けると溜めの構えに入る（1 段目の斬りが出る前）。構えのあいだは動けない`, () => {
     const p = new Player();
     const n = enterCharge(p);
     expect(p.state).toBe('charge');
-    expect(n).toBeGreaterThanOrEqual(CHARGE_HOLD_FRAMES);
-    expect(n).toBeLessThanOrEqual(CHARGE_HOLD_FRAMES + 2);
+    expect(n).toBeGreaterThanOrEqual(HOLD);
+    expect(n).toBeLessThanOrEqual(HOLD + 2);
     expect(p.attackActive).toBe(false);
     const z = p.body.z;
     step(p, { attackHeld: true, moveX: 0, moveY: 1 }, 30);

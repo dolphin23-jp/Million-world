@@ -185,6 +185,7 @@ try {
   await page.screenshot({ path: 'artifacts/shot-hurt.png' });
 
   // 9b. ガードとパリィ（盾）: 受け止め（削りだけ通る）→ パリィ（敵が体勢を崩す・PARRY・水色の閃光）→ 反撃（大きなダメージ）。素手のときは剣で受ける。
+  //     大剣は盾よりシビアなパリィ（受付 6f）で、弾かれた敵は倒れる（down）。
   //     シーンごとに結果を数値でも確かめる（失敗したら終了コード 3）
   const guardScene = (loadout, mode) =>
     page.evaluate(
@@ -201,8 +202,9 @@ try {
             g.stepNow(1);
           }
         };
-        // 予備動作の stateFrame が pressAt になったら押す（攻撃の判定は windup の 38f + startup の 3f のあと）
-        const pressAt = mode === 'guard' ? 8 : 35;
+        // 予備動作の stateFrame が pressAt になったら押す（攻撃の判定は windup の 38f + startup の 3f のあと）。
+        // パリィの受付は盾 10f・大剣 6f。敵の予備動作は 38f で終わって攻撃に入る（判定は 4f 後）ので、大剣は予備動作の最後（38）に押す（盾は 35 でも間に合う）
+        const pressAt = mode === 'guard' ? 8 : loadout === 'greatsword' ? 38 : 35;
         for (let i = 0; i < 400 && !(e.state === 'windup' && e.stateFrame >= pressAt); i++) g.stepNow(1);
         const hp0 = g.player.health.hp;
         g.inject({ guardPressed: true, guardHeld: true });
@@ -220,6 +222,8 @@ try {
         g.renderNow(5);
         if (mode === 'riposte' && outcome === 'parry') {
           hold(6);
+          // 大剣は敵が遠くへ弾き飛ばされている（踏み込みで追う）。見た目と倍率の確認のため、反撃が届く位置へ置く
+          if (loadout === 'greatsword') e.body.z = g.player.body.z + 1.8;
           g.inject({ guardHeld: true, attackPressed: true });
           g.stepNow(1);
           const hp = e.health.hp;
@@ -257,6 +261,50 @@ try {
   await page.screenshot({ path: 'artifacts/shot-guard-sword.png' });
   // 素手はパリィがない: 受付の時刻に押しても、ただのガードになる
   expectGuard('sword-no-parry', await guardScene('sword', 'parry'), { outcome: 'guard' });
+
+  // 9c. 大剣: 構え（受け止め）→ パリィ（敵が弾き飛ばされて倒れる）→ 倒れて寝ている → 反撃（盾より大きな倍率）。通常の斬り（剣筋の帯が広い）
+  expectGuard('greatsword-guard', await guardScene('greatsword', 'guard'), { outcome: 'guard' });
+  await sleep(120);
+  await page.screenshot({ path: 'artifacts/shot-guard-greatsword.png' });
+  expectGuard('greatsword-parry', await guardScene('greatsword', 'parry'), { outcome: 'parry', noDamage: true, enemyState: 'down' });
+  await sleep(120);
+  await page.screenshot({ path: 'artifacts/shot-parry-greatsword.png' });
+  // 倒れ切って寝ているところ（26f 後）
+  await page.evaluate(() => {
+    const g = window.__mw.game;
+    for (let i = 0; i < 26; i++) {
+      g.inject({ guardHeld: true });
+      g.stepNow(1);
+    }
+    g.renderNow(5);
+  });
+  await sleep(120);
+  await page.screenshot({ path: 'artifacts/shot-down-greatsword.png' });
+  const gsRip = await guardScene('greatsword', 'riposte');
+  expectGuard('greatsword-riposte', gsRip, { outcome: 'parry', noDamage: true });
+  if (!(gsRip.riposteDamage >= 50)) {
+    console.error(`[guard] 大剣の反撃が想定より小さい（または当たっていません）: ${gsRip.riposteDamage}`);
+    process.exitCode = 3;
+  }
+  await sleep(120);
+  await page.screenshot({ path: 'artifacts/shot-riposte-greatsword.png' });
+  // 大剣の通常の斬り（1 段目）: 剣筋の帯が広い
+  await page.evaluate((solo) => {
+    const g = window.__mw.game;
+    g.restart(solo);
+    g.setLoadout('greatsword');
+    g.stepNow(1);
+    g.player.body.x = 0;
+    g.player.body.z = 0;
+    g.player.yaw = 0;
+    g.enemies[0].enemy.place(0, 2.3, Math.PI);
+    g.inject({ attackPressed: true });
+    g.stepNow(1);
+    g.stepNow(21);
+    g.renderNow(5);
+  }, SOLO);
+  await sleep(120);
+  await page.screenshot({ path: 'artifacts/shot-attack-greatsword.png' });
 
   // 10〜11. ロックオン: 敵 3 体を並べてロック（カメラが対象を向き、枠と上部の HP バーが出る）→ 右へ切替
   await page.evaluate((trio) => {

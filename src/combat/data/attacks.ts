@@ -14,6 +14,9 @@ import { LUNGE } from '../../character/data/lunge';
 import { DASH } from '../../character/data/dash';
 import { RETREAT } from '../../character/data/retreat';
 import { SWEEP } from '../../character/data/sweep';
+import { GS1, GS2 } from '../../character/data/gs-combo';
+import { GS_DASH, GS_LUNGE, GS_RETREAT, GS_RISE, GS_SPIN } from '../../character/data/gs-moves';
+import { GS_CHARGE, GS_HEAVY } from '../../character/data/gs-heavy';
 import type { HitboxDef } from '../hit';
 
 const deg = (d: number) => (d * Math.PI) / 180;
@@ -236,16 +239,168 @@ export const ATTACKS: Record<string, AttackDef> = {
     knockback: 1.2,
     fade: 0.07,
   },
+
+  // ======== 大剣（両手持ち。src/character/data/gs-*.ts。ADR-021）========
+  // 重く手数は少ない。片手剣の同種の技より、予備動作が長く（0.3 秒）、ダメージは約 2 倍、範囲は広く、ヒットストップとノックバックは大きい。硬直も長い。
+  // 1 段目: 右上から左下への袈裟斬り（0.92s）。0 → 0.3 振りかぶる（0.24〜0.3 は頂点で一拍）、0.37 に体の前を通る最高速、左足は 0.37 に着地。当たりはその前後 0.32〜0.42s（6 フレーム）。
+  // 振り抜き（〜0.44s）の終わりから次段を受け付ける（0.56s の姿勢を保つ）。ルートは 0.7m（0.5s まで）。
+  gs1: {
+    id: 'gs1',
+    segment: 'gs1',
+    authored: GS1,
+    segmentDuration: GS1.duration,
+    activeStart: 0.32,
+    activeEnd: 0.42,
+    cancelAt: 0.56,
+    trail: [0.26, 0.5],
+    rate: 1,
+    lunge: 0,
+    next: 'gs2',
+    hitbox: { kind: 'arc', range: 2.7, halfAngle: deg(85) },
+    damage: 22,
+    hitStop: 8,
+    knockback: 1.0,
+    fade: 0.1,
+  },
+  // 2 段目: 左下から右上への逆袈裟（0.86s）。1 段目の受付時点（0.56s）の姿勢から続けて始まる。0.21 に体の前を通る最高速（右足が着地）。当たりは 0.17〜0.27s。コンボの終わり（硬直は長い）。
+  gs2: {
+    id: 'gs2',
+    segment: 'gs2',
+    authored: GS2,
+    segmentDuration: GS2.duration,
+    activeStart: 0.17,
+    activeEnd: 0.27,
+    cancelAt: 999,
+    trail: [0.1, 0.34],
+    rate: 1,
+    lunge: 0,
+    hitbox: { kind: 'arc', range: 2.8, halfAngle: deg(90) },
+    damage: 30,
+    hitStop: 10,
+    knockback: 1.6,
+    fade: 0.05,
+  },
+  // 踏み込み突き（スティック前 + 攻撃）: 腰を落として引き絞り（0.18〜0.27 は一拍）、0.35 に最高速で貫く（右足が着地）。点で突くので範囲は狭い（線）が、届く距離は長く（3.0m）、威力と踏み込み（1.5m）が大きい。当たりは 0.3〜0.42s。
+  gsLunge: {
+    id: 'gsLunge',
+    segment: 'gsLunge',
+    authored: GS_LUNGE,
+    segmentDuration: GS_LUNGE.duration,
+    activeStart: 0.3,
+    activeEnd: 0.42,
+    cancelAt: 999,
+    trail: [0.24, 0.5],
+    rate: 1,
+    lunge: 0,
+    hitbox: { kind: 'line', length: 3.0, radius: 0.36 },
+    damage: 26,
+    hitStop: 9,
+    knockback: 2.2,
+    fade: 0.1,
+  },
+  // 下がりながらの薙ぎ払い（ロック中に後ろ + 攻撃）: 後ろへ 1.3m 跳びながら、右から左へ水平に薙いで敵を押し返す。0.2 に前を通る最高速。当たりは 0.15〜0.27s（跳び始め）。
+  gsRetreat: {
+    id: 'gsRetreat',
+    segment: 'gsRetreat',
+    authored: GS_RETREAT,
+    segmentDuration: GS_RETREAT.duration,
+    activeStart: 0.15,
+    activeEnd: 0.27,
+    cancelAt: 999,
+    trail: [0.1, 0.34],
+    rate: 1,
+    lunge: 0,
+    hitbox: { kind: 'arc', range: 2.8, halfAngle: deg(100) },
+    damage: 18,
+    hitStop: 6,
+    knockback: 2.4,
+    fade: 0.1,
+  },
+  // 大回転斬り（ロック中に横 + 攻撃）: 腰を沈めて右へ巻き込み、跳び上がって体ごと 1 回転する。全方位（円）を薙ぐ。回転は 0.2〜0.4s、剣が全周を通るのは 0.22〜0.44s（当たりもこの間）。
+  gsSpin: {
+    id: 'gsSpin',
+    segment: 'gsSpin',
+    authored: GS_SPIN,
+    segmentDuration: GS_SPIN.duration,
+    activeStart: 0.22,
+    activeEnd: 0.44,
+    cancelAt: 999,
+    trail: [0.18, 0.46],
+    rate: 1,
+    lunge: 0,
+    hitbox: { kind: 'arc', range: 2.7, halfAngle: deg(180) },
+    damage: 30,
+    hitStop: 9,
+    knockback: 2.0,
+    fade: 0.1,
+  },
+  // 跳び叩きつけ（ロール直後）: 転がって着地した低い姿勢から、剣を引き上げて前へ 1.6m 跳び、真上から叩きつける（0.36 に両足で着地）。当たりは叩きつけの 0.3〜0.4s。ロールの着地の姿勢（0.43s）から続ける。
+  gsDash: {
+    id: 'gsDash',
+    segment: 'gsDash',
+    authored: GS_DASH,
+    segmentDuration: GS_DASH.duration,
+    activeStart: 0.3,
+    activeEnd: 0.4,
+    cancelAt: 999,
+    trail: [0.22, 0.46],
+    rate: 1,
+    lunge: 0,
+    hitbox: { kind: 'arc', range: 2.8, halfAngle: deg(65) },
+    damage: 34,
+    hitStop: 12,
+    knockback: 2.6,
+    fade: 0.05,
+  },
+  // 斬り上げ（後ろステップ直後）: 下がったあと、低い姿勢から踏み込んで右下から左上へすくい上げる。0.23 に前を通る最高速（右足が着地）。当たりは 0.18〜0.28s。後ろステップの着地の姿勢（0.36s）から続ける。
+  gsRise: {
+    id: 'gsRise',
+    segment: 'gsRise',
+    authored: GS_RISE,
+    segmentDuration: GS_RISE.duration,
+    activeStart: 0.18,
+    activeEnd: 0.28,
+    cancelAt: 999,
+    trail: [0.12, 0.38],
+    rate: 1,
+    lunge: 0,
+    hitbox: { kind: 'arc', range: 2.7, halfAngle: deg(80) },
+    damage: 24,
+    hitStop: 8,
+    knockback: 1.8,
+    fade: 0.05,
+  },
+  // 溜め斬り（溜めを放つ。CHARGES.greatsword）: 頭上の構えから、左足を大きく踏み込んで真上から真下へ叩き割る（唐竹割り）。0.22 に体の前を通る最高速（左足が着地）、0.3 に叩きつけて止まる。
+  // 当たりは 0.17〜0.3s（8 フレーム）。範囲は広い扇形（3.0m、180°）。威力は溜めの段階で上がる。ルートは 1.3m 進む。
+  gsHeavy: {
+    id: 'gsHeavy',
+    segment: 'gsHeavy',
+    authored: GS_HEAVY,
+    segmentDuration: GS_HEAVY.duration,
+    activeStart: 0.17,
+    activeEnd: 0.3,
+    cancelAt: 999,
+    trail: [0.12, 0.4],
+    rate: 1,
+    lunge: 0,
+    hitbox: { kind: 'arc', range: 3.0, halfAngle: deg(90) },
+    damage: 60,
+    hitStop: 14,
+    knockback: 3.4,
+    fade: 0.04,
+  },
 };
 
 /**
- * 溜め（攻撃の長押し。ADR-018）: 1 段目を CHARGE_HOLD_FRAMES 押し続けると、1 段目の予備動作の途中の姿勢から構えのクリップ（頭上へ振りかぶる）へ移り、そこで止まる。
+ * 溜め（攻撃の長押し。ADR-018）: 1 段目を holdFrames 押し続けると（軽い攻撃を遅らせないよう、押した瞬間から 1 段目の予備動作に入り、そのまま続ける）、1 段目の予備動作の途中の姿勢から構えのクリップ（頭上へ振りかぶる）へ移り、そこで止まる。
  * 離すと next（重撃）を放つ。構えが整ってからの保持の長さで段階が上がり、威力が上がる。
  */
 export interface ChargeDef {
   id: string;
   /** 構えへ入る手付けのクリップ。終端の姿勢で止まる */
   clip: AuthoredAttack;
+  /** 1 段目をこのフレーム数押し続けたら、溜めへ移る（クリップが 1 段目から続く時刻 × 60。1 段目の斬りが始まる前） */
+  holdFrames: number;
   /** クリップのフレーム数（この間は離しても構えを続け、整ってから放つ） */
   frames: number;
   /** 構えが整ってから、この保持フレーム数以上で段階 1, 2, … になる */
@@ -264,11 +419,24 @@ export const CHARGES: Record<string, ChargeDef> = {
   sword: {
     id: 'sword',
     clip: HEAVY_CHARGE,
+    holdFrames: 9,
     frames: Math.ceil(HEAVY_CHARGE.duration * 60),
     levels: [24, 54],
     levelPower: [1, 1.25, 1.6],
     maxHoldFrames: 100,
     next: 'heavy',
+    dodgeCancelFrame: 8,
+  },
+  // 大剣: 1 段目（gs1）の予備動作の途中（12f = 0.2s）から頭上の構えへ。段階は片手剣より長く溜めるぶん、威力の伸びが大きい（最大 1.8 倍 × 60 = 108）
+  greatsword: {
+    id: 'greatsword',
+    clip: GS_CHARGE,
+    holdFrames: 12,
+    frames: Math.ceil(GS_CHARGE.duration * 60),
+    levels: [30, 66],
+    levelPower: [1, 1.3, 1.8],
+    maxHoldFrames: 120,
+    next: 'gsHeavy',
     dodgeCancelFrame: 8,
   },
 };

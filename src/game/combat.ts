@@ -1,5 +1,6 @@
 import type { AttackDef } from '../combat/data/attacks';
-import { PARRY } from '../combat/data/guard';
+import { HIT_FEEDBACK } from '../combat/data/hit-feedback';
+import type { ParryEffectDef } from '../combat/data/guard';
 import type { GuardOutcome } from '../combat/guard';
 import type { DamageResult } from '../combat/health';
 import { collectHits, makeHitEvent, type HitEvent, type HitOrigin, type HitTracker, type Hurtbox } from '../combat/hit';
@@ -24,11 +25,17 @@ export interface AttackerView {
   readonly hitTracker: HitTracker;
 }
 
+/** 反撃のときに攻撃へ掛ける倍率（ParryEffectDef がそのまま満たす） */
+export interface RiposteScale {
+  readonly riposteDamageScale: number;
+  readonly riposteKnockbackScale: number;
+}
+
 export interface CombatTarget {
   readonly body: Hurtbox;
   takeHit(ev: HitEvent): DamageResult;
-  /** パリィで弾かれて体勢を崩している間は true。その間に当てた攻撃は反撃（ダメージが PARRY.riposteDamageScale 倍） */
-  readonly vulnerable?: boolean;
+  /** パリィで弾かれて動けない間（stagger・down の反撃の受付中）はその倍率。その間に当てた攻撃は反撃（ダメージが大きく、ノックバックは小さい） */
+  readonly riposte?: RiposteScale | null;
 }
 
 /** 防御できる被弾側（Player）。敵の攻撃が当たる瞬間に、まず guardOutcome で防御の結果を聞く（ADR-020） */
@@ -36,8 +43,8 @@ export interface DefenderView extends CombatTarget {
   guardOutcome?(ev: HitEvent): GuardOutcome;
   /** ガードで受け止める（軽減したダメージを適用して構えを保つ） */
   guardBlock?(ev: HitEvent): DamageResult;
-  /** パリィ成功（ダメージなし） */
-  parry?(ev: HitEvent): void;
+  /** パリィ成功（ダメージなし）。弾かれた敵の反応（構えごとの PARRY_EFFECTS）を返す */
+  parry?(ev: HitEvent): ParryEffectDef;
 }
 
 const _origin: HitOrigin = { x: 0, z: 0, yaw: 0 };
@@ -64,16 +71,16 @@ export function resolvePlayerAttack<T extends CombatTarget>(
     const target = targets.find((t) => t.body === box);
     if (!target) continue;
     const p = attacker.attackPower;
-    // 弾かれて体勢を崩している敵への攻撃は反撃: ダメージが大きく、ノックバックは小さい（遠くへ飛ばさず、続けて当てられる）
-    const riposte = target.vulnerable === true;
+    // 弾かれて動けない敵への攻撃は反撃: ダメージが大きく、ノックバックは小さい（遠くへ飛ばさず、続けて当てられる）
+    const riposte = target.riposte ?? null;
     const ev = makeHitEvent(PLAYER_ID, _origin, box, {
-      damage: Math.round(atk.damage * p * (riposte ? PARRY.riposteDamageScale : 1)),
+      damage: Math.round(atk.damage * p * (riposte ? riposte.riposteDamageScale : 1)),
       // ノックバックは威力の半分だけ倍率を掛ける（吹き飛びすぎない）。ヒットストップは威力に比例して伸びる
-      knockback: atk.knockback * (1 + (p - 1) * 0.5) * (riposte ? PARRY.riposteKnockbackScale : 1),
-      hitStop: Math.round(atk.hitStop * p),
+      knockback: atk.knockback * (1 + (p - 1) * 0.5) * (riposte ? riposte.riposteKnockbackScale : 1),
+      hitStop: Math.min(Math.round(atk.hitStop * p), HIT_FEEDBACK.maxHitStop),
     });
     const result = target.takeHit(ev);
-    onHit(ev, target, result, riposte);
+    onHit(ev, target, result, riposte !== null);
   }
   return n;
 }
@@ -86,14 +93,14 @@ export interface EnemyAttackerView {
   readonly body: Circle;
   readonly yaw: number;
   readonly hitTracker: HitTracker;
-  /** パリィで弾かれた（体勢を崩す）。なければパリィは通常のガードになる */
-  parried?(ev: HitEvent): void;
+  /** パリィで弾かれた（effect の反応: 体勢を崩す・倒れる）。なければパリィは通常のガードになる */
+  parried?(ev: HitEvent, effect: ParryEffectDef): void;
 }
 
 /** 敵の攻撃を防がれたときの通知（演出用）。ガード = 受け止めた（result は通った削りダメージ）、パリィ = 弾いた */
 export interface EnemyAttackHandlers<E> {
   onGuard?: (ev: HitEvent, enemy: E, result: DamageResult) => void;
-  onParry?: (ev: HitEvent, enemy: E) => void;
+  onParry?: (ev: HitEvent, enemy: E, effect: ParryEffectDef) => void;
 }
 
 /**
@@ -123,9 +130,9 @@ export function resolveEnemyAttacks<E extends EnemyAttackerView>(
     // 防御: 構えの正面からの攻撃は、パリィなら弾き（ダメージなし・敵が体勢を崩す）、ガードなら軽減して受け止める（ADR-020）
     const outcome = victim.guardOutcome?.(ev) ?? 'none';
     if (outcome === 'parry' && victim.parry && enemy.parried) {
-      victim.parry(ev);
-      enemy.parried(ev);
-      handlers.onParry?.(ev, enemy);
+      const effect = victim.parry(ev);
+      enemy.parried(ev, effect);
+      handlers.onParry?.(ev, enemy, effect);
     } else if (outcome !== 'none' && victim.guardBlock) {
       handlers.onGuard?.(ev, enemy, victim.guardBlock(ev));
     } else {

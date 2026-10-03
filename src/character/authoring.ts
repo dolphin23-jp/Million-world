@@ -57,11 +57,25 @@ export interface AuthoredKey {
   footR?: Maybe<FootKey>;
 }
 
+/**
+ * 両手持ち（大剣。ADR-021）: 左手は右手の握り（grip = 柄の中心）から、柄の石突きの側へ offset（m）離れた位置を握る。
+ * 左手首の目標を、右手の握りと剣の向き（blade）から毎フレーム導く（手付けの `left` は使わない。`leftPole` = 左肘の向きは使える）。
+ * 両手が柄に付くので、剣は胸の前から大きく外せない（体のひねり = 腰・胸のヨーで振る）。届かない（腕が伸び切る）姿勢は左腕のクランプとして数に出る。
+ */
+export interface TwoHand {
+  offset: number;
+}
+
+/** 両手持ちのとき、手付けが左肘の向きを書かなければ使う既定（肘は外・下へ） */
+export const TWO_HAND_POLE: Vec3Tuple = [0.6, -0.8, 0.05];
+
 export interface AuthoredAttack {
   name: string;
   /** 秒 */
   duration: number;
   keys: AuthoredKey[];
+  /** 両手持ち。あれば左手が柄を握る（TwoHand） */
+  twoHanded?: TwoHand;
   /**
    * 別の手付け攻撃の途中の姿勢から始める（コンボの連鎖用）。
    * t=0 のポーズ（体幹・剣・両手・足の位置・高さ）が attack の時刻 t のポーズにぴったり一致するので、前の技の受付時点からつなぎ目で姿勢が跳ばない。
@@ -187,7 +201,7 @@ export interface SamplerOptions {
  * キー列をチャンネルごとのタイムラインに展開する。
  * idle は 'idle' と書かれた値の解決用、base は t=0 のパディングと「キーが無いチャンネル」の値（通常は idle、continueFrom なら前の技の姿勢）
  */
-function expand(def: AuthoredAttack, idle: Map<string, number>, base: Map<string, number>, skipLeft = false): Timelines {
+function expand(def: AuthoredAttack, idle: Map<string, number>, base: Map<string, number>, skip: { left: boolean; pole: boolean } = { left: false, pole: false }): Timelines {
   const tl: Timelines = new Map();
   const keys = [...def.keys].sort((a, b) => a.t - b.t);
   const swordPrev = { q: new THREE.Quaternion(base.get('sword.x'), base.get('sword.y'), base.get('sword.z'), base.get('sword.w')) };
@@ -210,7 +224,7 @@ function expand(def: AuthoredAttack, idle: Map<string, number>, base: Map<string
       add(tl, `${g}.r`, k.t, r, ease);
     };
     polar('grip', k.grip);
-    if (!skipLeft) polar('left', k.left);
+    if (!skip.left) polar('left', k.left);
     const vec3 = (ch: 'pole' | 'leftPole', v: Vec3Tuple | 'idle' | undefined): void => {
       if (v === undefined) return;
       const t3: Vec3Tuple = v === 'idle' ? [idle.get(`${ch}.x`)!, idle.get(`${ch}.y`)!, idle.get(`${ch}.z`)!] : v;
@@ -219,7 +233,7 @@ function expand(def: AuthoredAttack, idle: Map<string, number>, base: Map<string
       add(tl, `${ch}.z`, k.t, t3[2], ease);
     };
     vec3('pole', k.pole);
-    if (!skipLeft) vec3('leftPole', k.leftPole);
+    if (!skip.pole) vec3('leftPole', k.leftPole);
     if (k.blade !== undefined || k.face !== undefined) {
       const bl = k.blade === 'idle' || k.blade === undefined ? null : k.blade;
       const fc = k.face === 'idle' || k.face === undefined ? null : k.face;
@@ -272,22 +286,34 @@ export class AuthoredSampler {
   private readonly start: Map<string, number>;
   private readonly tl: Timelines;
   private readonly idlePose: PoseInput;
+  /** 両手持ち（左手が柄を握る）の指定。なければ左手は手付けのキー（または leftHold）に従う */
+  private readonly twoHand: TwoHand | undefined;
+  /** 右肩 − 左肩（胸の座標系。右手の握りの位置を左肩基準へ直すのに使う） */
+  private readonly shoulderDelta = new THREE.Vector3();
 
   constructor(readonly rig: Rig, readonly def: AuthoredAttack, readonly opts: SamplerOptions = {}) {
     this.idle = idleChannels(rig);
     this.idlePose = idleInput(rig);
+    this.twoHand = def.twoHanded;
+    this.shoulderDelta.copy(rig.idleWorldP[rig.mustIndex(BONE.armR)]!).sub(rig.idleWorldP[rig.mustIndex(BONE.armL)]!);
     const hold = opts.leftHold;
     let start: Map<string, number>;
     if (def.continueFrom) {
-      // 前の技も同じ指定で作る（つなぎ目の姿勢が一致するように）
+      // 前の技も同じ指定で作る（つなぎ目の姿勢が一致するように）。両手持ちは前の技自身の指定（twoHanded）で決まる
       start = new AuthoredSampler(rig, def.continueFrom.attack, opts).snapshot(def.continueFrom.t);
     } else {
       start = new Map(this.idle);
       if (hold) holdLeft(start, hold);
+      if (this.twoHand) {
+        start.set('leftPole.x', TWO_HAND_POLE[0]);
+        start.set('leftPole.y', TWO_HAND_POLE[1]);
+        start.set('leftPole.z', TWO_HAND_POLE[2]);
+      }
     }
     this.start = start;
-    // 左腕を固定するときは、左手・左肘のチャンネルにキーを作らない（value() が start の値を返し続ける）
-    this.tl = expand(def, this.idle, this.start, hold !== undefined);
+    // 左腕を固定するとき（leftHold）は左手・左肘のキーを、両手持ちのときは左手のキー（手首は導く）を使わない。
+    // キーを作らないチャンネルは value() が start の値を返し続ける
+    this.tl = expand(def, this.idle, this.start, { left: hold !== undefined || this.twoHand !== undefined, pole: hold !== undefined });
   }
 
   /**
@@ -302,6 +328,13 @@ export class AuthoredSampler {
     m.set('sword.y', _q.y);
     m.set('sword.z', _q.z);
     m.set('sword.w', _q.w);
+    if (this.twoHand) {
+      // 両手持ちの左手は導いた値（キーのチャンネルではない）。次の技が片手でも、この姿勢から続く
+      const p = this.sample(t, this.newInput());
+      m.set('left.az', p.left.az);
+      m.set('left.el', p.left.el);
+      m.set('left.r', p.left.r);
+    }
     const r0 = this.value('rootZ', t);
     m.set('rootZ', 0);
     for (const f of ['footL', 'footR'] as const) {
@@ -387,6 +420,14 @@ export class AuthoredSampler {
     this.swordQuat(t, _q);
     out.blade.set(0, 1, 0).applyQuaternion(_q);
     out.face.set(0, 0, 1).applyQuaternion(_q);
+    if (this.twoHand) {
+      // 左手首 = 右手の握りの位置（右肩から → 左肩から）+ 石突き側（−刃の向き）へ offset。極座標（左肩基準）に直して渡す
+      polarToVector(out.grip.az, out.grip.el, out.grip.r, _lv).add(this.shoulderDelta).addScaledVector(out.blade, -this.twoHand.offset);
+      const lp = vectorToPolar(_lv);
+      out.left.az = lp.az;
+      out.left.el = lp.el;
+      out.left.r = lp.r;
+    }
     for (const f of ['footL', 'footR'] as const) {
       const o = out[f];
       o.x = v(`${f}.x`);
@@ -423,6 +464,7 @@ export class AuthoredSampler {
 }
 const _q = new THREE.Quaternion();
 const _qb = new THREE.Quaternion();
+const _lv = new THREE.Vector3();
 
 /** チャンネル値の表 m の左手・左肘を、固定する位置に書き換える */
 function holdLeft(m: Map<string, number>, h: LeftHold): void {

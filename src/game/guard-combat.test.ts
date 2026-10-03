@@ -4,7 +4,8 @@ import { resolveEnemyAttacks, resolvePlayerAttack, type CombatTarget } from './c
 import { Enemy } from '../ai/enemy';
 import { ENEMIES } from '../ai/data/enemies';
 import { ATTACKS, PLAYER_STATS } from '../combat/data/attacks';
-import { GUARDS, PARRY } from '../combat/data/guard';
+import { GUARDS, PARRY_EFFECTS } from '../combat/data/guard';
+import type { LoadoutId } from '../combat/data/loadouts';
 import { createEmptyIntent, type InputIntent } from '../input/intent';
 import type { HitEvent } from '../combat/hit';
 import type { DamageResult } from '../combat/health';
@@ -16,6 +17,8 @@ import type { DamageResult } from '../combat/health';
 const DT = 1 / 60;
 const CAM_YAW = Math.PI;
 const ATK = ENEMIES.imp.attack;
+const STAGGER = PARRY_EFFECTS.stagger;
+const DOWN = PARRY_EFFECTS.down;
 
 interface Scene {
   player: Player;
@@ -30,7 +33,7 @@ interface Scene {
   until(pred: () => boolean, limit?: number, over?: Partial<InputIntent>): number;
 }
 
-function scene(loadout: 'sword' | 'sword-shield', enemyZ = 1.7, enemyYaw = Math.PI): Scene {
+function scene(loadout: LoadoutId, enemyZ = 1.7, enemyYaw = Math.PI): Scene {
   const player = new Player();
   player.equip(loadout);
   const enemy = new Enemy(ENEMIES.imp, 1, 0, enemyZ);
@@ -98,7 +101,7 @@ describe('ガードで受け止める', () => {
     expect(sc.blocked[0]!.result.dealt).toBe(Math.round(ATK.damage * (1 - GUARDS.sword.damageReduction)));
     expect(sc.player.health.hp).toBe(PLAYER_STATS.maxHp - 6);
     expect(sc.enemy.state).toBe('attack');
-    expect(sc.enemy.vulnerable).toBe(false);
+    expect(sc.enemy.riposte).toBeNull();
   });
 
   it('構えの外（背後）から来る攻撃は防げず、通常の被弾になる', () => {
@@ -135,7 +138,7 @@ describe('パリィで弾く', () => {
     expect(sc.player.health.hp).toBe(PLAYER_STATS.maxHp);
     expect(sc.player.parrySerial).toBe(1);
     expect(sc.enemy.state).toBe('stagger');
-    expect(sc.enemy.vulnerable).toBe(true);
+    expect(sc.enemy.riposte).toBe(STAGGER);
     expect(sc.enemy.attackActive).toBe(false);
     expect(sc.enemy.parrySerial).toBe(1);
     sc.run(14, { guardHeld: true });
@@ -168,7 +171,7 @@ describe('パリィで弾く', () => {
       probe.step();
       if (probe.hurt.length > 0) hitStep = i;
     }
-    expect(hitStep).toBeGreaterThan(PARRY.staggerFrames * 0);
+    expect(hitStep).toBeGreaterThan(0);
     const g = GUARDS.shield;
     const outcomeWhenPressedAt = (pressStep: number) => {
       const sc = scene('sword-shield');
@@ -182,17 +185,17 @@ describe('パリィで弾く', () => {
     expect(outcomeWhenPressedAt(hitStep - g.parryFrames)).toBe('guard');
   });
 
-  it('弾かれた敵は PARRY.staggerFrames のあいだ動けず、そのあと追い始める。すぐには攻撃してこない', () => {
+  it('弾かれた敵は stagger.frames のあいだ動けず、そのあと追い始める。すぐには攻撃してこない', () => {
     const sc = scene('sword-shield');
     guardAt(sc, 35);
     sc.until(() => sc.parried.length > 0, 120, { guardHeld: true });
     const frames = sc.enemy.stateFrame;
-    sc.run(PARRY.staggerFrames - frames - 1, { guardHeld: true });
+    sc.run(STAGGER.frames - frames - 1, { guardHeld: true });
     expect(sc.enemy.state).toBe('stagger');
     sc.run(2, { guardHeld: true });
     expect(sc.enemy.state).toBe('chase');
     // 立て直してから recoverCooldownFrames は予備動作に入らない
-    for (let i = 0; i < PARRY.recoverCooldownFrames - 1; i++) {
+    for (let i = 0; i < STAGGER.recoverCooldownFrames - 1; i++) {
       sc.step({ guardHeld: true });
       expect(sc.enemy.state, `+${i}`).not.toBe('windup');
     }
@@ -229,8 +232,8 @@ describe('反撃（弾かれた敵への攻撃）', () => {
     sc.until(() => sc.dealt.length > 0, 60);
     const d = sc.dealt[0]!;
     expect(d.riposte).toBe(true);
-    expect(d.ev.damage).toBe(Math.round(combo1.damage * PARRY.riposteDamageScale));
-    expect(d.ev.knockback).toBeCloseTo(combo1.knockback * PARRY.riposteKnockbackScale, 9);
+    expect(d.ev.damage).toBe(Math.round(combo1.damage * STAGGER.riposteDamageScale));
+    expect(d.ev.knockback).toBeCloseTo(combo1.knockback * STAGGER.riposteKnockbackScale, 9);
     expect(d.result.dealt).toBe(d.ev.damage);
     expect(sc.enemy.health.hp).toBe(ENEMIES.imp.hp - d.ev.damage);
   });
@@ -248,7 +251,7 @@ describe('反撃（弾かれた敵への攻撃）', () => {
     sc.enemy.body.z = sc.player.body.z + 1.4;
     sc.until(() => sc.dealt.length > 1, 60);
     expect(sc.dealt[1]!.riposte).toBe(true);
-    expect(sc.dealt[1]!.ev.damage).toBe(Math.round(ATTACKS.combo2!.damage * PARRY.riposteDamageScale));
+    expect(sc.dealt[1]!.ev.damage).toBe(Math.round(ATTACKS.combo2!.damage * STAGGER.riposteDamageScale));
   });
 
   it('崩れていない敵（ふつうのひるみ・攻撃前）への攻撃は反撃にならない', () => {
@@ -262,13 +265,103 @@ describe('反撃（弾かれた敵への攻撃）', () => {
 
   it('体勢が戻ったあとの攻撃は、ふつうのダメージに戻る', () => {
     const sc = parried();
-    sc.run(PARRY.staggerFrames + 2, { guardHeld: true });
-    expect(sc.enemy.vulnerable).toBe(false);
+    sc.run(STAGGER.frames + 2, { guardHeld: true });
+    expect(sc.enemy.riposte).toBeNull();
     sc.enemy.body.z = sc.player.body.z + 1.4;
     sc.step({ guardHeld: true, attackPressed: true });
     sc.enemy.body.z = sc.player.body.z + 1.4;
     sc.until(() => sc.dealt.length > 0, 60);
     expect(sc.dealt[0]!.riposte).toBe(false);
     expect(sc.dealt[0]!.ev.damage).toBe(combo1.damage);
+  });
+});
+
+describe('パリィ（大剣）: 盾よりシビアで、弾かれた敵は倒れる', () => {
+  const g = GUARDS.greatsword;
+  /** 敵の攻撃が当たる step を、構えていない状態で調べる */
+  const hitStepOf = (loadout: LoadoutId) => {
+    const probe = scene(loadout);
+    for (let i = 0; i < 400; i++) {
+      probe.step();
+      if (probe.hurt.length > 0) return i;
+    }
+    throw new Error('敵の攻撃が当たらなかった');
+  };
+  const outcomeWhenPressedAt = (loadout: LoadoutId, pressStep: number) => {
+    const sc = scene(loadout);
+    sc.run(pressStep);
+    sc.step({ guardPressed: true, guardHeld: true });
+    sc.until(() => sc.parried.length + sc.blocked.length + sc.hurt.length > 0, 120, { guardHeld: true });
+    return sc.parried.length ? 'parry' : sc.blocked.length ? 'guard' : 'hurt';
+  };
+
+  it('受付の境界: 攻撃が当たる step が構えに入ってから parryFrames 目までなら弾け、次の step ならガード（盾 10f より短い 6f）', () => {
+    const hitStep = hitStepOf('greatsword');
+    expect(outcomeWhenPressedAt('greatsword', hitStep - (g.parryFrames - 1))).toBe('parry');
+    expect(outcomeWhenPressedAt('greatsword', hitStep - g.parryFrames)).toBe('guard');
+    // 盾なら、大剣では外れる押下（6f 前）でも弾ける（シビアさの差）
+    expect(outcomeWhenPressedAt('sword-shield', hitStepOf('sword-shield') - g.parryFrames)).toBe('parry');
+  });
+
+  it('弾くと攻撃は防がれ（ダメージなし）、敵は盾のように体勢を崩さず、弾き飛ばされて倒れる（down）', () => {
+    const sc = scene('greatsword');
+    const z0 = sc.enemy.body.z;
+    const hitStep = hitStepOf('greatsword');
+    sc.run(hitStep - (g.parryFrames - 1));
+    sc.step({ guardPressed: true, guardHeld: true });
+    sc.until(() => sc.parried.length > 0 || sc.hurt.length > 0, 60, { guardHeld: true });
+    expect(sc.parried).toHaveLength(1);
+    expect(sc.hurt).toHaveLength(0);
+    expect(sc.player.health.hp).toBe(PLAYER_STATS.maxHp);
+    expect(sc.enemy.state).toBe('down');
+    expect(sc.enemy.parryEffect).toBe(DOWN);
+    expect(sc.enemy.riposte).toBe(DOWN);
+    expect(sc.enemy.attackActive).toBe(false);
+    // 盾（0.7m）よりずっと遠くまで弾き飛ばされる（DOWN.knockbackFrames かけて滑る）
+    sc.run(DOWN.knockbackFrames + 2, { guardHeld: true });
+    expect(sc.enemy.body.z - z0).toBeGreaterThan(DOWN.enemyKnockback * ENEMIES.imp.knockbackScale - 0.2);
+    expect(sc.enemy.body.z - z0).toBeGreaterThan(STAGGER.enemyKnockback * 2);
+    // 弾いたあとも構えのまま（反撃へ移れる）
+    expect(sc.player.state).toBe('guard');
+  });
+
+  /** 大剣でパリィを決めた直後の場面（構えのまま、敵は倒れている） */
+  function downed(): Scene {
+    const sc = scene('greatsword');
+    const hitStep = hitStepOf('greatsword');
+    sc.run(hitStep - (g.parryFrames - 1));
+    sc.step({ guardPressed: true, guardHeld: true });
+    sc.until(() => sc.parried.length > 0, 60, { guardHeld: true });
+    return sc;
+  }
+
+  it('倒れている敵への攻撃は反撃: ダメージが大きく（盾より倍率が高い）、ノックバックはほぼ無い。何度当てても倒れたまま', () => {
+    const sc = downed();
+    sc.run(g.cancelFrame, { guardHeld: true });
+    sc.step({ guardHeld: true, attackPressed: true });
+    expect(sc.player.state).toBe('attack');
+    expect(sc.player.attack!.id).toBe('gs1');
+    // 弾き飛ばされて遠いので、距離を詰めてから当てる
+    sc.enemy.body.z = sc.player.body.z + 1.6;
+    sc.until(() => sc.dealt.length > 0, 90);
+    const d = sc.dealt[0]!;
+    expect(d.riposte).toBe(true);
+    expect(d.ev.damage).toBe(Math.round(ATTACKS.gs1!.damage * DOWN.riposteDamageScale));
+    expect(d.ev.knockback).toBeCloseTo(ATTACKS.gs1!.knockback * DOWN.riposteKnockbackScale, 9);
+    expect(sc.enemy.state).toBe('down');
+    expect(DOWN.riposteDamageScale).toBeGreaterThan(STAGGER.riposteDamageScale);
+  });
+
+  it('起き上がりの途中（反撃の受付が過ぎたあと）は倍率が付かない。そのあと立ち上がって追い始める', () => {
+    const sc = downed();
+    sc.run(DOWN.riposteFrames + 1 - sc.enemy.stateFrame, { guardHeld: true });
+    expect(sc.enemy.state).toBe('down');
+    expect(sc.enemy.riposte).toBeNull();
+    sc.run(DOWN.frames + 2 - sc.enemy.stateFrame, { guardHeld: true });
+    expect(sc.enemy.state).toBe('chase');
+  });
+
+  it('大剣の溜め斬り（gsHeavy）の反撃は、子鬼を 1 撃で倒せる大きさ（威力 × 倒れている倍率）', () => {
+    expect(Math.round(ATTACKS.gsHeavy!.damage * DOWN.riposteDamageScale)).toBeGreaterThanOrEqual(ENEMIES.imp.hp);
   });
 });
