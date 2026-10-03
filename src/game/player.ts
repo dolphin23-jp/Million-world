@@ -1,7 +1,10 @@
 import * as THREE from 'three';
 import type { InputIntent } from '../input/intent';
 import { ATTACKS, CHARGES, DODGES, DODGE_RULES, HIT_STUN, MOVE, PLAYER_STATS, resolveAttack, rootMotionOf, type AttackDef, type AttackFrames, type ChargeDef, type DodgeKind } from '../combat/data/attacks';
-import { CHARGE_HOLD_FRAMES, SWORD_MOVESET } from '../combat/data/moveset';
+import { CHARGE_HOLD_FRAMES } from '../combat/data/moveset';
+import { DEFAULT_LOADOUT, LOADOUTS, type LoadoutDef, type LoadoutId } from '../combat/data/loadouts';
+import type { GuardDef } from '../combat/data/guard';
+import { guardOutcome as resolveGuardOutcome, guardedDamage, type GuardOutcome } from '../combat/guard';
 import { afterDodgeOf, classifyStick, pickAttack } from '../combat/moveset';
 import { applyDamage, createHealth, type DamageResult } from '../combat/health';
 import { HitTracker, isActiveFrame, type HitEvent, type Hurtbox } from '../combat/hit';
@@ -12,17 +15,25 @@ import type { ToonMaterial } from '../render/toon';
 import type { CharacterAsset } from '../character/loader';
 import { Animator } from '../character/animator';
 import { bakeAttack, type BakeStats, type FrameTrace } from '../character/authoring';
-import { AUTHORED_ATTACKS } from '../character/data/authored';
+import { AUTHORED_ATTACKS, SHIELD_VARIANT, hasShieldVariant } from '../character/data/authored';
+import { SHIELD_CARRY, SHIELD_IDLE } from '../character/data/guard';
 import { HERO } from '../character/data/hero';
 import { captureRig, type CapturedRig } from '../character/rig-capture';
+import { BONE } from '../character/rig';
 import { buildSword } from './sword';
+import { buildShield, shieldMount } from './shield';
 
 /**
  * プレイヤー。sim 側の状態（位置・向き・行動状態・フレーム）と、render 側の見た目（GLB + アニメ）を分離する。
  * 見た目は補間係数 alpha で sim ステップ間を滑らかにし、状態の変化を見てクリップを切り替える。
  */
 
-export type PlayerState = 'idle' | 'run' | 'attack' | 'charge' | 'dodge' | 'hit' | 'dead';
+export type PlayerState = 'idle' | 'run' | 'attack' | 'charge' | 'guard' | 'dodge' | 'hit' | 'dead';
+
+/** ガードを押してから、構えに入れる状況になるまで待てるフレーム（先行入力。攻撃の硬直中などに押しても構えられる） */
+const GUARD_BUFFER_FRAMES = 12;
+/** 構えているあいだの向き直りの速さ（走るときの旋回速度に対する倍率） */
+const GUARD_TURN_SCALE = 0.6;
 
 export class Player {
   // ---- sim 状態 ----
@@ -55,6 +66,21 @@ export class Player {
   /** 溜めの構えに入ってから、攻撃ボタンを離したか（構えが整う前に離しても、整うまで待って放つため） */
   private chargeReleased = false;
   private heldSinceBegin = false;
+  /** 装備（ADR-020）。技のセット・溜め・ガード・走る速さ・クリップの版が決まる。equip() で替える（素手が標準） */
+  loadout: LoadoutDef = LOADOUTS[DEFAULT_LOADOUT];
+  /** 装備を替えるたびに増える（見た目側が盾の表示を切り替えるため） */
+  equipSerial = 0;
+  /** 構えているあいだ（guard 状態）の防御の定義。guard 状態のときだけ非 null */
+  guard: GuardDef | null = null;
+  /** ガードで受け止めた直後の硬直の残り（そのあいだは構えを解けず、攻撃・回避もできない） */
+  guardStun = 0;
+  /** ガードで受け止めた・パリィしたたびに増える（見た目・効果音が検出するため）と、直近のその攻撃 */
+  guardHitSerial = 0;
+  parrySerial = 0;
+  lastGuardHit: HitEvent | null = null;
+  /** ガードを押した先行入力の残りフレームと、構えを解いたあと次に構えられるまでの残り */
+  private guardBuffer = 0;
+  private guardLock = 0;
   /** いまの（または直近の）回避の種類。見た目が読むのでクリップを選べる */
   dodgeKind: DodgeKind = 'roll';
   /** 直近の回避が終わってからの経過フレーム（回避直後の攻撃 = ダッシュ斬りの判定。回避中は 0） */
@@ -118,6 +144,10 @@ export class Player {
     if (intent.attackPressed) this.attackBuffered = true;
     this.heldNow = intent.attackHeld;
     if (this.state !== 'dodge' && this.framesSinceDodge < 9999) this.framesSinceDodge++;
+    // ガードの先行入力（押した瞬間から GUARD_BUFFER_FRAMES のあいだ、構えに入れる状況になれば構える）と、構え直しの待ち
+    if (intent.guardPressed) this.guardBuffer = GUARD_BUFFER_FRAMES;
+    else if (this.guardBuffer > 0) this.guardBuffer--;
+    if (this.guardLock > 0) this.guardLock--;
 
     switch (this.state) {
       case 'idle':
@@ -125,6 +155,8 @@ export class Player {
         this.stepLocomotion(dt, mx, mz, mLen);
         if (intent.dodgePressed) {
           this.beginDodge(mx, mz, mLen);
+        } else if (this.canGuard()) {
+          this.beginGuard();
         } else if (this.attackBuffered) {
           this.beginAttackFromInput(mx, mz, mLen);
         }
@@ -134,6 +166,9 @@ export class Player {
         break;
       case 'charge':
         this.stepCharge(dt, mx, mz, mLen, intent);
+        break;
+      case 'guard':
+        this.stepGuard(dt, mx, mz, mLen, intent);
         break;
       case 'dodge':
         this.stepDodge(dt, intent);
@@ -173,6 +208,9 @@ export class Player {
     this.attackBuffered = false;
     this.charge = null;
     this.chargeLevel = 0;
+    this.guard = null;
+    this.guardStun = 0;
+    this.guardBuffer = 0;
     this.hurtInvuln = HIT_STUN.invulnFrames;
     this.velX = 0;
     this.velZ = 0;
@@ -196,6 +234,10 @@ export class Player {
     this.attackBuffered = false;
     this.charge = null;
     this.chargeLevel = 0;
+    this.guard = null;
+    this.guardStun = 0;
+    this.guardBuffer = 0;
+    this.guardLock = 0;
     this.attackPower = 1;
     this.framesSinceDodge = 9999;
     this.hurtInvuln = 0;
@@ -217,8 +259,9 @@ export class Player {
     if (mLen > 0.01) {
       const targetYaw = Math.atan2(mx, mz);
       this.yaw = rotateTowards(this.yaw, targetYaw, MOVE.turnSpeed * dt);
-      this.velX = approach(this.velX, mx * MOVE.runSpeed, MOVE.accel * dt);
-      this.velZ = approach(this.velZ, mz * MOVE.runSpeed, MOVE.accel * dt);
+      const speed = MOVE.runSpeed * this.loadout.runSpeedScale;
+      this.velX = approach(this.velX, mx * speed, MOVE.accel * dt);
+      this.velZ = approach(this.velZ, mz * speed, MOVE.accel * dt);
       this.setState('run');
     } else {
       this.velX = approach(this.velX, 0, MOVE.decel * dt);
@@ -241,7 +284,7 @@ export class Player {
     const ref = this.aimYaw() ?? this.yaw;
     const stick = classifyStick(mLen, Math.atan2(mx, mz), ref, this.hasAim);
     const afterDodge = afterDodgeOf(this.framesSinceDodge, this.dodgeKind);
-    this.beginAttack(ATTACKS[pickAttack(SWORD_MOVESET, { stick, afterDodge })]!, mx, mz, mLen);
+    this.beginAttack(ATTACKS[pickAttack(this.loadout.moveset, { stick, afterDodge })]!, mx, mz, mLen);
   }
 
   /** 照準（ロック対象）の方の yaw。照準がない、またはほぼ重なっていれば null */
@@ -298,13 +341,18 @@ export class Player {
 
     // 長押し: 1 段目を押し続けていたら、予備動作の途中で溜めへ移る（離したら通常の 1 段目のまま）
     if (!intent.attackHeld) this.heldSinceBegin = false;
-    if (a.id === SWORD_MOVESET.light && this.heldSinceBegin && f >= CHARGE_HOLD_FRAMES && f < fr.startup) {
-      this.beginCharge(CHARGES.sword!);
+    if (a.id === this.loadout.moveset.light && this.heldSinceBegin && f >= CHARGE_HOLD_FRAMES && f < fr.startup) {
+      this.beginCharge(CHARGES[this.loadout.charge]!);
       return;
     }
     // 回避キャンセル（持続終了後）
     if (intent.dodgePressed && f >= activeEnd) {
       this.beginDodge(mx, mz, mLen);
+      return;
+    }
+    // ガードキャンセル（持続終了後。先行入力のあるとき）
+    if (f >= activeEnd && this.canGuard()) {
+      this.beginGuard();
       return;
     }
     // 次段キャンセル
@@ -358,6 +406,13 @@ export class Player {
       this.beginDodge(mx, mz, mLen);
       return;
     }
+    if (f >= c.dodgeCancelFrame && this.canGuard()) {
+      this.charge = null;
+      this.chargeLevel = 0;
+      this.chargeReleased = false;
+      this.beginGuard();
+      return;
+    }
     if ((this.chargeReleased && f >= c.frames) || held >= c.maxHoldFrames) {
       const power = c.levelPower[level] ?? 1;
       this.charge = null;
@@ -406,13 +461,135 @@ export class Player {
       // この攻撃自体がダッシュ。回避は終わったことにして、あとの攻撃を「回避直後」にしない
       this.framesSinceDodge = 9999;
       // 回避の途中からの攻撃: ロールならダッシュ斬り、後ろステップなら踏み込み（pickAttack）。向きは回避の向き（ロック中は対象）
-      this.beginAttack(ATTACKS[pickAttack(SWORD_MOVESET, { stick: 'none', afterDodge: this.dodgeKind })]!, Math.sin(this.yaw), Math.cos(this.yaw), 1);
+      this.beginAttack(ATTACKS[pickAttack(this.loadout.moveset, { stick: 'none', afterDodge: this.dodgeKind })]!, Math.sin(this.yaw), Math.cos(this.yaw), 1);
+      return;
+    }
+    if (f >= def.cancelFrame && this.canGuard()) {
+      this.framesSinceDodge = 9999;
+      this.beginGuard();
       return;
     }
     if (f >= def.frames) {
       this.framesSinceDodge = 0;
       this.setState('idle');
     }
+  }
+
+  // ======================= 装備・ガード =======================
+
+  /**
+   * 装備を替える（ADR-020）。立っている・走っているあいだだけ受け付ける（攻撃・回避・構えの途中では替えない）。
+   * 替えたら true（すでにその装備なら何もせず true）。
+   */
+  equip(id: LoadoutId): boolean {
+    if (this.loadout.id === id) return true;
+    if (this.state !== 'idle' && this.state !== 'run') return false;
+    this.loadout = LOADOUTS[id];
+    this.equipSerial++;
+    this.guardLock = 0;
+    return true;
+  }
+
+  /** ガードの先行入力が残っていて、構え直しの待ちが明けているか（構えに入れる状況かは呼ぶ側が決める） */
+  private canGuard(): boolean {
+    return this.guardBuffer > 0 && this.guardLock <= 0;
+  }
+
+  /** 構えに入る。その場で止まる（慣性で滑らない）。進行中の攻撃・溜めは捨てる */
+  private beginGuard(): void {
+    this.guard = this.loadout.guard;
+    this.guardStun = 0;
+    this.guardBuffer = 0;
+    this.attack = null;
+    this.attackFrames = null;
+    this.attackBuffered = false;
+    this.charge = null;
+    this.chargeLevel = 0;
+    this.velX = 0;
+    this.velZ = 0;
+    this.knockback.cancel();
+    this.setState('guard', true);
+  }
+
+  /**
+   * 構え中: その場から動けない（向きだけ変えられる。ロック中は対象へ、そうでなければスティックの向きへ）。ガードボタンを離したら解く
+   * （構えに入って minHoldFrames までは解けない。受け止めた直後の硬直 guardStun のあいだも解けない・キャンセルできない）。
+   * cancelFrame 以降は攻撃・回避でキャンセルできる（弾いた直後の反撃はここから出る）
+   */
+  private stepGuard(dt: number, mx: number, mz: number, mLen: number, intent: InputIntent): void {
+    const g = this.guard!;
+    const f = this.stateFrame;
+    // 受け止めたときのノックバックだけで動く
+    this.velX = this.knockback.velX;
+    this.velZ = this.knockback.velZ;
+    this.knockback.step();
+    if (this.guardStun > 0) {
+      this.guardStun--;
+    } else {
+      const turnTo = this.aimYaw() ?? (mLen > 0.3 ? Math.atan2(mx, mz) : null);
+      if (turnTo !== null) this.yaw = rotateTowards(this.yaw, turnTo, MOVE.turnSpeed * GUARD_TURN_SCALE * dt);
+      if (f >= g.cancelFrame) {
+        if (intent.dodgePressed) {
+          this.guard = null;
+          this.beginDodge(mx, mz, mLen);
+          return;
+        }
+        if (this.attackBuffered) {
+          this.guard = null;
+          this.beginAttackFromInput(mx, mz, mLen);
+          return;
+        }
+      }
+      if (!intent.guardHeld && f >= g.minHoldFrames) {
+        this.guard = null;
+        this.guardLock = g.lockFrames;
+        this.setState(mLen > 0.01 ? 'run' : 'idle');
+      }
+    }
+  }
+
+  /** 構えているか（敵の攻撃を防ぐ状態か） */
+  get guarding(): boolean {
+    return this.state === 'guard' && this.guard !== null;
+  }
+
+  /** パリィの受付中か（構えに入ってから parryFrames 以内。見た目が盾を光らせるのに使う）。step() の後に読む */
+  get parryWindow(): boolean {
+    const g = this.guard;
+    return this.state === 'guard' && g !== null && g.parryFrames > 0 && this.stateFrame >= 1 && this.stateFrame <= g.parryFrames;
+  }
+
+  /** 敵の攻撃（ev）に対する防御の結果。被弾の前に呼ぶ。構えていなければ 'none' */
+  guardOutcome(ev: HitEvent): GuardOutcome {
+    if (this.state !== 'guard' || !this.guard) return 'none';
+    return resolveGuardOutcome(this.guard, this.stateFrame, this.yaw, ev.dirX, ev.dirZ);
+  }
+
+  /**
+   * ガードで受け止める。ダメージを軽減して通し（削り。HP が 0 なら倒れる）、少し押されて、硬直（guardStun）に入る。構えは保つ。
+   * 向きは変えない（被弾と違い、受けた側を向き直さない）
+   */
+  guardBlock(ev: HitEvent): DamageResult {
+    const g = this.guard!;
+    const r = applyDamage(this.health, guardedDamage(ev.damage, g));
+    this.guardHitSerial++;
+    this.lastGuardHit = ev;
+    this.guardStun = g.hitStunFrames;
+    this.knockback.start(ev.dirX, ev.dirZ, ev.knockback * g.knockbackScale, HIT_STUN.knockbackFrames);
+    if (r.killed) {
+      this.guard = null;
+      this.guardStun = 0;
+      this.velX = 0;
+      this.velZ = 0;
+      this.setState('dead', true);
+    }
+    return r;
+  }
+
+  /** パリィ成功。ダメージも押されもなし（敵が弾かれる）。構えは保つので、そのまま反撃できる */
+  parry(ev: HitEvent): void {
+    this.parrySerial++;
+    this.lastGuardHit = ev;
   }
 
   private setState(s: PlayerState, forceRestart = false): void {
@@ -485,11 +662,19 @@ class HeroVisual {
   private readonly animator: Animator;
   private seenSerial = -1;
   private seenHit = 0;
+  private seenEquip = -1;
+  private seenGuardHit = 0;
+  private seenParry = 0;
+  /** ガードで受け止めた・パリィした瞬間の盾（剣）の閃光（1 → 0 に減衰。実時間） */
+  private guardFlash = 0;
   /** 被弾のフラッシュ（0..1 で減衰。実時間で減らす） */
   private flash = 0;
   /** 発光に使うキャラのマテリアル（トゥーン）。発光色は黒（なし）から始まる */
   private readonly skinMats: ToonMaterial[];
   private readonly sword: THREE.Group;
+  /** 盾（左前腕）。盾を装備しているときだけ見せる */
+  private readonly shield: THREE.Group;
+  private readonly shieldMat: ToonMaterial;
   /** 剣の刃のマテリアルと、素の発光（溜めの光り方はここから変える） */
   private readonly steel: ToonMaterial;
   private readonly steelBaseIntensity: number;
@@ -522,7 +707,19 @@ class HeroVisual {
       this.animator.addClip(def.name, clip);
       this.authoredStats[def.name] = stats;
       this.authoredTrace[def.name] = trace;
+      // 盾を持つときの版: 左腕を盾の持ち位置に固定して焼き直す（ガードのクリップは自分で左腕を決めるので除く）
+      if (hasShieldVariant(def.name)) {
+        const v = bakeAttack(this.capture.rig, def, 60, this.capture.extras, { leftHold: SHIELD_CARRY, suffix: SHIELD_VARIANT });
+        this.animator.addClip(def.name + SHIELD_VARIANT, v.clip);
+        this.authoredStats[def.name + SHIELD_VARIANT] = v.stats;
+        this.authoredTrace[def.name + SHIELD_VARIANT] = v.trace;
+      }
     }
+    // 盾を持つときの待機（左腕を盾の位置に固定した息づかいだけの待機）。名前は 'idle@shield' で、clipName が盾版として探す
+    const shieldIdle = bakeAttack(this.capture.rig, SHIELD_IDLE, 60, this.capture.extras, { leftHold: SHIELD_CARRY });
+    this.animator.addClip(shieldIdle.clip.name, shieldIdle.clip);
+    this.authoredStats[shieldIdle.clip.name] = shieldIdle.stats;
+    this.authoredTrace[shieldIdle.clip.name] = shieldIdle.trace;
     // 剣: ボーン空間は cm（Armature 0.01 倍）なのでソケットを 100 倍にして m 単位の剣を置く
     this.sword = buildSword();
     this.steel = this.sword.userData.steel as ToonMaterial;
@@ -537,6 +734,23 @@ class HeroVisual {
     socket.add(this.sword);
     if (bone) bone.add(socket);
     else console.warn(`[hero] ボーンがありません: ${HERO.sword.bone}`);
+
+    // 盾: 左前腕のボーンに付ける。面の向きは肘の蝶番軸から決める（shieldMount）。装備したときだけ見せる
+    this.shield = buildShield();
+    this.shieldMat = this.shield.userData.material as ToonMaterial;
+    const foreL = asset.bones.get(BONE.foreL);
+    if (foreL) {
+      const rig = this.capture.rig;
+      const mount = shieldMount(rig.data.hinges.armL.f, rig.length(BONE.foreL, BONE.handL));
+      const shieldSocket = new THREE.Group();
+      shieldSocket.name = 'shield-socket';
+      shieldSocket.position.copy(mount.position);
+      shieldSocket.quaternion.copy(mount.quaternion);
+      shieldSocket.scale.setScalar(100);
+      shieldSocket.add(this.shield);
+      foreL.add(shieldSocket);
+    } else console.warn(`[hero] ボーンがありません: ${BONE.foreL}`);
+    this.shield.visible = false;
 
     this.animator.play(HERO.clips.idle, { loop: true, fade: 0 });
   }
@@ -566,6 +780,20 @@ class HeroVisual {
       m.emissiveIntensity = amount;
     }
     this.updateSwordGlow(p, frameDt);
+    this.updateShieldGlow(p, frameDt);
+  }
+
+  /**
+   * 盾の光: パリィの受付のあいだ水色に光り（弾けるタイミングが見える）、受け止めた・弾いた瞬間に暖色に閃く。
+   * 盾を持たないときは何もしない（剣の閃光は updateSwordGlow の glowPulse）
+   */
+  private updateShieldGlow(p: Player, frameDt: number): void {
+    this.guardFlash = Math.max(0, this.guardFlash - frameDt / 0.18);
+    if (!this.shield.visible) return;
+    const m = this.shieldMat;
+    m.emissive.copy(PARRY_COLOR).multiplyScalar(p.parryWindow ? 0.75 : 0);
+    if (this.guardFlash > 0) m.emissive.add(_flash.copy(GUARD_FLASH_COLOR).multiplyScalar(this.guardFlash));
+    m.emissiveIntensity = 1;
   }
 
   /**
@@ -590,10 +818,15 @@ class HeroVisual {
   }
 
   update(p: Player, dt: number, frameDt: number): void {
+    if (p.equipSerial !== this.seenEquip) {
+      this.seenEquip = p.equipSerial;
+      this.shield.visible = p.loadout.offhand === 'shield';
+    }
     if (p.stateSerial !== this.seenSerial) {
       this.seenSerial = p.stateSerial;
       this.onStateEnter(p);
     }
+    this.onGuardEvents(p);
     this.updateGlow(p, frameDt);
     if (p.state === 'run') {
       const rate = Math.max(HERO.runRateMin, p.speed / HERO.runCycleSpeed);
@@ -602,25 +835,52 @@ class HeroVisual {
     this.animator.update(dt);
   }
 
+  /** 手付けクリップの名前（盾を持つときは、左腕を盾の位置に固定して焼き直した版があればそれ） */
+  private clipName(base: string, p: Player): string {
+    const v = base + p.loadout.clipVariant;
+    return p.loadout.clipVariant !== '' && this.animator.has(v) ? v : base;
+  }
+
+  /** ガードで受け止めた・パリィしたときの反動の動きと閃光 */
+  private onGuardEvents(p: Player): void {
+    if (p.guardHitSerial !== this.seenGuardHit) {
+      this.seenGuardHit = p.guardHitSerial;
+      this.guardFlash = 1;
+      // 素手のとき（剣で受ける）は刃が光る
+      if (p.loadout.offhand === 'none') this.glowPulse = 1;
+      if (p.guarding && p.guard) this.animator.play(p.guard.clips.hit.name, { loop: false, fade: 0.03, rate: 1, clamp: true, restart: true });
+    }
+    if (p.parrySerial !== this.seenParry) {
+      this.seenParry = p.parrySerial;
+      this.guardFlash = 1;
+      const c = p.guard?.clips.parry;
+      if (p.guarding && c) this.animator.play(c.name, { loop: false, fade: 0.03, rate: 1, clamp: true, restart: true });
+    }
+  }
+
   private onStateEnter(p: Player): void {
     switch (p.state) {
       case 'idle':
-        this.animator.play(HERO.clips.idle, { loop: true, fade: 0.25 });
+        this.animator.play(this.clipName(HERO.clips.idle, p), { loop: true, fade: 0.25 });
         break;
       case 'run':
         this.animator.play(HERO.clips.run, { loop: true, fade: 0.15 });
         break;
       case 'attack': {
         const a = p.attack!;
-        this.animator.play(a.segment, { loop: false, fade: a.fade ?? 0.08, rate: a.rate, clamp: true, restart: true });
+        this.animator.play(this.clipName(a.segment, p), { loop: false, fade: a.fade ?? 0.08, rate: a.rate, clamp: true, restart: true });
         break;
       }
       case 'dodge':
-        this.animator.play(p.dodgeKind === 'back' ? 'dodgeBack' : 'dodge', { loop: false, fade: 0.06, rate: 1, clamp: true, restart: true });
+        this.animator.play(this.clipName(p.dodgeKind === 'back' ? 'dodgeBack' : 'dodge', p), { loop: false, fade: 0.06, rate: 1, clamp: true, restart: true });
         break;
       case 'charge':
         // 構えは終端の姿勢で止まる（clamp）。離すまで保つ
-        this.animator.play(p.charge!.clip.name, { loop: false, fade: 0.05, rate: 1, clamp: true, restart: true });
+        this.animator.play(this.clipName(p.charge!.clip.name, p), { loop: false, fade: 0.05, rate: 1, clamp: true, restart: true });
+        break;
+      case 'guard':
+        // 構えも終端の姿勢で止まる。構えるあいだ保つ（盾のクリップは左腕を自分で決めるので版は無い）
+        this.animator.play(p.guard!.clips.enter.name, { loop: false, fade: 0.06, rate: 1, clamp: true, restart: true });
         break;
       case 'hit':
         this.animator.play('hit', { loop: false, fade: 0.04, rate: HERO.hit.rate, clamp: true, restart: true });
@@ -631,6 +891,11 @@ class HeroVisual {
     }
   }
 }
+
+/** パリィの受付中の盾の光（水色）と、受け止めた・弾いた瞬間の閃光（暖色） */
+const PARRY_COLOR = new THREE.Color(0.3, 0.8, 1);
+const GUARD_FLASH_COLOR = new THREE.Color(1, 0.85, 0.5);
+const _flash = new THREE.Color();
 
 /** 溜めの段階ごとの刃の光（0..1）と、最大のときの発光色（金色） */
 const CHARGE_GLOW = [0.35, 0.7, 1] as const;

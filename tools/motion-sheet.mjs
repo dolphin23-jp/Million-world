@@ -13,7 +13,9 @@
  *   --cam side|front|back|three|top  カメラの向き。既定は side（キャラは +Z を向く。side は +X 側から見るので、前は画面の左）
  *   --focus 0.0                  注視点の z（前進する動きは中ほどに置く）  --dist 4.2  --height 1.0  --pitch 0.12
  *   --cols 4                     1 行に並べる枚数
- *   --weapon <id>                装備（ある場合）。例: greatsword
+ *   --weapon <id>                装備（ロードアウトの id）。例: sword-shield（盾を持つ。盾版の技が出る）
+ *   --clip <名前>                sim を使わず、焼いたクリップを直接指定して --frames の時刻（60fps のフレーム番号）の姿勢を撮る。
+ *                                ガードの構えなど、状態機械を通さず姿勢だけ見たいとき。例: --clip guardShield  /  --clip combo1@shield
  *   --aim 0,4                    ロックオン中にする（対象の位置 x,z。サンドボックスには敵がいないので、ロック中だけに出る技を撮るため）
  *
  *   例: 回避  node tools/motion-sheet.mjs dodge --script '0:{"dodgePressed":true,"dir":[0,1]}' --end 36 --focus 1.4
@@ -47,6 +49,7 @@ const height = Number(opt('height', 1.0));
 const pitch = Number(opt('pitch', 0.12));
 const cols = Number(opt('cols', 4));
 const weapon = opt('weapon', null);
+const clipName = opt('clip', null);
 const aim = opt('aim', null) ? opt('aim').split(',').map(Number) : null;
 const script = {};
 for (const part of (opt('script', '0:{}') ?? '').split(';').filter(Boolean)) {
@@ -103,6 +106,26 @@ try {
   const shots = [];
   let at = 0;
   for (const target of frames) {
+    if (clipName) {
+      // クリップを直接再生して、その時刻で止めて撮る（止めたアクションはアニメーターの更新で進まない）
+      const err = await page.evaluate(([name, f]) => {
+        const g = window.__mw.game;
+        const an = g.player.visual.animator;
+        if (!an.has(name)) return `クリップがありません: ${name}`;
+        const act = an.play(name, { loop: false, fade: 0, restart: true, rate: 1, clamp: true });
+        an.mixer.update(0.2); // クロスフェード・フェードインを完了させる（同じクリップの再生し直しは 0.05 秒かけて入るので、短いと別のクリップが混ざる）
+        act.paused = true;
+        act.time = Math.min(f / 60, an.duration(name) - 1e-6);
+        an.mixer.update(0);
+        g.renderNow(1);
+        return null;
+      }, [clipName, target]);
+      if (err) throw new Error(err);
+      at = target;
+      await sleep(60);
+      shots.push({ frame: target, buf: await page.screenshot({ type: 'png' }) });
+      continue;
+    }
     await page.evaluate(([from, to, script, yaw]) => {
       const g = window.__mw.game;
       // "dir": [x, z]（ワールドの向き）を、カメラの yaw に合わせたスティック入力に直す。前 = (−sin yaw, −cos yaw)、右 = (cos yaw, −sin yaw)

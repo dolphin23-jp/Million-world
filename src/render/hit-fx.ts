@@ -96,6 +96,13 @@ function makeMaterial(map: THREE.Texture): THREE.SpriteMaterial {
   });
 }
 
+const WHITE = new THREE.Color(1, 1, 1);
+/** パリィの閃光（水色がかった白）・ガードの閃光（暖かい白）。スプライトの色は加算合成のテクスチャに掛かる */
+export const FX_TINT = {
+  parry: new THREE.Color(0.55, 0.9, 1),
+  guard: new THREE.Color(1, 0.93, 0.75),
+} as const;
+
 export class HitFx {
   readonly group = new THREE.Group();
   private readonly stars: Star[] = [];
@@ -127,10 +134,11 @@ export class HitFx {
 
   /**
    * 命中の位置 (x, y, z) で弾ける。dir は攻撃の向き（XZ の単位ベクトル、火花はこの向きへ飛ぶ）。
-   * power はエフェクトの強さ（0.3〜1.2。星の大きさと火花の数・速さ）
+   * power はエフェクトの強さ（0.3〜1.2。星の大きさと火花の数・速さ）。tint は色味（既定は白 = 元の暖色の星と火花。FX_TINT）
    */
-  burst(x: number, y: number, z: number, dirX: number, dirZ: number, power: number): void {
+  burst(x: number, y: number, z: number, dirX: number, dirZ: number, power: number, tint: THREE.Color = WHITE): void {
     const star = this.stars[this.nextStar]!;
+    star.mat.color.copy(tint);
     this.nextStar = (this.nextStar + 1) % this.stars.length;
     star.active = true;
     star.age = 0;
@@ -143,6 +151,7 @@ export class HitFx {
     for (let i = 0; i < count; i++) {
       const sp = this.sparks[this.nextSpark]!;
       this.nextSpark = (this.nextSpark + 1) % this.sparks.length;
+      sp.mat.color.copy(tint);
       // 攻撃の向きを中心に、横へ ±70° ばらけて飛ぶ
       const a = Math.atan2(dirX, dirZ) + (Math.random() - 0.5) * 2.4;
       const speed = (2.5 + Math.random() * 3.5) * (0.7 + power * 0.5);

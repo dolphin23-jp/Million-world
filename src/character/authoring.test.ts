@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { Quaternion, Vector3 } from 'three';
-import { AuthoredSampler, bakeAttack, type AuthoredAttack } from './authoring';
+import { AuthoredSampler, bakeAttack, type AuthoredAttack, type LeftHold } from './authoring';
+import { AUTHORED_ATTACKS, hasShieldVariant } from './data/authored';
+import { SHIELD_CARRY, SHIELD_IDLE } from './data/guard';
 import { swordRotation } from './ik';
 import { BONE } from './rig';
 import { makeRig } from './test-rig';
@@ -262,5 +264,100 @@ describe('bakeAttack', () => {
     const hp = clip.tracks.find((t) => t.name === `${BONE.hips}.position`)!.values;
     const n = hp.length / 3;
     expect(hp[(n - 1) * 3 + 2]!).toBeCloseTo(new Vector3().copy(rig.data.hipsPos).z * 100, 1);
+  });
+});
+
+describe('leftHold（左腕を固定して焼く。盾を持つ側。ADR-020）', () => {
+  const HOLD: LeftHold = { left: [-30, 5, 0.35], leftPole: [0.5, -0.8, 0] };
+  const moving: AuthoredAttack = {
+    name: 'a',
+    duration: 1,
+    keys: [
+      { t: 0.3, ease: 'lin', left: [10, 40, 0.4], leftPole: [0, -1, 0], chest: { yaw: 20 }, grip: [30, 20, 0.4] },
+      { t: 0.8, ease: 'lin', left: [-60, -50, 0.45], leftPole: [1, 0, 0], chest: { yaw: -20 }, grip: [10, 0, 0.45] },
+    ],
+  };
+
+  it('左手・左肘は全時刻で固定の値になり、手付けの左のキーは無視される。ほかのチャンネルは変わらない', () => {
+    const free = new AuthoredSampler(rig, moving);
+    const held = new AuthoredSampler(rig, moving, { leftHold: HOLD });
+    for (const t of [0, 0.15, 0.3, 0.55, 0.8, 1]) {
+      const a = held.sample(t, held.newInput());
+      expect(a.left.az, `t=${t}`).toBeCloseTo(HOLD.left[0] * DEG, 9);
+      expect(a.left.el, `t=${t}`).toBeCloseTo(HOLD.left[1] * DEG, 9);
+      expect(a.left.r, `t=${t}`).toBeCloseTo(HOLD.left[2], 9);
+      expect(a.leftPole.distanceTo(new Vector3(...HOLD.leftPole)), `t=${t}`).toBeLessThan(1e-9);
+      const b = free.sample(t, free.newInput());
+      expect(a.chest.yaw, `t=${t}`).toBeCloseTo(b.chest.yaw, 9);
+      expect(a.grip.az, `t=${t}`).toBeCloseTo(b.grip.az, 9);
+      expect(a.grip.r, `t=${t}`).toBeCloseTo(b.grip.r, 9);
+    }
+    // 固定しなければ左手は動く（このテストが意味を持つ確認）
+    const m = free.sample(0.3, free.newInput());
+    expect(m.left.az).toBeCloseTo(10 * DEG, 9);
+  });
+
+  it('continueFrom の連鎖でも、次の技の最初から固定の値（前の技の左のキーが残らない）', () => {
+    const next: AuthoredAttack = { name: 'b', duration: 0.5, continueFrom: { attack: moving, t: 0.3 }, keys: [{ t: 0.3, ease: 'lin', left: [40, 10, 0.3] }] };
+    const held = new AuthoredSampler(rig, next, { leftHold: HOLD });
+    for (const t of [0, 0.1, 0.3, 0.5]) {
+      const p = held.sample(t, held.newInput());
+      expect(p.left.az, `t=${t}`).toBeCloseTo(HOLD.left[0] * DEG, 9);
+      expect(p.left.r, `t=${t}`).toBeCloseTo(HOLD.left[2], 9);
+    }
+    // 固定しない版は、前の技の途中の左手から始まる（固定の値とは違う）
+    const free = new AuthoredSampler(rig, next);
+    expect(Math.abs(free.sample(0, free.newInput()).left.az - HOLD.left[0] * DEG)).toBeGreaterThan(0.1);
+  });
+
+  it('焼いたクリップは接尾辞つきの名前になり、長さは元と同じ。固定した左腕は届く（クランプなし）', () => {
+    const base = bakeAttack(rig, moving);
+    const v = bakeAttack(rig, moving, 60, [], { leftHold: HOLD, suffix: '@shield' });
+    expect(base.clip.name).toBe('a');
+    expect(v.clip.name).toBe('a@shield');
+    expect(v.clip.duration).toBeCloseTo(base.clip.duration, 9);
+    expect(v.stats.armLClampedFrames).toBe(0);
+  });
+
+  it('盾の持ち位置（SHIELD_CARRY）は、盾版を作るすべての手付けクリップで全時刻に効いていて、左腕が届く', () => {
+    for (const def of Object.values(AUTHORED_ATTACKS)) {
+      if (!hasShieldVariant(def.name)) continue;
+      const s = new AuthoredSampler(rig, def, { leftHold: SHIELD_CARRY });
+      const n = Math.round(def.duration * 60);
+      for (let f = 0; f <= n; f += 3) {
+        const p = s.sample(Math.min(def.duration, f / 60), s.newInput());
+        expect(p.left.az, `${def.name} f${f}`).toBeCloseTo(SHIELD_CARRY.left[0] * DEG, 9);
+        expect(p.left.el, `${def.name} f${f}`).toBeCloseTo(SHIELD_CARRY.left[1] * DEG, 9);
+        expect(p.left.r, `${def.name} f${f}`).toBeCloseTo(SHIELD_CARRY.left[2], 9);
+      }
+    }
+  });
+
+  it('盾を持つときの待機（idle@shield）は、始まりと終わりが同じ姿勢で繰り返せ、左腕は盾の持ち位置のまま', () => {
+    const s = new AuthoredSampler(rig, SHIELD_IDLE, { leftHold: SHIELD_CARRY });
+    const a = s.sample(0, s.newInput());
+    const b = s.sample(SHIELD_IDLE.duration, s.newInput());
+    for (const k of ['hips', 'chest', 'head'] as const) {
+      for (const f of ['yaw', 'pitch', 'roll'] as const) expect(a[k][f], `${k}.${f}`).toBeCloseTo(b[k][f], 9);
+    }
+    expect(a.hips.y).toBeCloseTo(b.hips.y, 9);
+    expect(a.grip.az).toBeCloseTo(b.grip.az, 9);
+    for (const t of [0, 0.7, 1.4, 2.1, 2.8]) {
+      const p = s.sample(t, s.newInput());
+      expect(p.left.az, `t=${t}`).toBeCloseTo(SHIELD_CARRY.left[0] * DEG, 9);
+      expect(p.left.r, `t=${t}`).toBeCloseTo(SHIELD_CARRY.left[2], 9);
+    }
+    // ふつうの待機のクリップ名（Meshy の 'idle'）とは別名。盾版の接尾辞つきで探される
+    expect(SHIELD_IDLE.name).toBe('idle@shield');
+  });
+
+  it('ガードのクリップ（左腕を自分で決める）には盾版を作らない', () => {
+    for (const name of ['guardShield', 'guardShieldHit', 'guardShieldParry', 'guardSword', 'guardSwordHit']) {
+      expect(AUTHORED_ATTACKS[name], name).toBeDefined();
+      expect(hasShieldVariant(name), name).toBe(false);
+    }
+    for (const name of ['combo1', 'combo2', 'combo3', 'heavy', 'heavyCharge', 'lunge', 'dash', 'retreat', 'sweep', 'dodge', 'dodgeBack']) {
+      expect(hasShieldVariant(name), name).toBe(true);
+    }
   });
 });

@@ -123,6 +123,26 @@ body {
   right: calc(48px + var(--safe-right));
   bottom: calc(160px + var(--safe-bottom));
 }
+.tbtn-guard {
+  /* ガード（攻撃の左・回避の下）。押している間だけ構える（ADR-020） */
+  width: 72px;
+  height: 72px;
+  font-size: 13px;
+  right: calc(158px + var(--safe-right));
+  bottom: calc(10px + var(--safe-bottom));
+}
+.tbtn-equip {
+  /* 装備の切替（右上）。戦闘中の誤タップを避けて端に置く。ラベルは今の装備名 */
+  width: auto;
+  min-width: 92px;
+  height: 40px;
+  padding: 0 16px;
+  border-radius: 20px;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  right: calc(16px + var(--safe-right));
+  top: calc(12px + var(--safe-top));
+}
 .tbtn.active {
   border-color: var(--accent);
   box-shadow: 0 0 14px rgba(255, 211, 106, 0.55);
@@ -292,6 +312,17 @@ body {
 }
 .dmg-hurt {
   color: #ff5d5d;
+}
+/* ガードで受けた削り（小さく控えめ）・パリィの文字・弾かれた敵への反撃 */
+.dmg-guard {
+  color: #bcd6ff;
+}
+.dmg-parry {
+  color: #8fe9ff;
+  letter-spacing: 0.12em;
+}
+.dmg-riposte {
+  color: #9ff2ff;
 }
 
 /* ---------- ウェーブのバナー ---------- */
@@ -489,6 +520,44 @@ body {
   font-size: 14px;
   letter-spacing: 0.4em;
   color: rgba(255, 255, 255, 0.55);
+}
+/* 装備の選択（開始画面）。タップしてもゲームは始まらない（hud.ts が伝播を止める） */
+#loadout-pick {
+  display: flex;
+  gap: 14px;
+  margin-top: -8px;
+}
+.loadout-chip {
+  /* iOS Safari の button の既定の見た目（丸い灰色）を消す */
+  -webkit-appearance: none;
+  appearance: none;
+  font: inherit;
+  min-width: 150px;
+  padding: 12px 18px 10px;
+  border-radius: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  background: rgba(20, 24, 52, 0.6);
+  color: rgba(255, 255, 255, 0.8);
+  text-align: center;
+  touch-action: none;
+}
+.loadout-chip b {
+  display: block;
+  font-size: 17px;
+  letter-spacing: 0.08em;
+}
+.loadout-chip small {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.6);
+}
+.loadout-chip.selected {
+  border-color: var(--accent);
+  background: rgba(255, 211, 106, 0.2);
+  color: #fff;
+  box-shadow: 0 0 16px rgba(255, 211, 106, 0.35);
 }
 .start-hint {
   font-size: 18px;

@@ -171,10 +171,23 @@ export function idleInput(rig: Rig): PoseInput {
 }
 
 /**
+ * 左腕を固定して焼く指定（盾を持つ側。ADR-020）。盾を構えたまま攻撃・回避するので、手付けの左手・左肘のキーは使わず、
+ * 全時刻でこの位置に保つ（値の意味は AuthoredKey.left / leftPole と同じ。角度は度）
+ */
+export interface LeftHold {
+  left: [number, number, number];
+  leftPole: Vec3Tuple;
+}
+
+export interface SamplerOptions {
+  leftHold?: LeftHold;
+}
+
+/**
  * キー列をチャンネルごとのタイムラインに展開する。
  * idle は 'idle' と書かれた値の解決用、base は t=0 のパディングと「キーが無いチャンネル」の値（通常は idle、continueFrom なら前の技の姿勢）
  */
-function expand(def: AuthoredAttack, idle: Map<string, number>, base: Map<string, number>): Timelines {
+function expand(def: AuthoredAttack, idle: Map<string, number>, base: Map<string, number>, skipLeft = false): Timelines {
   const tl: Timelines = new Map();
   const keys = [...def.keys].sort((a, b) => a.t - b.t);
   const swordPrev = { q: new THREE.Quaternion(base.get('sword.x'), base.get('sword.y'), base.get('sword.z'), base.get('sword.w')) };
@@ -197,7 +210,7 @@ function expand(def: AuthoredAttack, idle: Map<string, number>, base: Map<string
       add(tl, `${g}.r`, k.t, r, ease);
     };
     polar('grip', k.grip);
-    polar('left', k.left);
+    if (!skipLeft) polar('left', k.left);
     const vec3 = (ch: 'pole' | 'leftPole', v: Vec3Tuple | 'idle' | undefined): void => {
       if (v === undefined) return;
       const t3: Vec3Tuple = v === 'idle' ? [idle.get(`${ch}.x`)!, idle.get(`${ch}.y`)!, idle.get(`${ch}.z`)!] : v;
@@ -206,7 +219,7 @@ function expand(def: AuthoredAttack, idle: Map<string, number>, base: Map<string
       add(tl, `${ch}.z`, k.t, t3[2], ease);
     };
     vec3('pole', k.pole);
-    vec3('leftPole', k.leftPole);
+    if (!skipLeft) vec3('leftPole', k.leftPole);
     if (k.blade !== undefined || k.face !== undefined) {
       const bl = k.blade === 'idle' || k.blade === undefined ? null : k.blade;
       const fc = k.face === 'idle' || k.face === undefined ? null : k.face;
@@ -260,11 +273,21 @@ export class AuthoredSampler {
   private readonly tl: Timelines;
   private readonly idlePose: PoseInput;
 
-  constructor(readonly rig: Rig, readonly def: AuthoredAttack) {
+  constructor(readonly rig: Rig, readonly def: AuthoredAttack, readonly opts: SamplerOptions = {}) {
     this.idle = idleChannels(rig);
     this.idlePose = idleInput(rig);
-    this.start = def.continueFrom ? new AuthoredSampler(rig, def.continueFrom.attack).snapshot(def.continueFrom.t) : this.idle;
-    this.tl = expand(def, this.idle, this.start);
+    const hold = opts.leftHold;
+    let start: Map<string, number>;
+    if (def.continueFrom) {
+      // 前の技も同じ指定で作る（つなぎ目の姿勢が一致するように）
+      start = new AuthoredSampler(rig, def.continueFrom.attack, opts).snapshot(def.continueFrom.t);
+    } else {
+      start = new Map(this.idle);
+      if (hold) holdLeft(start, hold);
+    }
+    this.start = start;
+    // 左腕を固定するときは、左手・左肘のチャンネルにキーを作らない（value() が start の値を返し続ける）
+    this.tl = expand(def, this.idle, this.start, hold !== undefined);
   }
 
   /**
@@ -401,6 +424,16 @@ export class AuthoredSampler {
 const _q = new THREE.Quaternion();
 const _qb = new THREE.Quaternion();
 
+/** チャンネル値の表 m の左手・左肘を、固定する位置に書き換える */
+function holdLeft(m: Map<string, number>, h: LeftHold): void {
+  m.set('left.az', h.left[0] * DEG);
+  m.set('left.el', h.left[1] * DEG);
+  m.set('left.r', h.left[2]);
+  m.set('leftPole.x', h.leftPole[0]);
+  m.set('leftPole.y', h.leftPole[1]);
+  m.set('leftPole.z', h.leftPole[2]);
+}
+
 /**
  * 角度（ラジアン）のチャンネル。ロールのように 360° 回るクリップは終端が 372° などになるが、姿勢としては 12° と同じ。
  * continueFrom で次の技の起点にするとき、そのまま 372° を渡すと、次の技の 10° へ向かって逆に 1 回転してしまうので、±180° に折り返して渡す
@@ -441,8 +474,14 @@ export interface BakeStats {
 }
 
 /** 手付けアニメを AnimationClip に焼く。トラックは全ボーンの quaternion と Hips の position（cm） */
-export function bakeAttack(rig: Rig, def: AuthoredAttack, fps = 60, extras: readonly ExtraBone[] = []): { clip: THREE.AnimationClip; stats: BakeStats; trace: FrameTrace[] } {
-  const sampler = new AuthoredSampler(rig, def);
+export function bakeAttack(
+  rig: Rig,
+  def: AuthoredAttack,
+  fps = 60,
+  extras: readonly ExtraBone[] = [],
+  opts: SamplerOptions & { /** クリップ名に付ける接尾辞（版を区別する。例: '@shield'） */ suffix?: string } = {},
+): { clip: THREE.AnimationClip; stats: BakeStats; trace: FrameTrace[] } {
+  const sampler = new AuthoredSampler(rig, def, opts);
   const solver = new PoseSolver(rig);
   const out = createPoseOutput(rig);
   const inp = sampler.newInput();
@@ -495,7 +534,7 @@ export function bakeAttack(rig: Rig, def: AuthoredAttack, fps = 60, extras: read
     for (let k = 0; k < 2; k++) two.set([e.quat.x, e.quat.y, e.quat.z, e.quat.w], k * 4);
     tracks.push(new THREE.QuaternionKeyframeTrack(`${e.name}.quaternion`, [0, def.duration], two));
   }
-  return { clip: new THREE.AnimationClip(def.name, def.duration, tracks), stats, trace };
+  return { clip: new THREE.AnimationClip(def.name + (opts.suffix ?? ''), def.duration, tracks), stats, trace };
 }
 
 /**

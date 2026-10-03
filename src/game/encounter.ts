@@ -20,6 +20,8 @@ export interface ResultSummary {
   kills: number;
   hitsTaken: number;
   damageTaken: number;
+  /** パリィで弾いた回数 */
+  parries: number;
   /** 勝ったときだけ */
   rank: string | null;
 }
@@ -33,6 +35,7 @@ export class Encounter {
   kills = 0;
   hitsTaken = 0;
   damageTaken = 0;
+  parries = 0;
   private clearTimer = 0;
   private deadTimer = 0;
 
@@ -99,6 +102,15 @@ export class Encounter {
     this.damageTaken += damage;
   }
 
+  /** ガードで受け止めた（削りダメージだけ通った）。被弾の回数には数えず、被ダメージには入れる */
+  onPlayerGuard(damage: number): void {
+    this.damageTaken += damage;
+  }
+
+  onParry(): void {
+    this.parries++;
+  }
+
   result(): ResultSummary | null {
     if (this.phase === 'fight') return null;
     const seconds = this.frames / 60;
@@ -108,6 +120,7 @@ export class Encounter {
       kills: this.kills,
       hitsTaken: this.hitsTaken,
       damageTaken: this.damageTaken,
+      parries: this.parries,
       rank: this.phase === 'victory' ? rankOf(seconds, this.damageTaken) : null,
     };
   }

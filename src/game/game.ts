@@ -30,6 +30,9 @@ import { DEMO_ENCOUNTER, type EncounterDef } from '../ai/data/encounters';
 import type { Hurtbox } from '../combat/hit';
 import { hitFeedback } from '../combat/feedback';
 import { HIT_FEEDBACK } from '../combat/data/hit-feedback';
+import { GUARD_FEEDBACK, PARRY } from '../combat/data/guard';
+import { LOADOUTS, nextLoadout, type LoadoutId } from '../combat/data/loadouts';
+import { FX_TINT } from '../render/hit-fx';
 import type { HitEvent } from '../combat/hit';
 import type { DamageResult } from '../combat/health';
 import { ThirdPersonCamera } from './camera';
@@ -180,6 +183,7 @@ export class Game {
 
     // --- 入力 ---
     this.touch = new TouchInput();
+    this.touch.setEquipLabel(this.player.loadout.name);
     this.input.add(this.touch);
     this.input.add(new KeyboardInput());
     this.input.add({
@@ -301,14 +305,15 @@ export class Game {
   }
 
   /** プレイヤーの攻撃が敵に当たった。ヒットストップ・画面の揺れ・エフェクト・ダメージ数字を起こす */
-  private onPlayerHit(ev: HitEvent, enemy: Enemy, result: DamageResult): void {
+  private onPlayerHit(ev: HitEvent, enemy: Enemy, result: DamageResult, riposte = false): void {
     const fb = hitFeedback(ev, result.killed);
     this.hitStop.trigger(fb.hitStop);
     this.cam.shake.trigger(fb.shakeAmp, fb.shakeSeconds);
     const y = HIT_FEEDBACK.impactHeight;
-    this.hitFx.burst(ev.x, y, ev.z, ev.dirX, ev.dirZ, fb.power);
-    this.damageNumbers.spawn(enemy.body.x, y + 0.5, enemy.body.z, result.dealt, fb.style);
-    this.sfx.play(fb.style === 'heavy' ? 'hitHeavy' : 'hit');
+    // 弾かれた敵への反撃は、水色がかった閃光と大きな数字で「反撃が通った」を見せる
+    this.hitFx.burst(ev.x, y, ev.z, ev.dirX, ev.dirZ, fb.power, riposte ? FX_TINT.parry : undefined);
+    this.damageNumbers.spawn(enemy.body.x, y + 0.5, enemy.body.z, result.dealt, riposte && !result.killed ? 'riposte' : fb.style);
+    this.sfx.play(fb.style === 'heavy' || riposte ? 'hitHeavy' : 'hit');
     if (result.killed) this.sfx.play('kill');
     if (result.killed) {
       this.encounter.onKill();
@@ -331,6 +336,45 @@ export class Game {
     if (result.killed) this.hitStop.slow(DEFEAT_SLOW.scale, DEFEAT_SLOW.seconds);
   }
 
+  /**
+   * 敵の攻撃をガードで受け止めた（ADR-020）。被弾より小さい演出（短いヒットストップ・小さな揺れ・暖かい火花）と、通った削りダメージ。
+   * 赤いフラッシュは出さない（防げた）
+   */
+  private onEnemyGuarded(ev: HitEvent, result: DamageResult): void {
+    this.hitStop.trigger(GUARD_FEEDBACK.hitStop);
+    this.cam.shake.trigger(GUARD_FEEDBACK.shake.amp, GUARD_FEEDBACK.shake.seconds);
+    this.hitFx.burst(ev.x, HIT_FEEDBACK.playerImpactHeight, ev.z, ev.dirX, ev.dirZ, 0.55, FX_TINT.guard);
+    this.damageNumbers.spawn(this.player.body.x, HIT_FEEDBACK.playerImpactHeight + 0.7, this.player.body.z, result.dealt, 'guard');
+    this.hud.setPlayerHp(this.player.health.hp, this.player.health.max);
+    this.sfx.play('guard');
+    this.encounter.onPlayerGuard(result.dealt);
+    if (result.killed) this.hitStop.slow(DEFEAT_SLOW.scale, DEFEAT_SLOW.seconds);
+  }
+
+  /** 敵の攻撃をパリィで弾いた。強いヒットストップと揺れ、水色の大きな閃光、「PARRY」の文字。敵は体勢を崩す（Enemy.parried） */
+  private onEnemyParried(ev: HitEvent, enemy: Enemy): void {
+    this.hitStop.trigger(PARRY.hitStop);
+    this.cam.shake.trigger(PARRY.shake.amp, PARRY.shake.seconds);
+    this.hitFx.burst(ev.x, HIT_FEEDBACK.playerImpactHeight, ev.z, ev.dirX, ev.dirZ, 1.2, FX_TINT.parry);
+    this.damageNumbers.spawnText(enemy.body.x, enemy.def.height + 0.35, enemy.body.z, 'PARRY', 'parry');
+    this.sfx.play('parry');
+    this.encounter.onParry();
+  }
+
+  /** 装備を次へ替える（切替ボタン）。替えられない状態（攻撃・回避・構えの途中など）では何もしない */
+  private cycleLoadout(): void {
+    this.setLoadout(nextLoadout(this.player.loadout.id));
+  }
+
+  /** 装備を替える（開始画面の選択・切替ボタン・開発用）。替えられたら true */
+  setLoadout(id: LoadoutId): boolean {
+    const before = this.player.loadout.id;
+    if (!this.player.equip(id)) return false;
+    this.touch.setEquipLabel(LOADOUTS[id].name);
+    if (id !== before) this.sfx.play('equip');
+    return true;
+  }
+
   private step(dt: number): void {
     // start() を通らずに sim だけ進める開発用の経路（stepNow）でも、戦闘が始まっていることを保証する
     if (!this.encounterStarted) this.startEncounter();
@@ -342,9 +386,14 @@ export class Game {
       intent.attackPressed = false;
       intent.dodgePressed = false;
       intent.attackHeld = false;
+      intent.guardPressed = false;
+      intent.guardHeld = false;
+      intent.equipPressed = false;
       intent.lockPressed = false;
       intent.lockSwitch = 0;
     }
+    // 装備の切替（立っている・走っているあいだだけ）
+    if (intent.equipPressed) this.cycleLoadout();
 
     // ロックオン: 対象の選択・切替・解除。ロック中はカメラが対象の方を向き（ヨーの入力は使わない）、プレイヤーは対象を照準にする
     if (this.player.dead) this.lockOn.release();
@@ -376,8 +425,11 @@ export class Game {
     stepSwarm(this.enemySims, dt, this.player.body.x, this.player.body.z, alive, this.encounter.def.maxAttackers);
     this.soundEnemyStates();
     // 先にプレイヤーの攻撃を解決する。同じフレームに当たり合うなら、プレイヤーが先に当てて敵の攻撃を中断する
-    resolvePlayerAttack(this.player, this.enemySims, (ev, enemy, result) => this.onPlayerHit(ev, enemy, result));
-    resolveEnemyAttacks(this.enemySims, this.player, (ev, _enemy, result) => this.onEnemyHit(ev, result));
+    resolvePlayerAttack(this.player, this.enemySims, (ev, enemy, result, riposte) => this.onPlayerHit(ev, enemy, result, riposte));
+    resolveEnemyAttacks(this.enemySims, this.player, (ev, _enemy, result) => this.onEnemyHit(ev, result), {
+      onGuard: (ev, _enemy, result) => this.onEnemyGuarded(ev, result),
+      onParry: (ev, enemy) => this.onEnemyParried(ev, enemy),
+    });
 
     // 生きている敵は体を持つ（プレイヤーを押し出し、敵どうしは重ならない）。アリーナの外へは出ない
     for (let i = 0; i < this.enemySims.length; i++) {
@@ -431,6 +483,8 @@ export class Game {
       this.sfx.play(p.dodgeKind === 'back' ? 'dodgeBack' : 'dodge');
     } else if (p.state === 'charge') {
       this.sfx.play('chargeStart');
+    } else if (p.state === 'guard') {
+      this.sfx.play('guardUp');
     }
   }
 
