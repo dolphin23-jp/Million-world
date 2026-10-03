@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <title>GLB inspector</title>
+    <style>
+      html, body { margin: 0; background: #e9ecf5; }
+      canvas { display: block; }
+    </style>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "/node_modules/three/build/three.module.js",
+          "three/addons/": "/node_modules/three/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <script type="module">
+      import * as THREE from 'three';
+      import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+      import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+
+      const W = 640, H = 800;
+      const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+      renderer.setSize(W, H);
+      renderer.setPixelRatio(1);
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      document.body.appendChild(renderer.domElement);
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0xe9ecf5);
+      scene.add(new THREE.HemisphereLight(0xffffff, 0xb8bdd0, 2.0));
+      const dir = new THREE.DirectionalLight(0xffffff, 1.4);
+      dir.position.set(2, 4, 3);
+      scene.add(dir);
+      const camera = new THREE.PerspectiveCamera(30, W / H, 0.01, 100);
+
+      let model = null;
+      let mixer = null;
+      let clips = [];
+      let box = new THREE.Box3();
+
+      window.loadModel = async (url) => {
+        const loader = new GLTFLoader();
+        loader.setMeshoptDecoder(MeshoptDecoder);
+        const gltf = await loader.loadAsync(url);
+        model = gltf.scene;
+        scene.add(model);
+        clips = gltf.animations;
+        if (clips.length) mixer = new THREE.AnimationMixer(model);
+        box.setFromObject(model);
+        const stats = { tris: 0, meshes: 0, skinned: 0, bones: 0, textures: [], animations: gltf.animations.map(a => `${a.name}:${a.duration.toFixed(2)}s`) };
+        const seenTex = new Set();
+        const boneNames = new Set();
+        model.traverse((o) => {
+          if (o.isMesh) {
+            stats.meshes++;
+            const g = o.geometry;
+            stats.tris += (g.index ? g.index.count : g.attributes.position.count) / 3;
+            if (o.isSkinnedMesh) { stats.skinned++; o.skeleton.bones.forEach(b => boneNames.add(b.name)); }
+            const mats = Array.isArray(o.material) ? o.material : [o.material];
+            for (const m of mats) for (const k of ['map', 'normalMap', 'metalnessMap', 'roughnessMap', 'emissiveMap', 'aoMap']) {
+              const t = m[k];
+              if (t && !seenTex.has(t.uuid)) { seenTex.add(t.uuid); const im = t.image; stats.textures.push(`${k}:${im?.width}x${im?.height}`); }
+            }
+          }
+        });
+        stats.bones = boneNames.size;
+        stats.boneNames = [...boneNames].slice(0, 80);
+        const size = box.getSize(new THREE.Vector3());
+        stats.size = [size.x, size.y, size.z].map(v => +v.toFixed(3));
+        stats.min = box.min.toArray().map(v => +v.toFixed(3));
+        return stats;
+      };
+
+      // アニメ: clip index と 0..1 の正規化時間でポーズを固定する。bbox は静止ポーズ(t=0)で固定のまま
+      window.setAnim = (index, t01) => {
+        if (!mixer || !clips[index]) return false;
+        mixer.stopAllAction();
+        const action = mixer.clipAction(clips[index]);
+        action.play();
+        mixer.setTime(clips[index].duration * t01);
+        model.updateMatrixWorld(true);
+        return true;
+      };
+
+      // view: yaw(度, 0=+Z正面から), pitch(度), focus: 'full' | 'head' | 'upper' | 'hands'
+      window.setView = (yawDeg, focus = 'full', pitchDeg = 6) => {
+        const size = box.getSize(new THREE.Vector3());
+        const center = box.getCenter(new THREE.Vector3());
+        const h = size.y;
+        let target = center.clone();
+        let dist;
+        if (focus === 'head') { target.y = box.min.y + h * 0.9; dist = h * 0.55; }
+        else if (focus === 'upper') { target.y = box.min.y + h * 0.7; dist = h * 1.0; }
+        else { dist = h * 2.05; }
+        const yaw = THREE.MathUtils.degToRad(yawDeg);
+        const pitch = THREE.MathUtils.degToRad(pitchDeg);
+        camera.position.set(
+          target.x + Math.sin(yaw) * Math.cos(pitch) * dist,
+          target.y + Math.sin(pitch) * dist,
+          target.z + Math.cos(yaw) * Math.cos(pitch) * dist,
+        );
+        camera.lookAt(target);
+        renderer.render(scene, camera);
+      };
+      window.__ready = true;
+    </script>
+  </body>
+</html>

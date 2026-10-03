@@ -7,24 +7,27 @@
 
 目的: 技術選択の最大リスク（iPad Safari で意図通りに動くか）を最初に潰す。
 
-- [ ] Vite + TypeScript(strict) + Three.js の雛形。`npm run dev / build / typecheck / test / shot`
-- [ ] 固定タイムステップのゲームループ（60Hz sim / 可変 render / 補間）
-- [ ] トゥーン着色のアリーナ（円形の床・柱・空のグラデーション）、単一平行光源＋影 1 枚
-- [ ] プレースホルダープレイヤー（カプセル＋剣）にトゥーン着色と輪郭線（inverted hull）
-- [ ] 三人称カメラ（追従・ヨー/ピッチ・ダンピング）
-- [ ] タッチ入力: 左半分の浮動仮想スティック、右半分のカメラドラッグ、攻撃ボタン（仮の振りモーション）
-- [ ] Safari 対策: ピンチ/ダブルタップ拡大抑止、選択抑止、`viewport-fit=cover`、WebGL コンテキストロスト時の再構築
-- [ ] PWA: manifest（standalone / landscape）、アイコン、「タップして開始」画面
-- [ ] GitHub Actions で typecheck → build → GitHub Pages デプロイ
-- [ ] Playwright スクリーンショット（`npm run shot`）で描画確認
-- [ ] 本人が iPad 実機で 60fps・操作感を確認し、既知問題を下に記録
+- [x] Vite + TypeScript(strict) + Three.js の雛形。`npm run dev / build / typecheck / test / shot`
+- [x] 固定タイムステップのゲームループ（60Hz sim / 可変 render / 補間）
+- [x] トゥーン着色のアリーナ（円形の床・柱・空のグラデーション）、単一平行光源＋影 1 枚
+- [x] プレースホルダープレイヤー（カプセル＋剣）にトゥーン着色と輪郭線（inverted hull）
+- [x] 三人称カメラ（追従・ヨー/ピッチ・ダンピング）
+- [x] タッチ入力: 左半分の浮動仮想スティック、右半分のカメラドラッグ、攻撃ボタン（仮の振りモーション）
+- [x] Safari 対策: ピンチ/ダブルタップ拡大抑止、選択抑止、`viewport-fit=cover`。WebGL コンテキストロストは復帰ハンドラ（`onContextRestored`）の口だけ用意済みで、再構築処理は未実装
+- [x] PWA: manifest（standalone / landscape）、アイコン、「タップして開始」画面
+- [x] GitHub Actions で typecheck → test → build（配信は Vercel。ADR-007）
+- [x] Playwright スクリーンショット（`npm run shot`）で描画確認
+- [x] 本人が iPad 実機で操作感を確認（2026-10-03、Vercel 配信、「操作感は全く問題ない」）。fps の実測値と PWA standalone 時の表示は未報告
+
+**M0 完了（2026-10-03）**
 
 ## M1 — キャラクター
 
-- [ ] キャラクター資産パイプライン（`docs/03-asset-pipeline.md`）: GLB 正規化・削減スクリプト
+- [x] 資産の自動生成経路の検証（`docs/05-asset-automation.md`）と GLB 検査ツール（`tools/inspect-glb.mjs`）
+- [ ] キャラクター資産パイプライン（`docs/03-asset-pipeline.md`）: GLB 取り込みスクリプト（向き正規化・ルートモーション除去・クリップ結合）
 - [ ] プレイヤーキャラ 1 体目の検査（Tripo ゲート）→ 採用経路を ADR-005 に確定
 - [ ] 採用キャラの読込、トゥーンマテリアルへの差し替え、輪郭線
-- [ ] Mixamo モーション（待機・走り・攻撃 3 種・回避・被弾・死亡）のリターゲットと glTF 化
+- [ ] モーション（待機・走り・攻撃 3 種・回避・被弾・死亡）を Meshy ライブラリから取得し glTF に結合（Mixamo は予備）
 - [ ] アニメーション状態機械（遷移・ブレンド・ルートモーション無し＝移動はコード側）
 - [ ] 剣の手ボーンへの装着
 
