@@ -63,13 +63,23 @@ if (!targetRig) throw new Error('土台にスキンがありません');
 if (manifest.weightMaxHops) cleanupWeights(doc, targetRig, manifest.weightMaxHops);
 
 // テクスチャの差し替え: リグ工程に渡したのが縮小版でも、元の高解像度テクスチャ（同じ UV）を最終出力に使う
+// textureFrom は GLB（その 1 枚目のテクスチャ）か、PNG/JPEG/WebP の画像ファイル（tools/clean-texture.py の出力など）
 if (manifest.textureFrom) {
-  const texDoc = await io.read(resolve(manifest.textureFrom));
-  const srcTex = texDoc.getRoot().listTextures()[0];
   const dstTex = root.listTextures()[0];
-  if (srcTex && dstTex) {
-    dstTex.setImage(srcTex.getImage()).setMimeType(srcTex.getMimeType());
-    console.log(`[texture] ${manifest.textureFrom} の ${srcTex.getSize()?.join('x')} テクスチャに差し替え`);
+  if (/\.(png|jpe?g|webp)$/i.test(manifest.textureFrom)) {
+    const ext = manifest.textureFrom.split('.').pop().toLowerCase();
+    const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+    if (dstTex) {
+      dstTex.setImage(new Uint8Array(readFileSync(resolve(manifest.textureFrom)))).setMimeType(mime);
+      console.log(`[texture] ${manifest.textureFrom} に差し替え`);
+    }
+  } else {
+    const texDoc = await io.read(resolve(manifest.textureFrom));
+    const srcTex = texDoc.getRoot().listTextures()[0];
+    if (srcTex && dstTex) {
+      dstTex.setImage(srcTex.getImage()).setMimeType(srcTex.getMimeType());
+      console.log(`[texture] ${manifest.textureFrom} の ${srcTex.getSize()?.join('x')} テクスチャに差し替え`);
+    }
   }
 }
 

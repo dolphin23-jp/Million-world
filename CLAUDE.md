@@ -30,6 +30,8 @@ npm run shot         # Playwright でヘッドレス描画してスクリーン�
 node tools/skin-stress.mjs <glb>    # キャラ資産の変形破綻を数値検査（採用前に必須。docs/05 参照）
 node tools/mesh-check.mjs <glb>     # メッシュ自体の欠陥（穴・裏返り・浮き島・UV 密度）を数値検査（採用前に必須）
 node tools/build-character.mjs <manifest.json>   # クリップ結合・リターゲット・接地補正
+python3 tools/clean-texture.py <glb> <tex.png> <out.png>   # 生成テクスチャの描き崩れ（腰まわり）を塗り直す。docs/05 参照
+node tools/clip-arm-height.mjs <glb>   # クリップごとの腕の挙上角（脇の破綻の目安）
 ```
 
 ## ディレクトリ

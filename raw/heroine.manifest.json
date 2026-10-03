@@ -45,7 +45,8 @@
       "death": "1f932c53-2f45-4e41-8833-26c278705f0a (dying_backwards 189)",
       "idle(stand)": "91bd210b-7941-43a1-a5ee-a3fa99d1358b (Idle_02 11)",
       "stance": "4011725b-8a0c-4c6b-bae2-705972c3febe (Combat_Stance 89)"
-    }
+    },
+    "texture": "raw/heroine/heroine.glb のテクスチャを tools/clean-texture.py で腰まわりだけ塗り直したもの（docs/05 参照）"
   },
-  "textureFrom": "raw/heroine/heroine.glb"
+  "textureFrom": "raw/heroine/texture-clean.png"
 }
