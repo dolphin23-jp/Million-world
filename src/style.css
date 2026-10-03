@@ -123,6 +123,14 @@ body {
   right: calc(48px + var(--safe-right));
   bottom: calc(160px + var(--safe-bottom));
 }
+.tbtn-heavy {
+  /* 暫定の重撃ボタン（攻撃の左・回避の下）。コマンド設計（docs/06-moveset-ideas.md）が決まったら置き換える */
+  width: 68px;
+  height: 68px;
+  font-size: 16px;
+  right: calc(158px + var(--safe-right));
+  bottom: calc(12px + var(--safe-bottom));
+}
 .tbtn.active {
   border-color: var(--accent);
   box-shadow: 0 0 14px rgba(255, 211, 106, 0.55);

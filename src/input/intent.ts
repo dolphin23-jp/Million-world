@@ -14,6 +14,8 @@ export interface InputIntent {
   /** 押下エッジ（このステップで押された） */
   attackPressed: boolean;
   dodgePressed: boolean;
+  /** 重撃（暫定: 専用ボタン。コマンド設計が決まるまでの仮。docs/06-moveset-ideas.md） */
+  heavyPressed: boolean;
   lockPressed: boolean;
   /** ロックオン対象切替（-1 左 / +1 右 / 0 なし） */
   lockSwitch: number;
@@ -27,6 +29,7 @@ export function createEmptyIntent(): InputIntent {
     camPitch: 0,
     attackPressed: false,
     dodgePressed: false,
+    heavyPressed: false,
     lockPressed: false,
     lockSwitch: 0,
   };
@@ -57,6 +60,7 @@ export class InputAggregator {
     it.camPitch = 0;
     it.attackPressed = false;
     it.dodgePressed = false;
+    it.heavyPressed = false;
     it.lockPressed = false;
     it.lockSwitch = 0;
     for (const s of this.sources) s.collect(it);

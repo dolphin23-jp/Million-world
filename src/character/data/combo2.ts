@@ -1,6 +1,7 @@
 import type { AuthoredAttack } from '../authoring';
 import { COMBO1 } from './combo1';
 import { plane } from './cutting-plane';
+import { OFFHAND } from './offhand';
 
 /** 振り抜きの終わりのポーズ。受付が続くあいだ保つ（combo3 の continueFrom がこの姿勢 0.32s を指す） */
 const FOLLOW = {
@@ -10,8 +11,7 @@ const FOLLOW = {
   grip: [34, 32, 0.45] as [number, number, number],
   ...plane(88),
   pole: [-0.5, -0.85, -0.1] as [number, number, number],
-  left: [-52, 10, 0.36] as [number, number, number],
-  leftPole: [0.6, -0.7, 0.3] as [number, number, number],
+  ...OFFHAND.guard,
 };
 
 /**
@@ -41,8 +41,7 @@ export const COMBO2: AuthoredAttack = {
       grip: [-58, -34, 0.42],
       ...plane(-82),
       pole: [-0.5, -0.8, 0],
-      left: [-70, -25, 0.4],
-      leftPole: [0.6, -0.8, 0],
+      ...OFFHAND.hip,
     },
     // ---- 斬り上げ（0.15 に体の前を通る） ----
     {
@@ -54,8 +53,7 @@ export const COMBO2: AuthoredAttack = {
       grip: [6, 4, 0.46],
       ...plane(8),
       pole: [-0.3, -0.9, -0.2],
-      left: [-70, -8, 0.42],
-      leftPole: [0.6, -0.8, 0.1],
+      ...OFFHAND.pull,
     },
     {
       t: 0.23,
@@ -66,8 +64,7 @@ export const COMBO2: AuthoredAttack = {
       grip: [30, 28, 0.46],
       ...plane(80),
       pole: [-0.5, -0.85, -0.1],
-      left: [-50, 8, 0.36],
-      leftPole: [0.6, -0.7, 0.3],
+      ...OFFHAND.guard,
     },
     // ---- 振り抜き（0.32 から 0.45 まで姿勢を保って次段を待つ。次段はこの姿勢から続く） ----
     { t: 0.32, ease: 'out', ...FOLLOW },

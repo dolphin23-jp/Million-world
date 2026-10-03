@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ATTACKS, resolveAttack, rootMotionOf } from './attacks';
+import { ATTACKS, DODGE, dodgeRoot, resolveAttack, rootMotionOf } from './attacks';
 import { AUTHORED_ATTACKS } from '../../character/data/authored';
 import { HERO } from '../../character/data/hero';
 
@@ -99,5 +99,54 @@ describe('resolveAttack', () => {
     // 手付けでない攻撃（lunge で進む）は rootMotionOf が null
     const { authored: _authored, ...plain } = ATTACKS.combo3!;
     expect(rootMotionOf(plain)).toBeNull();
+  });
+
+  it('重撃は単発（次段なし）の手付けで、踏み込み 0.5m。持続は剣が前を通る最高速の前後', () => {
+    const a = ATTACKS.heavy!;
+    expect(a.next).toBeUndefined();
+    expect(a.authored).toBe(AUTHORED_ATTACKS.heavy);
+    expect(a.authored!.continueFrom).toBeUndefined();
+    expect(rootMotionOf(a)!(a.segmentDuration)).toBeCloseTo(0.5, 6);
+    const f = resolveAttack(a);
+    // 重撃は軽い連撃より発生が遅い代わりに威力が大きい
+    expect(f.startup).toBeGreaterThan(resolveAttack(ATTACKS.combo1!).startup);
+    expect(a.damage).toBeGreaterThan(ATTACKS.combo3!.damage);
+  });
+});
+
+describe('DODGE（手付けのダッシュ）', () => {
+  it('クリップは手付けとして登録され、長さがフレーム数と一致する', () => {
+    expect(AUTHORED_ATTACKS.dodge).toBe(DODGE.clip);
+    expect(DODGE.clip.name).toBe('dodge');
+    expect(DODGE.frames).toBe(Math.ceil(DODGE.clip.duration * 60));
+  });
+
+  it('無敵とキャンセルのフレームが全体の中に収まり、無敵が先、キャンセルが後', () => {
+    expect(DODGE.invulnStart).toBeGreaterThanOrEqual(0);
+    expect(DODGE.invulnStart).toBeLessThan(DODGE.invulnEnd);
+    expect(DODGE.invulnEnd).toBeLessThan(DODGE.cancelFrame);
+    expect(DODGE.cancelFrame).toBeLessThan(DODGE.frames);
+  });
+
+  it('前進は単調で、滑らかに加速して終端で止まり、最高速は 12 m/s 以下', () => {
+    expect(dodgeRoot(0)).toBe(0);
+    let prev = 0;
+    let prevV = 0;
+    let peak = 0;
+    for (let f = 1; f <= DODGE.frames; f++) {
+      const z = dodgeRoot(f / 60);
+      const v = (z - prev) * 60;
+      expect(z, `f${f}`).toBeGreaterThanOrEqual(prev - 1e-12);
+      // 1 フレームで 6 m/s を超えて急変しない（滑らかな加減速）
+      expect(Math.abs(v - prevV), `f${f}`).toBeLessThan(6);
+      peak = Math.max(peak, v);
+      prev = z;
+      prevV = v;
+    }
+    expect(dodgeRoot(DODGE.clip.duration)).toBeCloseTo(3.1, 6);
+    expect(peak).toBeLessThanOrEqual(12);
+    expect(peak).toBeGreaterThan(8);
+    // 最後の 1 フレームはほぼ止まっている
+    expect(prevV).toBeLessThan(0.5);
   });
 });

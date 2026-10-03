@@ -1,5 +1,6 @@
 import type { AuthoredAttack } from '../authoring';
 import { COMBO2 } from './combo2';
+import { OFFHAND } from './offhand';
 
 /**
  * 3 段目（フィニッシュ）: 右手の突き。右足を大きく踏み込んで、剣を引き絞ってから体ごと前へ伸びる。
@@ -19,8 +20,7 @@ const CHAMBER = {
   face: [0, 1, 0] as [number, number, number],
   roll: 0,
   pole: [-0.5, -0.85, -0.1] as [number, number, number],
-  left: [-45, -18, 0.34] as [number, number, number],
-  leftPole: [0.6, -0.7, 0.3] as [number, number, number],
+  ...OFFHAND.guard,
 };
 
 export const COMBO3: AuthoredAttack = {
@@ -48,8 +48,7 @@ export const COMBO3: AuthoredAttack = {
       face: [0, 1, 0],
       roll: 0,
       pole: [-0.4, -0.9, -0.1],
-      left: [-62, -22, 0.34],
-      leftPole: [0.6, -0.7, 0.3],
+      ...OFFHAND.pull,
     },
     {
       t: 0.24,
@@ -62,7 +61,7 @@ export const COMBO3: AuthoredAttack = {
       face: [0, 1, 0],
       roll: 0,
       pole: [-0.4, -0.9, -0.1],
-      left: [-66, -24, 0.34],
+      ...OFFHAND.hip,
     },
     // ---- 戻り ----
     {

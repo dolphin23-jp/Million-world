@@ -1,13 +1,14 @@
 import type { InputIntent, InputSource } from './intent';
 
 /**
- * 開発用キーボード入力。WASD/矢印: 移動, J: 攻撃, K: 回避, L: ロックオン, Q/E: 対象切替, 矢印(Shift): カメラ。
+ * 開発用キーボード入力。WASD/矢印: 移動, J: 攻撃, H: 重撃（暫定）, K: 回避, L: ロックオン, Q/E: 対象切替, 矢印(Shift): カメラ。
  * 製品の操作系はタッチ専用（ADR-006）。これは PC での動作確認のためだけに存在する。
  */
 export class KeyboardInput implements InputSource {
   private readonly down = new Set<string>();
   private attackEdge = false;
   private dodgeEdge = false;
+  private heavyEdge = false;
   private lockEdge = false;
   private lockSwitch = 0;
 
@@ -21,6 +22,9 @@ export class KeyboardInput implements InputSource {
           break;
         case 'KeyK':
           this.dodgeEdge = true;
+          break;
+        case 'KeyH':
+          this.heavyEdge = true;
           break;
         case 'KeyL':
           this.lockEdge = true;
@@ -54,6 +58,7 @@ export class KeyboardInput implements InputSource {
     if (d.has('ArrowDown')) intent.camPitch += camSpeed * 0.6;
     if (this.attackEdge) intent.attackPressed = true;
     if (this.dodgeEdge) intent.dodgePressed = true;
+    if (this.heavyEdge) intent.heavyPressed = true;
     if (this.lockEdge) intent.lockPressed = true;
     if (this.lockSwitch !== 0) intent.lockSwitch = this.lockSwitch;
   }
@@ -61,6 +66,7 @@ export class KeyboardInput implements InputSource {
   endStep(): void {
     this.attackEdge = false;
     this.dodgeEdge = false;
+    this.heavyEdge = false;
     this.lockEdge = false;
     this.lockSwitch = 0;
   }

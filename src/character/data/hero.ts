@@ -29,11 +29,7 @@ export const HERO = {
 
   /** 区間を切り出して使うクリップ（秒は元クリップ上） */
   segments: {
-    // 1〜3 段目の攻撃は手付け（src/character/data/combo1〜3.ts、ADR-012）なのでここには無い
-    // Heavy_Hammer_Swing: 振り下ろし 1.45〜1.70 秒
-    heavy: { clip: 'heavy', start: 0.3, end: 1.87 },
-    // Roll_Dodge: 前転本体は 0.45〜1.55 秒
-    dodge: { clip: 'dodge', start: 0.45, end: 1.55 },
+    // 1〜3 段目・重撃・回避は手付け（src/character/data/combo1〜3.ts・heavy.ts・dodge.ts、ADR-012）なのでここには無い
     // Hit_Reaction_1: ひるみは最初の 0.6 秒
     hit: { clip: 'hit', start: 0.0, end: 0.6 },
   } satisfies Record<string, ClipSegment>,
@@ -43,7 +39,6 @@ export const HERO = {
   runCycleSpeed: 3.6,
   runRateMin: 0.6,
 
-  dodge: { rate: 2.2 },
   hit: { rate: 1.5 },
 
   /**

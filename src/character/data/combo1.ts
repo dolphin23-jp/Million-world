@@ -1,5 +1,6 @@
 import type { AuthoredAttack } from '../authoring';
 import { plane } from './cutting-plane';
+import { OFFHAND } from './offhand';
 
 /** 予備動作の頂点のポーズ（右へひねって右肩の後ろへ振りかぶる）。頂点で一拍止めるので 2 つのキーで使う */
 const WINDUP = {
@@ -10,8 +11,7 @@ const WINDUP = {
   ...plane(115),
   roll: 20,
   pole: [-0.6, -0.8, -0.1] as [number, number, number],
-  left: [-38, 12, 0.42] as [number, number, number],
-  leftPole: [0.55, -0.7, 0.3] as [number, number, number],
+  ...OFFHAND.guard,
 };
 
 /**
@@ -26,8 +26,7 @@ const FOLLOW = {
   ...plane(-68),
   roll: -15,
   pole: [-0.5, -0.8, 0] as [number, number, number],
-  left: [-70, -25, 0.4] as [number, number, number],
-  leftPole: [0.6, -0.8, 0] as [number, number, number],
+  ...OFFHAND.hip,
 };
 
 /**
@@ -64,8 +63,7 @@ export const COMBO1: AuthoredAttack = {
       ...plane(-20),
       roll: -20,
       pole: [-0.3, -0.9, -0.2],
-      left: [-60, -10, 0.4],
-      leftPole: [0.6, -0.8, 0.1],
+      ...OFFHAND.pull,
     },
     {
       t: 0.31,
@@ -77,8 +75,7 @@ export const COMBO1: AuthoredAttack = {
       ...plane(-55),
       roll: -20,
       pole: [-0.5, -0.8, 0],
-      left: [-75, -15, 0.42],
-      leftPole: [0.6, -0.8, 0],
+      ...OFFHAND.hip,
     },
     // ---- 振り抜き（0.37 から 0.5 まで姿勢を保って次段を待つ） ----
     { t: 0.37, ease: 'out', ...FOLLOW },

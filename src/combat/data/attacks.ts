@@ -8,6 +8,8 @@ import { rootZCurve, type AuthoredAttack } from '../../character/authoring';
 import { COMBO1 } from '../../character/data/combo1';
 import { COMBO2 } from '../../character/data/combo2';
 import { COMBO3 } from '../../character/data/combo3';
+import { DODGE_CLIP } from '../../character/data/dodge';
+import { HEAVY } from '../../character/data/heavy';
 
 export interface AttackDef {
   id: string;
@@ -120,19 +122,44 @@ export const ATTACKS: Record<string, AttackDef> = {
     knockback: 1.2,
     fade: 0.05,
   },
+  // 重撃: 手付けの縦斬り（src/character/data/heavy.ts、1.0s）。0.44s まで頂点で振りかぶり、0.51s に剣が体の前を水平に通る最高速（約 82m/s）、
+  // 0.58s で前下に叩きつけて止まる。当たりは最高速の前後 0.47〜0.56s（6 フレーム）。右足の大踏み込みで rootZ が 0.5m 進む。
+  // 発生が遅い代わりに威力が大きい。次段は無い（単発）。
+  heavy: {
+    id: 'heavy',
+    segment: 'heavy',
+    authored: HEAVY,
+    segmentDuration: HEAVY.duration,
+    activeStart: 0.47,
+    activeEnd: 0.56,
+    cancelAt: 999,
+    rate: 1,
+    lunge: 0,
+    damage: 34,
+    hitStop: 12,
+    knockback: 2.2,
+    fade: 0.12,
+  },
 };
 
+/**
+ * 回避（手付けのダッシュ、src/character/data/dodge.ts）。前進は DODGE_CLIP の rootZ のカーブに従う（攻撃の rootMotionOf と同じ）。
+ * 0.04〜0.34s は前へ飛び出して（最高 10 m/s）両足が浮く瞬間を含むので、無敵はそこに合わせる。0.43s 以降は減速して立ち上がり始める。
+ */
 export const DODGE = {
-  /** 全体フレーム（アニメ区間 1.1 秒 / rate 2.2 = 0.5 秒） */
-  frames: 30,
+  /** 手付けのクリップ */
+  clip: DODGE_CLIP,
+  /** 全体フレーム（クリップ 0.58 秒） */
+  frames: Math.ceil(DODGE_CLIP.duration * 60),
   /** 無敵フレーム（開始からの範囲、両端含む） */
   invulnStart: 3,
-  invulnEnd: 18,
-  /** 初速（m/s）。ease-out で減衰 */
-  speed: 9.5,
-  /** このフレーム以降は攻撃でキャンセル可能 */
-  cancelFrame: 20,
+  invulnEnd: 20,
+  /** このフレーム以降は攻撃でキャンセル可能（立ち上がりの手前） */
+  cancelFrame: 26,
 } as const;
+
+/** 回避の前進カーブ（開始からの秒 → ルートの前進量 m） */
+export const dodgeRoot: (t: number) => number = rootZCurve(DODGE_CLIP);
 
 export const HIT_STUN = {
   /** ひるみフレーム（アニメ区間 0.6 秒 / rate 1.5 = 0.4 秒） */

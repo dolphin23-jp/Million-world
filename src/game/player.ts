@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { InputIntent } from '../input/intent';
-import { ATTACKS, DODGE, MOVE, resolveAttack, rootMotionOf, type AttackDef, type AttackFrames } from '../combat/data/attacks';
-import { clamp, easeInCubic, lerp, lerpAngle, rotateTowards } from '../core/math';
+import { ATTACKS, DODGE, MOVE, dodgeRoot, resolveAttack, rootMotionOf, type AttackDef, type AttackFrames } from '../combat/data/attacks';
+import { lerp, lerpAngle, rotateTowards } from '../core/math';
 import type { Circle } from '../world/collision';
 import type { CharacterAsset } from '../character/loader';
 import { Animator } from '../character/animator';
@@ -79,6 +79,8 @@ export class Player {
         this.stepLocomotion(dt, mx, mz, mLen);
         if (intent.dodgePressed) {
           this.beginDodge(mx, mz, mLen);
+        } else if (intent.heavyPressed) {
+          this.beginAttack(ATTACKS.heavy!, mx, mz, mLen);
         } else if (this.attackBuffered) {
           this.beginAttack(ATTACKS.combo1!, mx, mz, mLen);
         }
@@ -187,8 +189,8 @@ export class Player {
 
   private stepDodge(_dt: number, intent: InputIntent): void {
     const f = this.stateFrame;
-    const t = clamp(f / DODGE.frames, 0, 1);
-    const v = DODGE.speed * (1 - easeInCubic(t));
+    // 手付けのダッシュ: 攻撃（stepAttack）と同じく、1 フレーム先にそろえた rootZ の差分で進む
+    const v = (dodgeRoot((f + 1) / 60) - dodgeRoot(f / 60)) * 60;
     this.velX = this.dodgeDirX * v;
     this.velZ = this.dodgeDirZ * v;
     if (intent.attackPressed) this.attackBuffered = true;
@@ -299,7 +301,7 @@ class HeroVisual {
         break;
       }
       case 'dodge':
-        this.animator.play('dodge', { loop: false, fade: 0.08, rate: HERO.dodge.rate, clamp: true, restart: true });
+        this.animator.play('dodge', { loop: false, fade: 0.08, rate: 1, clamp: true, restart: true });
         break;
     }
   }

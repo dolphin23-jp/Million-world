@@ -16,6 +16,7 @@ interface Elements {
   camZone: HTMLElement;
   btnAttack: HTMLElement;
   btnDodge: HTMLElement;
+  btnHeavy: HTMLElement;
   btnLock: HTMLElement;
 }
 
@@ -45,6 +46,7 @@ export class TouchInput implements InputSource {
   // ボタンのエッジ
   private attackEdge = false;
   private dodgeEdge = false;
+  private heavyEdge = false;
   private lockEdge = false;
 
   constructor() {
@@ -56,12 +58,14 @@ export class TouchInput implements InputSource {
       camZone: q('cam-zone'),
       btnAttack: q('btn-attack'),
       btnDodge: q('btn-dodge'),
+      btnHeavy: q('btn-heavy'),
       btnLock: q('btn-lock'),
     };
     this.bindStick();
     this.bindCamera();
     this.bindButton(this.el.btnAttack, () => (this.attackEdge = true));
     this.bindButton(this.el.btnDodge, () => (this.dodgeEdge = true));
+    this.bindButton(this.el.btnHeavy, () => (this.heavyEdge = true));
     this.bindButton(this.el.btnLock, () => (this.lockEdge = true));
   }
 
@@ -79,12 +83,14 @@ export class TouchInput implements InputSource {
     this.camDyPx = 0;
     if (this.attackEdge) intent.attackPressed = true;
     if (this.dodgeEdge) intent.dodgePressed = true;
+    if (this.heavyEdge) intent.heavyPressed = true;
     if (this.lockEdge) intent.lockPressed = true;
   }
 
   endStep(): void {
     this.attackEdge = false;
     this.dodgeEdge = false;
+    this.heavyEdge = false;
     this.lockEdge = false;
   }
 
