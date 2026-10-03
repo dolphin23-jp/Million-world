@@ -62,6 +62,14 @@ export interface AuthoredAttack {
   /** 秒 */
   duration: number;
   keys: AuthoredKey[];
+  /**
+   * 別の手付け攻撃の途中の姿勢から始める（コンボの連鎖用）。
+   * t=0 のポーズ（体幹・剣・両手・足の位置・高さ）が attack の時刻 t のポーズにぴったり一致するので、前の技の受付時点からつなぎ目で姿勢が跳ばない。
+   * チャンネルのキーが無いものは、idle ではなくこの姿勢のまま保たれる（'idle' と書けば本当の idle）。
+   * 座標の原点はこの攻撃の開始時のルートに付け替わる: rootZ は 0 から、足の z は「前の技の足の位置 − 前の技のルートの前進量」から始まる
+   * （＝世界での足の位置は変わらない）。rootZCurve は前の技に依存せず 0 から数える
+   */
+  continueFrom?: { attack: AuthoredAttack; t: number };
 }
 
 const EASE: Record<Ease, (u: number) => number> = {
@@ -162,12 +170,14 @@ export function idleInput(rig: Rig): PoseInput {
   };
 }
 
-/** キー列をチャンネルごとのタイムラインに展開する（idle の補完前） */
-function expand(def: AuthoredAttack, idle: Map<string, number>): Timelines {
+/**
+ * キー列をチャンネルごとのタイムラインに展開する。
+ * idle は 'idle' と書かれた値の解決用、base は t=0 のパディングと「キーが無いチャンネル」の値（通常は idle、continueFrom なら前の技の姿勢）
+ */
+function expand(def: AuthoredAttack, idle: Map<string, number>, base: Map<string, number>): Timelines {
   const tl: Timelines = new Map();
   const keys = [...def.keys].sort((a, b) => a.t - b.t);
-  const pick = (v: unknown, ch: string): number | undefined => (typeof v === 'number' ? v : v === 'idle' ? idle.get(ch) : undefined);
-  const swordPrev = { q: new THREE.Quaternion(idle.get('sword.x'), idle.get('sword.y'), idle.get('sword.z'), idle.get('sword.w')) };
+  const swordPrev = { q: new THREE.Quaternion(base.get('sword.x'), base.get('sword.y'), base.get('sword.z'), base.get('sword.w')) };
   for (const k of keys) {
     const ease = k.ease ?? 'io';
     if (k.rootZ !== undefined) add(tl, 'rootZ', k.t, k.rootZ, ease);
@@ -234,10 +244,10 @@ function expand(def: AuthoredAttack, idle: Map<string, number>): Timelines {
   // t=0 に idle を補い、NaN（arc だけのキー）は前の値で埋める
   for (const [ch, segs] of tl) {
     segs.sort((a, b) => a.t - b.t);
-    const base = idle.get(ch) ?? 0;
-    if (segs[0]!.t > 1e-9) segs.unshift({ t: 0, v: base, ease: 'lin', arc: 0 });
+    const b0 = base.get(ch) ?? 0;
+    if (segs[0]!.t > 1e-9) segs.unshift({ t: 0, v: b0, ease: 'lin', arc: 0 });
     for (let i = 0; i < segs.length; i++) {
-      if (Number.isNaN(segs[i]!.v)) segs[i]!.v = i > 0 ? segs[i - 1]!.v : base;
+      if (Number.isNaN(segs[i]!.v)) segs[i]!.v = i > 0 ? segs[i - 1]!.v : b0;
     }
   }
   return tl;
@@ -245,19 +255,43 @@ function expand(def: AuthoredAttack, idle: Map<string, number>): Timelines {
 
 export class AuthoredSampler {
   private readonly idle: Map<string, number>;
+  /** t=0 の値（通常は idle、continueFrom なら前の技の姿勢）。キーが無いチャンネルはこの値のまま */
+  private readonly start: Map<string, number>;
   private readonly tl: Timelines;
-  private readonly base: PoseInput;
+  private readonly idlePose: PoseInput;
 
   constructor(readonly rig: Rig, readonly def: AuthoredAttack) {
     this.idle = idleChannels(rig);
-    this.tl = expand(def, this.idle);
-    this.base = idleInput(rig);
+    this.idlePose = idleInput(rig);
+    this.start = def.continueFrom ? new AuthoredSampler(rig, def.continueFrom.attack).snapshot(def.continueFrom.t) : this.idle;
+    this.tl = expand(def, this.idle, this.start);
   }
 
-  /** チャンネル ch の時刻 t の値（キーが無ければ idle の値）。arcOut があれば弧の持ち上げ量を足す */
+  /**
+   * 時刻 t の全チャンネルの値。continueFrom の起点に使う。
+   * ルートの前進量は 0 に、足の z はその分を引いて渡す（次の技の原点 = この時刻のルート）。足の弧の持ち上げは lift に含める
+   */
+  private snapshot(t: number): Map<string, number> {
+    const m = new Map<string, number>();
+    for (const ch of this.idle.keys()) m.set(ch, this.value(ch, t));
+    this.swordQuat(t, _q);
+    m.set('sword.x', _q.x);
+    m.set('sword.y', _q.y);
+    m.set('sword.z', _q.z);
+    m.set('sword.w', _q.w);
+    const r0 = this.value('rootZ', t);
+    m.set('rootZ', 0);
+    for (const f of ['footL', 'footR'] as const) {
+      m.set(`${f}.z`, m.get(`${f}.z`)! - r0);
+      m.set(`${f}.lift`, m.get(`${f}.lift`)! + this.arcLift(f, t));
+    }
+    return m;
+  }
+
+  /** チャンネル ch の時刻 t の値（キーが無ければ t=0 の値） */
   private value(ch: string, t: number): number {
     const segs = this.tl.get(ch);
-    if (!segs) return this.idle.get(ch) ?? 0;
+    if (!segs) return this.start.get(ch) ?? 0;
     if (t <= segs[0]!.t) return segs[0]!.v;
     const last = segs[segs.length - 1]!;
     if (t >= last.t) return last.v;
@@ -293,7 +327,7 @@ export class AuthoredSampler {
   /** 剣の回転。キー間は slerp（成分ごとの線形補間だと角速度が不均一になる） */
   private swordQuat(t: number, out: THREE.Quaternion): THREE.Quaternion {
     const segs = this.tl.get('sword.x');
-    if (!segs) return out.set(this.idle.get('sword.x')!, this.idle.get('sword.y')!, this.idle.get('sword.z')!, this.idle.get('sword.w')!);
+    if (!segs) return out.set(this.start.get('sword.x')!, this.start.get('sword.y')!, this.start.get('sword.z')!, this.start.get('sword.w')!);
     const comp = (i: number, c: 'x' | 'y' | 'z' | 'w'): number => this.tl.get(`sword.${c}`)![i]!.v;
     const at = (i: number, q: THREE.Quaternion): THREE.Quaternion => q.set(comp(i, 'x'), comp(i, 'y'), comp(i, 'z'), comp(i, 'w'));
     const last = segs.length - 1;
@@ -342,7 +376,7 @@ export class AuthoredSampler {
   }
 
   newInput(): PoseInput {
-    const b = this.base;
+    const b = this.idlePose;
     return {
       rootZ: 0,
       hips: { ...b.hips },

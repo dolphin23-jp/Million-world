@@ -6,6 +6,8 @@
 
 import { rootZCurve, type AuthoredAttack } from '../../character/authoring';
 import { COMBO1 } from '../../character/data/combo1';
+import { COMBO2 } from '../../character/data/combo2';
+import { COMBO3 } from '../../character/data/combo3';
 
 export interface AttackDef {
   id: string;
@@ -65,16 +67,16 @@ export function rootMotionOf(a: AttackDef): ((t: number) => number) | null {
 }
 
 export const ATTACKS: Record<string, AttackDef> = {
-  // 1 段目: 手付けの右袈裟斬り（src/character/data/combo1.ts、0.6s）。予備動作 0 → 0.18、斬り 0.18 → 0.30。
-  // 剣先は 0.235s に体の前を通る最高速（tools/scratch/game-foot.mjs で実測 22m/s）なので、当たりはその前後 0.2〜0.28s。
+  // 1 段目: 手付けの右袈裟斬り（src/character/data/combo1.ts、0.6s）。予備動作 0 → 0.17、斬り 0.17 → 0.31。
+  // 剣先は 0.245s に体の前を通る最高速（約 85m/s = 1 フレーム 1.4m。tools/scratch/combo-diag.scratch.ts で実測）なので、当たりはその前後 0.21〜0.29s。
   // 振り抜き（〜0.37s）の終わりから次段を受け付ける。踏み込みは rootZ（0.3m）。
   combo1: {
     id: 'combo1',
     segment: 'combo1',
     authored: COMBO1,
     segmentDuration: COMBO1.duration,
-    activeStart: 0.2,
-    activeEnd: 0.28,
+    activeStart: 0.21,
+    activeEnd: 0.29,
     cancelAt: 0.37,
     rate: 1,
     lunge: 0,
@@ -83,39 +85,40 @@ export const ATTACKS: Record<string, AttackDef> = {
     hitStop: 4,
     knockback: 0.3,
   },
-  // 2 段目: Left_Slash の 1 振り目（区間 0.2〜0.9s）。頭上へ構えてから、斬り下ろし → 右へ低く薙ぐ。
-  // 剣先が体の前を通るのは 区間内 0.35〜0.58s（ピーク 0.38s）。2 振り目は 0.85s ごろから始まるので手前で切る。
+  // 2 段目: 手付けの右逆袈裟（src/character/data/combo2.ts、0.52s）。1 段目の受付時点（0.37s）の姿勢から続けて始まる（continueFrom）。
+  // 剣先が体の前を通る最高速は 0.15s。当たりはその前後 0.13〜0.2s。振り抜き（〜0.32s）の終わりから次段を受け付ける。踏み込みは rootZ（0.24m）。
   combo2: {
     id: 'combo2',
     segment: 'combo2',
-    segmentDuration: 0.7,
-    activeStart: 0.35,
-    activeEnd: 0.58,
-    cancelAt: 0.62,
-    rate: 1.5,
-    lunge: 0.5,
+    authored: COMBO2,
+    segmentDuration: COMBO2.duration,
+    activeStart: 0.13,
+    activeEnd: 0.2,
+    cancelAt: 0.32,
+    rate: 1,
+    lunge: 0,
     next: 'combo3',
     damage: 12,
     hitStop: 5,
     knockback: 0.4,
-    fade: 0.12,
+    fade: 0.05,
   },
-  // 3 段目: Thrust_Slash の突き（区間 0.35〜1.2s、clip を +90° 回して前へ突く向きに直してある）。
-  // 剣先が前へ伸び切るのは 区間内 0.32〜0.46s（元クリップ 0.67〜0.81s）。突いたあとは構えを解いて元へ戻る。
-  // 2 段目の終わり（剣が右下）から突きの構えまでの姿勢差が大きいので、フェードを長めにして剣先の瞬間移動を和らげる
+  // 3 段目: 手付けの突き（src/character/data/combo3.ts、0.62s）。2 段目の受付時点（0.32s）の姿勢から続けて始まる。
+  // 引き絞りは 0〜0.13s、突き出しは 0.13〜0.2s（剣先が体の前へ伸び切る）。当たりは 0.15〜0.24s。踏み込みは rootZ（0.3m）。
   combo3: {
     id: 'combo3',
     segment: 'combo3',
-    segmentDuration: 0.85,
-    activeStart: 0.32,
-    activeEnd: 0.47,
+    authored: COMBO3,
+    segmentDuration: COMBO3.duration,
+    activeStart: 0.15,
+    activeEnd: 0.24,
     cancelAt: 999,
-    rate: 1.3,
-    lunge: 0.7,
+    rate: 1,
+    lunge: 0,
     damage: 18,
     hitStop: 8,
     knockback: 1.2,
-    fade: 0.18,
+    fade: 0.05,
   },
 };
 

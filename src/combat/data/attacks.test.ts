@@ -69,6 +69,21 @@ describe('resolveAttack', () => {
     }
   });
 
+  it('手付けのコンボは前の技の受付時点から続いている（continueFrom が前の技のクリップと cancelAt を指す）', () => {
+    let a = ATTACKS.combo1!;
+    let chained = 0;
+    while (a.next) {
+      const n = ATTACKS[a.next]!;
+      const cf = n.authored?.continueFrom;
+      expect(cf, `${n.id} は ${a.id} から続く手付け`).toBeDefined();
+      expect(cf!.attack, n.id).toBe(a.authored);
+      expect(cf!.t, n.id).toBeCloseTo(a.cancelAt, 6);
+      chained++;
+      a = n;
+    }
+    expect(chained).toBe(2);
+  });
+
   it('手付けの攻撃の前進は rootZ のカーブに従い、単調に進んで終端で止まる', () => {
     const a = ATTACKS.combo1!;
     const root = rootMotionOf(a)!;
@@ -81,6 +96,8 @@ describe('resolveAttack', () => {
       prev = z;
     }
     expect(root(a.segmentDuration)).toBeCloseTo(0.3, 6);
-    expect(rootMotionOf(ATTACKS.combo2!)).toBeNull();
+    // 手付けでない攻撃（lunge で進む）は rootMotionOf が null
+    const { authored: _authored, ...plain } = ATTACKS.combo3!;
+    expect(rootMotionOf(plain)).toBeNull();
   });
 });

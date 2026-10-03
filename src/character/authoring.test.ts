@@ -110,6 +110,109 @@ describe('AuthoredSampler', () => {
   });
 });
 
+describe('continueFrom（コンボの連鎖）', () => {
+  const first: AuthoredAttack = {
+    name: 'first',
+    duration: 0.6,
+    keys: [
+      { t: 0.3, ease: 'io', rootZ: 0.3, hips: { yaw: -14, pitch: 6, y: -0.05 }, chest: { yaw: -26, pitch: 12 }, head: { yaw: -8 }, grip: [-34, -18, 0.3], blade: [0.3, -0.5, 0.8], face: [0.6, 0.5, 0], pole: [-0.5, -0.8, 0], left: [-75, -15, 0.3], footL: { z: 0.3, arc: 0.1 } },
+      { t: 0.6, ease: 'io', footR: { z: 0.3, arc: 0.07 } },
+    ],
+  };
+  const T0 = 0.4;
+  const second: AuthoredAttack = {
+    name: 'second',
+    duration: 0.5,
+    continueFrom: { attack: first, t: T0 },
+    keys: [{ t: 0.3, ease: 'io', rootZ: 0.24, chest: { yaw: 28 }, footR: { z: 0.2 } }],
+  };
+
+  it('t=0 のポーズが前の技の時刻 t のポーズに一致する（足と原点だけ付け替わる）', () => {
+    const a = new AuthoredSampler(rig, first);
+    const b = new AuthoredSampler(rig, second);
+    const pa = a.sample(T0, a.newInput());
+    const pb = b.sample(0, b.newInput());
+    const r0 = a.rootZ(T0);
+    expect(r0).toBeGreaterThan(0.1);
+    expect(pb.rootZ).toBe(0);
+    for (const g of ['hips', 'chest', 'head'] as const) {
+      expect(pb[g].yaw).toBeCloseTo(pa[g].yaw, 9);
+      expect(pb[g].pitch).toBeCloseTo(pa[g].pitch, 9);
+    }
+    expect(pb.hips.y).toBeCloseTo(pa.hips.y, 9);
+    expect(pb.grip.az).toBeCloseTo(pa.grip.az, 9);
+    expect(pb.grip.el).toBeCloseTo(pa.grip.el, 9);
+    expect(pb.grip.r).toBeCloseTo(pa.grip.r, 9);
+    expect(pb.left.az).toBeCloseTo(pa.left.az, 9);
+    expect(pb.blade.distanceTo(pa.blade)).toBeLessThan(1e-9);
+    expect(pb.face.distanceTo(pa.face)).toBeLessThan(1e-9);
+    expect(pb.pole.distanceTo(pa.pole)).toBeLessThan(1e-9);
+    for (const f of ['footL', 'footR'] as const) {
+      expect(pb[f].z).toBeCloseTo(pa[f].z - r0, 9); // 世界での足の位置（z + ルート原点）は同じ
+      expect(pb[f].lift).toBeCloseTo(pa[f].lift, 9);
+    }
+  });
+
+  it('キーが無いチャンネルは idle ではなく前の技の姿勢を保ち、"idle" と書けば本当の idle になる', () => {
+    const a = new AuthoredSampler(rig, first);
+    const pa = a.sample(T0, a.newInput());
+    const b = new AuthoredSampler(rig, second);
+    const late = b.sample(0.45, b.newInput());
+    expect(late.head.yaw).toBeCloseTo(pa.head.yaw, 9);
+    expect(late.grip.az).toBeCloseTo(pa.grip.az, 9);
+    expect(late.chest.yaw).toBeCloseTo(28 * DEG, 9); // キーのあるチャンネルは新しい値へ
+    const idle = a.newInput();
+    const back: AuthoredAttack = { ...second, keys: [...second.keys, { t: 0.5, ease: 'lin', grip: 'idle', blade: 'idle', left: 'idle' }] };
+    const c = new AuthoredSampler(rig, back);
+    const end = c.sample(0.5, c.newInput());
+    expect(end.grip.az).toBeCloseTo(idle.grip.az, 9);
+    expect(end.left.r).toBeCloseTo(idle.left.r, 9);
+    expect(end.blade.distanceTo(idle.blade)).toBeLessThan(1e-6);
+  });
+
+  it('足の弧の途中から始めても、持ち上げ量がつながる', () => {
+    const mid = 0.45; // footR が弧の途中
+    const a = new AuthoredSampler(rig, first);
+    expect(a.sample(mid, a.newInput()).footR.lift).toBeGreaterThan(0.01);
+    const b = new AuthoredSampler(rig, { name: 'x', duration: 0.3, keys: [], continueFrom: { attack: first, t: mid } });
+    expect(b.sample(0, b.newInput()).footR.lift).toBeCloseTo(a.sample(mid, a.newInput()).footR.lift, 9);
+  });
+
+  it('三段の連鎖（さらに前の技の原点が付け替わっていても、世界での足の位置が保たれる）', () => {
+    const t1 = 0.3;
+    const third: AuthoredAttack = { name: 'third', duration: 0.5, continueFrom: { attack: second, t: t1 }, keys: [{ t: 0.3, ease: 'io', rootZ: 0.4, footL: { z: 0.4 } }] };
+    const b = new AuthoredSampler(rig, second);
+    const pb = b.sample(t1, b.newInput());
+    const rb = b.rootZ(t1);
+    expect(rb).toBeCloseTo(0.24, 9);
+    const c = new AuthoredSampler(rig, third);
+    const pc = c.sample(0, c.newInput());
+    expect(pc.rootZ).toBe(0);
+    expect(pc.chest.yaw).toBeCloseTo(28 * DEG, 9);
+    expect(pc.footR.z).toBeCloseTo(pb.footR.z - rb, 9);
+    expect(pc.footL.z).toBeCloseTo(pb.footL.z - rb, 9);
+    // 二段目の footL は一段目の足位置（0.3 − 0.3）を引き継いで、二段目の原点基準では −r0
+    const a = new AuthoredSampler(rig, first);
+    expect(pb.footL.z).toBeCloseTo(a.sample(T0, a.newInput()).footL.z - a.rootZ(T0), 9);
+  });
+
+  it('焼いた最初のフレームが、前の技の同じ時刻のフレームと一致する（体幹・腕・Hips の高さ）', () => {
+    const A = bakeAttack(rig, first, 60);
+    const B = bakeAttack(rig, second, 60);
+    const f0 = Math.round(T0 * 60);
+    for (const n of rig.names) {
+      const va = A.clip.tracks.find((t) => t.name === `${n}.quaternion`)!.values;
+      const vb = B.clip.tracks.find((t) => t.name === `${n}.quaternion`)!.values;
+      const qa = new Quaternion(va[f0 * 4], va[f0 * 4 + 1], va[f0 * 4 + 2], va[f0 * 4 + 3]);
+      const qb = new Quaternion(vb[0], vb[1], vb[2], vb[3]);
+      expect(Math.abs(qa.dot(qb)), n).toBeGreaterThan(1 - 1e-6); // Float32 に焼いてある
+    }
+    const ha = A.clip.tracks.find((t) => t.name === `${BONE.hips}.position`)!.values;
+    const hb = B.clip.tracks.find((t) => t.name === `${BONE.hips}.position`)!.values;
+    for (let k = 0; k < 3; k++) expect(hb[k]!).toBeCloseTo(ha[f0 * 3 + k]!, 6);
+  });
+});
+
 describe('bakeAttack', () => {
   it('何も動かさない攻撃は idle のポーズ（全ボーンが idle の回転、剣の位置のずれなし）に焼ける', () => {
     const def: AuthoredAttack = { name: 'still', duration: 0.5, keys: [] };
