@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Enemy } from '../ai/enemy';
 import { clamp, easeOutCubic, lerp, lerpAngle } from '../core/math';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { addOutline, createToonMaterial, type ToonMaterial } from '../render/toon';
 
 /**
@@ -23,6 +24,47 @@ interface Flashable {
   mat: ToonMaterial;
   baseEmissive: THREE.Color;
   baseIntensity: number;
+}
+
+/** 1 つの部品: ジオメトリ + 位置・回転（Euler XYZ）・拡大 + 頂点色。mergeParts で 1 つのジオメトリにまとめる */
+interface Part {
+  geo: THREE.BufferGeometry;
+  color: number;
+  pos: [number, number, number];
+  rot?: [number, number, number];
+  scale?: [number, number, number];
+}
+
+const _m = new THREE.Matrix4();
+const _pp = new THREE.Vector3();
+const _qq = new THREE.Quaternion();
+const _ee = new THREE.Euler();
+const _ss = new THREE.Vector3();
+
+/** 部品を変形して頂点色を付け、1 つのジオメトリに統合する。元の部品のジオメトリは解放する */
+function mergeParts(parts: Part[]): THREE.BufferGeometry {
+  const geos = parts.map((p) => {
+    const g = p.geo.clone();
+    const r = p.rot ?? [0, 0, 0];
+    const sc = p.scale ?? [1, 1, 1];
+    _m.compose(_pp.set(p.pos[0], p.pos[1], p.pos[2]), _qq.setFromEuler(_ee.set(r[0], r[1], r[2])), _ss.set(sc[0], sc[1], sc[2]));
+    g.applyMatrix4(_m);
+    const c = new THREE.Color(p.color);
+    const n = g.getAttribute('position').count;
+    const col = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      col[i * 3] = c.r;
+      col[i * 3 + 1] = c.g;
+      col[i * 3 + 2] = c.b;
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    p.geo.dispose();
+    return g;
+  });
+  const merged = mergeGeometries(geos, false);
+  for (const g of geos) g.dispose();
+  if (!merged) throw new Error('部品の統合に失敗しました');
+  return merged;
 }
 
 export const IMP_COLORS = {
@@ -76,66 +118,69 @@ export class EnemyVisual {
     return m;
   }
 
-  private add(parent: THREE.Object3D, geo: THREE.BufferGeometry, mat: ToonMaterial, x: number, y: number, z: number, outline = 0.025): THREE.Mesh {
+  private mesh(parent: THREE.Object3D, geo: THREE.BufferGeometry, mat: ToonMaterial, outline: number): THREE.Mesh {
     const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.set(x, y, z);
     mesh.castShadow = true;
     parent.add(mesh);
     if (outline > 0) addOutline(mesh, { thickness: outline });
     return mesh;
   }
 
+  /**
+   * 色違いの部品を頂点色で 1 つにまとめて作る。部品ごとにメッシュを作ると 21 個（影・本体・輪郭線で約 55 回の描画呼び出し）になり、
+   * iPad の 60fps を削るので、動かない部品は「輪郭線あり / 輪郭線なし / 目（発光）」の 3 つ、動く腕は 1 本 1 メッシュに統合する（約 13 回）。
+   */
   private build(): void {
-    const body = this.toon(IMP_COLORS.body);
-    const cream = this.toon(IMP_COLORS.cream, { steps: 2, shadowLevel: 0.65, rimStrength: 0.25 });
-    const dark = this.toon(IMP_COLORS.dark, { steps: 2, shadowLevel: 0.6, rimStrength: 0.2 });
-    const eye = this.toon(IMP_COLORS.eye, { steps: 2, shadowLevel: 0.9, rimStrength: 0, emissive: IMP_COLORS.eye, emissiveIntensity: 0.9 });
+    const body = this.toon(0xffffff, { vertexColors: true });
+    const eyeMat = this.toon(0xffffff, { vertexColors: true, steps: 2, shadowLevel: 0.9, rimStrength: 0, emissive: IMP_COLORS.eye, emissiveIntensity: 0.9 });
+    const C = IMP_COLORS;
+    // 頭の原点（部品の位置は体（足元が原点）の座標で書く）
+    const H = { x: 0, y: 1.42, z: 0.02 };
+    const onHead = (x: number, y: number, z: number): [number, number, number] => [H.x + x, H.y + y, H.z + z];
 
-    // 胴（カプセル）と、腹のクリーム色の模様
-    const torso = this.add(this.pivot, new THREE.CapsuleGeometry(0.36, 0.42, 6, 14), body, 0, 0.82, 0);
-    torso.scale.set(1, 1, 0.9);
-    const belly = this.add(this.pivot, new THREE.SphereGeometry(0.25, 12, 10), cream, 0, 0.78, 0.2, 0);
-    belly.scale.set(1, 1.15, 0.5);
+    // 輪郭線のある動かない部分: 胴・頭・角・耳・脚・足・しっぽ
+    const solid: Part[] = [
+      { geo: new THREE.CapsuleGeometry(0.36, 0.42, 6, 14), color: C.body, pos: [0, 0.82, 0], scale: [1, 1, 0.9] },
+      { geo: new THREE.SphereGeometry(0.31, 16, 12), color: C.body, pos: onHead(0, 0, 0), scale: [1.1, 0.95, 1] },
+      { geo: new THREE.ConeGeometry(0.075, 0.3, 8), color: C.cream, pos: onHead(-0.17, 0.3, -0.02), rot: [0, 0, 0.35] },
+      { geo: new THREE.ConeGeometry(0.075, 0.3, 8), color: C.cream, pos: onHead(0.17, 0.3, -0.02), rot: [0, 0, -0.35] },
+      { geo: new THREE.ConeGeometry(0.07, 0.24, 6), color: C.body, pos: onHead(-0.33, 0.06, 0), rot: [0, 0, 1.25] },
+      { geo: new THREE.ConeGeometry(0.07, 0.24, 6), color: C.body, pos: onHead(0.33, 0.06, 0), rot: [0, 0, -1.25] },
+      { geo: new THREE.CapsuleGeometry(0.11, 0.18, 4, 8), color: C.dark, pos: [-0.17, 0.22, 0.02] },
+      { geo: new THREE.CapsuleGeometry(0.11, 0.18, 4, 8), color: C.dark, pos: [0.17, 0.22, 0.02] },
+      { geo: new THREE.SphereGeometry(0.14, 10, 8), color: C.cream, pos: [-0.17, 0.07, 0.09], scale: [1, 0.55, 1.35] },
+      { geo: new THREE.SphereGeometry(0.14, 10, 8), color: C.cream, pos: [0.17, 0.07, 0.09], scale: [1, 0.55, 1.35] },
+      { geo: new THREE.ConeGeometry(0.07, 0.5, 8), color: C.body, pos: [0, 0.55, -0.4], rot: [-1.1, 0, 0] },
+    ];
+    this.mesh(this.pivot, mergeParts(solid), body, 0.025);
 
-    // 頭と目・角・耳
-    const head = new THREE.Group();
-    head.position.set(0, 1.42, 0.02);
-    this.pivot.add(head);
-    const skull = this.add(head, new THREE.SphereGeometry(0.31, 16, 12), body, 0, 0, 0);
-    skull.scale.set(1.1, 0.95, 1);
-    for (const s of [-1, 1]) {
-      const white = this.add(head, new THREE.SphereGeometry(0.085, 10, 8), eye, s * 0.13, 0.03, 0.27, 0);
-      white.scale.set(1, 1.25, 0.6);
-      const pupil = this.add(head, new THREE.SphereGeometry(0.04, 8, 6), dark, s * 0.13, 0.025, 0.305, 0);
-      pupil.scale.set(1, 1.3, 0.5);
-      const horn = this.add(head, new THREE.ConeGeometry(0.075, 0.3, 8), cream, s * 0.17, 0.3, -0.02, 0.02);
-      horn.rotation.z = -s * 0.35;
-      const ear = this.add(head, new THREE.ConeGeometry(0.07, 0.24, 6), body, s * 0.33, 0.06, 0, 0.02);
-      ear.rotation.z = -s * 1.25;
-    }
-    // 口（暗い細い楕円）
-    const mouth = this.add(head, new THREE.SphereGeometry(0.07, 10, 6), dark, 0, -0.12, 0.28, 0);
-    mouth.scale.set(1.5, 0.5, 0.4);
+    // 輪郭線のない細部: 腹の模様・瞳・口（輪郭線を付けると黒くつぶれる）
+    const detail: Part[] = [
+      { geo: new THREE.SphereGeometry(0.25, 12, 10), color: C.cream, pos: [0, 0.78, 0.2], scale: [1, 1.15, 0.5] },
+      { geo: new THREE.SphereGeometry(0.04, 8, 6), color: C.dark, pos: onHead(-0.13, 0.025, 0.305), scale: [1, 1.3, 0.5] },
+      { geo: new THREE.SphereGeometry(0.04, 8, 6), color: C.dark, pos: onHead(0.13, 0.025, 0.305), scale: [1, 1.3, 0.5] },
+      { geo: new THREE.SphereGeometry(0.07, 10, 6), color: C.dark, pos: onHead(0, -0.12, 0.28), scale: [1.5, 0.5, 0.4] },
+    ];
+    this.mesh(this.pivot, mergeParts(detail), body, 0);
 
-    // 腕: 肩を軸にして動かす
+    // 目（発光する白目）
+    const eyes: Part[] = [
+      { geo: new THREE.SphereGeometry(0.085, 10, 8), color: C.eye, pos: onHead(-0.13, 0.03, 0.27), scale: [1, 1.25, 0.6] },
+      { geo: new THREE.SphereGeometry(0.085, 10, 8), color: C.eye, pos: onHead(0.13, 0.03, 0.27), scale: [1, 1.25, 0.6] },
+    ];
+    this.mesh(this.pivot, mergeParts(eyes), eyeMat, 0);
+
+    // 腕: 肩を軸にして動かす（左右で同じジオメトリ）
+    const arm = mergeParts([
+      { geo: new THREE.CapsuleGeometry(0.085, 0.36, 4, 8), color: C.body, pos: [0, -0.26, 0] },
+      { geo: new THREE.SphereGeometry(0.11, 10, 8), color: C.cream, pos: [0, -0.52, 0] },
+    ]);
     for (const [grp, s] of [[this.armL, -1], [this.armR, 1]] as const) {
       grp.position.set(s * 0.42, 1.08, 0);
       grp.rotation.z = s * 0.28; // 少し開いて垂らす
       this.pivot.add(grp);
-      this.add(grp, new THREE.CapsuleGeometry(0.085, 0.36, 4, 8), body, 0, -0.26, 0);
-      this.add(grp, new THREE.SphereGeometry(0.11, 10, 8), cream, 0, -0.52, 0);
+      this.mesh(grp, arm, body, 0.025);
     }
-
-    // 脚
-    for (const s of [-1, 1]) {
-      this.add(this.pivot, new THREE.CapsuleGeometry(0.11, 0.18, 4, 8), dark, s * 0.17, 0.22, 0.02);
-      const foot = this.add(this.pivot, new THREE.SphereGeometry(0.14, 10, 8), cream, s * 0.17, 0.07, 0.09);
-      foot.scale.set(1, 0.55, 1.35);
-    }
-
-    // しっぽ
-    const tail = this.add(this.pivot, new THREE.ConeGeometry(0.07, 0.5, 8), body, 0, 0.55, -0.4);
-    tail.rotation.x = -1.1;
   }
 
   /** 発光（被弾のフラッシュ・予備動作の予告）。amount 0..1、color は発光の色（既定は白） */
