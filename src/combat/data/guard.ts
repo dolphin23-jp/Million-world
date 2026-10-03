@@ -11,6 +11,7 @@
 import type { AuthoredAttack } from '../../character/authoring';
 import { SHIELD_GUARD, SHIELD_GUARD_HIT, SHIELD_PARRY, SWORD_GUARD, SWORD_GUARD_HIT } from '../../character/data/guard';
 import { GS_GUARD, GS_GUARD_HIT, GS_PARRY } from '../../character/data/gs-guard';
+import type { SfxName } from '../../audio/data/sfx';
 
 export type GuardId = 'sword' | 'shield' | 'greatsword';
 
@@ -98,10 +99,12 @@ export interface ParryEffectDef {
   /** 弾いたときの敵のノックバック（m）と押されるフレーム数（0 = 敵ごとの knockbackFrames） */
   enemyKnockback: number;
   knockbackFrames: number;
-  /** 弾いた瞬間の演出: ヒットストップ（sim フレーム）・画面の揺れ・命中の閃光の強さ */
+  /** 弾いた瞬間の演出: ヒットストップ（sim フレーム）・画面の揺れ・命中の閃光の強さ・「PARRY」の文字の大きさの倍率・効果音 */
   hitStop: number;
   shake: { amp: number; seconds: number };
   burst: number;
+  labelScale: number;
+  sfx: SfxName;
   /** 反撃のダメージ倍率。ノックバックの倍率は小さくして、遠くへ飛ばさず続けて当てられるようにする */
   riposteDamageScale: number;
   riposteKnockbackScale: number;
@@ -119,6 +122,8 @@ export const PARRY_EFFECTS: Record<ParryEffectId, ParryEffectDef> = {
     hitStop: 9,
     shake: { amp: 0.05, seconds: 0.2 },
     burst: 1.2,
+    labelScale: 1,
+    sfx: 'parry',
     riposteDamageScale: 2,
     riposteKnockbackScale: 0.5,
     recoverCooldownFrames: 30,
@@ -134,6 +139,8 @@ export const PARRY_EFFECTS: Record<ParryEffectId, ParryEffectDef> = {
     hitStop: 14,
     shake: { amp: 0.1, seconds: 0.32 },
     burst: 1.7,
+    labelScale: 1.5,
+    sfx: 'parryDown',
     riposteDamageScale: 2.4,
     riposteKnockbackScale: 0.15,
     recoverCooldownFrames: 50,

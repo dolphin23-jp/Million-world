@@ -9,7 +9,7 @@ import { DASH } from './dash';
 import { RETREAT } from './retreat';
 import { SWEEP } from './sweep';
 import { SHIELD_GUARD, SHIELD_GUARD_HIT, SHIELD_PARRY, SWORD_GUARD, SWORD_GUARD_HIT } from './guard';
-import { GS_DODGE, GS_DODGE_BACK, GS_STANCE } from './greatsword';
+import { GS_CARRY, GS_DODGE, GS_DODGE_BACK, GS_STANCE } from './greatsword';
 import { GS1, GS2 } from './gs-combo';
 import { GS_DASH, GS_LUNGE, GS_RETREAT, GS_RISE, GS_SPIN } from './gs-moves';
 import { GS_CHARGE, GS_HEAVY } from './gs-heavy';
@@ -35,6 +35,7 @@ export const AUTHORED_ATTACKS: Record<string, AuthoredAttack> = {
   guardSwordHit: SWORD_GUARD_HIT,
   // 大剣（両手持ち。src/character/data/greatsword.ts ほか）
   gsStance: GS_STANCE,
+  gsCarry: GS_CARRY,
   'dodge@greatsword': GS_DODGE,
   'dodgeBack@greatsword': GS_DODGE_BACK,
   gs1: GS1,

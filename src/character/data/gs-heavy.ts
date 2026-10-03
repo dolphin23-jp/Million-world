@@ -56,7 +56,7 @@ const SMASH = {
   chest: { yaw: 0, pitch: 28 },
   head: { yaw: 0 },
   grip: [-2, -4, 0.46] as V3,
-  blade: [0, -0.08, 1] as V3,
+  blade: [0, 0.06, 0.998] as V3,
   face: [-1, 0, 0] as V3,
   roll: 0,
   pole: [-0.4, -0.9, -0.1] as V3,

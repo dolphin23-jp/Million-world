@@ -41,6 +41,26 @@ export const GS_STANCE: AuthoredAttack = {
   keys: [...pose(0.2, 'io', GS_READY)],
 };
 
+/**
+ * 走りの腕（胴・脚は Meshy の走りのまま、腕だけこの姿勢で固定する。HeroVisual の overlayPose）: 剣を体の右前に、ほぼ立てて担ぐ。
+ * 走りの胴は前へ傾いている（構えの前傾 3° に対して 15° 前後）ので、胸の座標では構えより刃を立てて、世界では斜め前上がりに見えるようにする。
+ * 腰・胸・頭の値は使われない（腕のトラックだけを使う）。
+ */
+const CARRY = {
+  ...GS_READY,
+  grip: [-4, -10, 0.34] as V3,
+  blade: [-0.08, 0.93, 0.36] as V3,
+  face: [-1, 0, 0] as V3,
+  roll: 0,
+};
+
+export const GS_CARRY: AuthoredAttack = {
+  name: 'gsCarry',
+  duration: 0.2,
+  twoHanded: GS_TWO_HAND,
+  keys: [...pose(0.2, 'io', CARRY)],
+};
+
 /** 構えから続ける起点（技の continueFrom に使う） */
 export const FROM_STANCE = { attack: GS_STANCE, t: GS_STANCE.duration } as const;
 

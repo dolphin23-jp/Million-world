@@ -3,8 +3,8 @@
  * 値はすべてここで調整する（実機で「軽い」「重い」を見ながら動かす）。
  */
 export const HIT_FEEDBACK = {
-  /** ダメージがこの値以上なら「強」の見た目（数字が大きく黄色、エフェクトが大きい） */
-  heavyDamage: 30,
+  /** ダメージがこの値以上なら「強」の見た目（数字が大きく黄色、エフェクトが大きい）。大剣の通常の斬りも強に入る */
+  heavyDamage: 20,
   /** 画面の揺れ（m）= base + perDamage × ダメージ。とどめは killScale 倍 */
   shake: { base: 0.015, perDamage: 0.0035, killScale: 1.6 },
   /** 画面の揺れの長さ（秒）= base + perDamage × ダメージ */

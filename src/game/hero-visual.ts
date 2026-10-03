@@ -5,7 +5,7 @@ import type { CharacterAsset } from '../character/loader';
 import { Animator, overlayPose } from '../character/animator';
 import { bakeAttack, type BakeStats, type FrameTrace } from '../character/authoring';
 import { AUTHORED_ATTACKS, GREATSWORD_VARIANT, SHIELD_VARIANT, hasShieldVariant } from '../character/data/authored';
-import { GS_IDLE, GS_STANCE } from '../character/data/greatsword';
+import { GS_CARRY, GS_IDLE } from '../character/data/greatsword';
 import { SHIELD_CARRY, SHIELD_IDLE } from '../character/data/guard';
 import type { WeaponId } from '../combat/data/loadouts';
 import { HERO } from '../character/data/hero';
@@ -101,9 +101,9 @@ export class HeroVisual {
     this.animator.addClip(gsIdle.clip.name, gsIdle.clip);
     this.authoredStats[gsIdle.clip.name] = gsIdle.stats;
     this.authoredTrace[gsIdle.clip.name] = gsIdle.trace;
-    const stance = this.animator.getClip(GS_STANCE.name);
+    const carry = this.animator.getClip(GS_CARRY.name);
     const run = this.animator.getClip(HERO.clips.run);
-    if (stance && run) this.animator.addClip(HERO.clips.run + GREATSWORD_VARIANT, overlayPose(HERO.clips.run + GREATSWORD_VARIANT, run, stance, ARM_BONES, stance.duration));
+    if (carry && run) this.animator.addClip(HERO.clips.run + GREATSWORD_VARIANT, overlayPose(HERO.clips.run + GREATSWORD_VARIANT, run, carry, ARM_BONES, carry.duration));
     // 武器: ボーン空間は cm（Armature 0.01 倍）なのでソケットを 100 倍にして m 単位の剣を置く。片手剣・大剣とも同じ右手のソケット（装備しているほうだけ見せる）
     const bone = asset.bones.get(HERO.sword.bone);
     const socket = new THREE.Group();
