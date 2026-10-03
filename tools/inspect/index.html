@@ -106,6 +106,13 @@
         camera.lookAt(target);
         renderer.render(scene, camera);
       };
+      // 固定カメラ（bbox に依存しない比較用）。target は足元原点・身長 1.7m 前提
+      window.setFixedView = (yawDeg, pitchDeg = 8, dist = 3.6, targetY = 0.9) => {
+        const yaw = THREE.MathUtils.degToRad(yawDeg), pitch = THREE.MathUtils.degToRad(pitchDeg);
+        camera.position.set(Math.sin(yaw) * Math.cos(pitch) * dist, targetY + Math.sin(pitch) * dist, Math.cos(yaw) * Math.cos(pitch) * dist);
+        camera.lookAt(0, targetY, 0);
+        renderer.render(scene, camera);
+      };
       window.__ready = true;
     </script>
   </body>

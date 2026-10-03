@@ -17,11 +17,21 @@ function boot(): void {
   const game = new Game({ canvas, debug: params.get('debug') !== '0' });
   window.__mw = { game };
 
+  game.hud.setStartHint('読み込み中…');
+  const loaded = game.preload().catch((e: unknown) => {
+    console.error(e);
+    game.hud.setStartHint('読み込みに失敗しました。再読み込みしてください');
+    throw e;
+  });
+
   if (params.has('autostart')) {
-    game.hud.hideStart();
-    game.start();
+    void loaded.then(() => {
+      game.hud.hideStart();
+      game.start();
+    });
   } else {
-    void game.hud.waitForStart().then(() => game.start());
+    // 読込完了まではタップしても始まらないが、タップ自体は受け付ける（音声解放に使う予定）
+    void Promise.all([loaded.then(() => game.hud.setStartHint('タップして開始')), game.hud.waitForStart()]).then(() => game.start());
   }
 }
 

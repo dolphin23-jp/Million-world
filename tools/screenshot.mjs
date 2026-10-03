@@ -76,8 +76,8 @@ try {
   page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}`));
 
   await page.goto(url, { waitUntil: 'load' });
-  await page.waitForFunction(() => Boolean(window.__mw?.game), null, { timeout: 15000 });
-  await sleep(800);
+  await page.waitForFunction(() => Boolean(window.__mw?.game?.ready), null, { timeout: 60000 });
+  await sleep(1200);
 
   // 1. 待機
   await page.screenshot({ path: 'artifacts/shot-idle.png' });
@@ -98,7 +98,7 @@ try {
     const g = window.__mw.game;
     g.inject({ attackPressed: true });
     g.stepNow(1);
-    g.stepNow(8);
+    g.stepNow(20);
   });
   await sleep(150);
   await page.screenshot({ path: 'artifacts/shot-attack.png' });
@@ -109,7 +109,7 @@ try {
     g.stepNow(40);
     g.inject({ dodgePressed: true, moveX: -1, moveY: 0 });
     g.stepNow(1);
-    g.stepNow(7);
+    g.stepNow(12);
   });
   await sleep(150);
   await page.screenshot({ path: 'artifacts/shot-dodge.png' });

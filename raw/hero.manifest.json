@@ -1,0 +1,49 @@
+{
+  "out": "public/assets/characters/hero.glb",
+  "textureSize": 2048,
+  "clips": {
+    "combo": {
+      "file": "raw/clips/hero-combo.glb"
+    },
+    "idle": {
+      "file": "raw/clips/hero-idle.glb"
+    },
+    "run": {
+      "file": "raw/clips/hero-run.glb"
+    },
+    "slash": {
+      "file": "raw/clips/hero-slash.glb"
+    },
+    "heavy": {
+      "file": "raw/clips/hero-heavy.glb"
+    },
+    "dodge": {
+      "file": "raw/clips/hero-dodge.glb"
+    },
+    "hit": {
+      "file": "raw/clips/hero-hit.glb"
+    },
+    "death": {
+      "file": "raw/clips/hero-death.glb"
+    }
+  },
+  "freezeBones": [
+    "LeftToeBase",
+    "RightToeBase"
+  ],
+  "_provenance": {
+    "note": "Higgsfield 経由。元画像 → tripo_h3_1_image_to_3d → 3d_rigging(+animation)。CDN の URL は失効しうる",
+    "image_job": "bf971273-567a-44a0-b4c5-08efa6c6f4bd",
+    "mesh_job": "3be3077d-b8d3-4453-add0-dabecb49daa9",
+    "rig_jobs": {
+      "dodge": "b0d66bd5-17e9-474f-a746-763d4c3a2b3b (Roll_Dodge 158)",
+      "idle": "9701f964-cc62-4d5f-9fcb-f472c4c10dd5 (Combat_Stance 89)",
+      "run": "a086a7ce-4b35-4aa4-b70d-b73f5112d376 (Run_03 15)",
+      "combo": "19789c90-addc-40bb-aa95-3e15ea6cd565 (Triple_Combo_Attack 105)",
+      "slash": "d3d72493-c6d1-4663-8123-3c610cac5ce7 (Right_Hand_Sword_Slash 219)",
+      "heavy": "9c4c9ff3-b3ee-46e0-9012-ad71b377b6de (Heavy_Hammer_Swing 128)",
+      "hit": "fe664e95-fe44-4477-a1b7-aea400c010b4 (Hit_Reaction_1 179)",
+      "death": "f75a86b7-da47-477b-9f76-26a0687ec40c (dying_backwards 189)"
+    }
+  }
+}

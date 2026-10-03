@@ -12,6 +12,8 @@ import { Player } from './player';
 import { ThirdPersonCamera } from './camera';
 import { Hud } from '../ui/hud';
 import { onVisibility } from '../platform/safari';
+import { loadCharacter } from '../character/loader';
+import { HERO } from '../character/data/hero';
 
 /**
  * ゲーム全体を束ねる。sim（step）と render を分け、sim は InputIntent だけを入力に取る。
@@ -40,6 +42,8 @@ export class Game {
   private readonly startTime = performance.now();
   /** 開発用: 外部（スクリーンショットツール等）から入力を注入する */
   private injected: Partial<InputIntent> | null = null;
+  /** 資産の読込が終わり start() できる状態か */
+  ready = false;
 
   constructor(opts: GameOptions) {
     this.host = new RendererHost({ canvas: opts.canvas, maxPixelRatio: 1.5 });
@@ -116,7 +120,15 @@ export class Game {
     });
   }
 
+  /** 資産を読み込む。開始前に 1 度呼ぶ */
+  async preload(): Promise<void> {
+    const asset = await loadCharacter(`${import.meta.env.BASE_URL}${HERO.url}`);
+    this.player.attachVisual(asset);
+    this.ready = true;
+  }
+
   start(): void {
+    if (!this.ready) throw new Error('preload() が終わっていません');
     this.loop.start();
   }
 
@@ -143,7 +155,8 @@ export class Game {
     this.host.renderer.info.reset();
     const now = performance.now();
     const t = (now - this.startTime) / 1000;
-    this.player.syncVisual(alpha, t);
+    // アニメーションは sim の時間スケール（ヒットストップ）に従う
+    this.player.syncVisual(alpha, frameDt * this.loop.stepper.timeScale);
     this.player.getInterpolatedPosition(alpha, _pos);
     this.cam.update(_pos, frameDt);
     this.sky.follow(this.cam.camera);

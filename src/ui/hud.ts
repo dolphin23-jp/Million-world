@@ -29,6 +29,11 @@ export class Hud {
     this.overlay.classList.add('hidden');
   }
 
+  setStartHint(text: string): void {
+    const el = this.overlay.querySelector('.start-hint');
+    if (el) el.textContent = text;
+  }
+
   /** 毎描画フレーム呼ぶ。表示更新は 4Hz に間引く */
   updateDebug(frameDt: number, now: number, lines: () => string): void {
     this.fpsAccum += frameDt;

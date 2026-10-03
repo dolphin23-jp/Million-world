@@ -8,9 +8,9 @@ import { clamp, damp } from '../core/math';
  */
 
 export const CAMERA = {
-  distance: 5.4,
+  distance: 4.9,
   /** 注視点の高さ（キャラの胸あたり） */
-  lookHeight: 1.1,
+  lookHeight: 1.05,
   pitchMin: -0.15,
   pitchMax: 1.05,
   defaultPitch: 0.38,

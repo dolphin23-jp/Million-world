@@ -1,8 +1,11 @@
 node_modules/
 dist/
 artifacts/
-raw/
+raw/*
 .DS_Store
 *.log
 .vite/
 test-results/
+tools/scratch/
+
+!raw/hero.manifest.json

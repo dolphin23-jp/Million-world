@@ -61,3 +61,15 @@
 > no cape, no scarf, no ribbons, no long or loose accessories, no weapon in hands. Flat cel-shaded anime coloring with clean
 > dark outlines, even flat lighting, no cast shadows, no gradients or baked shading, plain pure white background, entire body
 > visible from head to feet, centered.
+
+## 結合時の注意（2026-10-03 に判明、`tools/build-character.mjs` が対処済み）
+
+- **自動リグはジョブごとに違う。** 同じメッシュを同じ入力で `3d_rigging` にかけても、関節位置は ≤0.5cm しか違わないが、
+  手・肩・足のボーンのロール（軸回り）が 10〜90° 違い、スキンウェイトも違う。ローカル回転をそのまま写すと手足が捻れる
+- 対処: 各ボーンについて「バインド姿勢からの世界回転の変化量」 Δ = W_src · inv(B_src) を求め、先リグに Δ · B_dst として写す。
+  並進はバインド姿勢のオフセットに固定し、Hips だけ並進アニメを写す（ボーン伸縮の並進アニメは捨てる）
+- **土台（メッシュ＋ウェイト）に使うリグで見た目が変わる。** 検証では `Triple_Combo_Attack` のジョブのウェイトが最も素直だった。
+  manifest の先頭のクリップが土台になる
+- **つま先ボーンが異常に長い**（足首から 39cm）ので回すと靴が刃物のように伸びる。`freezeBones` でバインド姿勢に固定する
+- 出力の `hero.glb` は 8 クリップ込みで約 0.8MB（テクスチャ 2048² WebP、meshopt 圧縮）
+- 検査: `node tools/inspect-glb.mjs <glb>`（多方向 + 各クリップのポーズ列）、`node tools/pose-sheet.mjs <glb>:<clip>:<label> ...`（固定カメラ比較）
