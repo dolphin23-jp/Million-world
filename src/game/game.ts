@@ -8,8 +8,12 @@ import { PostPipeline } from '../render/post';
 import { AdaptiveResolution, buildLevels } from '../render/adaptive-resolution';
 import { SkyDome } from '../render/sky';
 import { Arena } from '../world/arena';
-import { clampInsideArena } from '../world/collision';
+import { clampInsideArena, pushOutOfCircle } from '../world/collision';
 import { Player } from './player';
+import { resolvePlayerAttack } from './combat';
+import { Enemy } from '../ai/enemy';
+import { ENEMIES } from '../ai/data/enemies';
+import { EnemyVisual } from './enemy-visual';
 import { ThirdPersonCamera } from './camera';
 import { Hud } from '../ui/hud';
 import { onVisibility } from '../platform/safari';
@@ -35,6 +39,17 @@ export interface GameOptions {
 /** 動的解像度の段（大きい順）。デバイスの DPR を超える段は buildLevels が潰す */
 const PIXEL_RATIO_LEVELS = [1.5, 1.25, 1.0];
 
+/** 敵 1 体ぶんの sim と見た目 */
+interface EnemyEntry {
+  enemy: Enemy;
+  visual: EnemyVisual;
+}
+
+/** 敵が全滅してから次を出すまで（sim フレーム）。M3 のリザルト・再戦ができるまでの暫定 */
+const RESPAWN_FRAMES = 150;
+/** スポーン位置（アリーナ中心から）。順に使う */
+const SPAWN_RADIUS = 5.5;
+
 export class Game {
   readonly host: RendererHost;
   readonly scene = new THREE.Scene();
@@ -43,6 +58,12 @@ export class Game {
   readonly sky: SkyDome;
   readonly arena: Arena;
   readonly player: Player;
+  readonly enemies: EnemyEntry[] = [];
+  /** enemies の sim だけを並べた配列（毎ステップ配列を作らないため。spawn / 取り除きで同期する） */
+  private readonly enemySims: Enemy[] = [];
+  private nextEnemyId = 1;
+  private spawnCount = 0;
+  private respawnTimer = 0;
   readonly input = new InputAggregator();
   readonly touch: TouchInput;
   readonly hud: Hud;
@@ -89,6 +110,7 @@ export class Game {
 
     this.player = new Player();
     this.scene.add(this.player.root);
+    this.spawnEnemy();
 
     // --- 入力 ---
     this.touch = new TouchInput();
@@ -153,11 +175,59 @@ export class Game {
     for (let i = 0; i < count; i++) this.step(1 / 60);
   }
 
+  /**
+   * 開発用: 描画を 1/60 秒刻みで指定回数だけ即座に行う。ループを止めてスクリーンショットを撮るとき、
+   * 実時間で減衰する演出（フラッシュ・揺れ）を決まった状態にするために使う
+   */
+  renderNow(count = 1): void {
+    for (let i = 0; i < count; i++) this.render(1, 1 / 60);
+  }
+
+  /** 敵を 1 体出す。位置はアリーナ中心から SPAWN_RADIUS の円周を順に回り、プレイヤーの方を向く */
+  spawnEnemy(): Enemy {
+    const a = Math.PI / 2 + this.spawnCount * 2.4;
+    this.spawnCount++;
+    const x = Math.cos(a) * SPAWN_RADIUS;
+    const z = Math.sin(a) * SPAWN_RADIUS;
+    const enemy = new Enemy(ENEMIES.imp, this.nextEnemyId++, x, z);
+    enemy.place(x, z, Math.atan2(this.player.body.x - x, this.player.body.z - z));
+    const visual = new EnemyVisual();
+    this.scene.add(visual.root);
+    this.enemies.push({ enemy, visual });
+    this.enemySims.push(enemy);
+    return enemy;
+  }
+
   private step(dt: number): void {
     const intent = this.input.beginStep();
     this.cam.rotate(intent.camYaw, intent.camPitch);
     this.player.step(dt, intent, this.cam.yaw);
+
+    for (const { enemy } of this.enemies) enemy.step(dt, this.player.body.x, this.player.body.z);
+    resolvePlayerAttack(this.player, this.enemySims, () => {});
+
+    // 生きている敵は体を持つ（プレイヤーを押し出す）。アリーナの外へは出ない
+    for (const { enemy } of this.enemies) {
+      if (!enemy.dead) pushOutOfCircle(this.player.body, enemy.body);
+      clampInsideArena(enemy.body, 0, 0, this.arena.radius);
+    }
     clampInsideArena(this.player.body, 0, 0, this.arena.radius);
+
+    // 演出が終わった敵を取り除く。全滅したら少し待って次を出す（M3 のリザルト・再戦までの暫定）
+    for (let i = this.enemies.length - 1; i >= 0; i--) {
+      const entry = this.enemies[i]!;
+      if (!entry.enemy.removable) continue;
+      this.scene.remove(entry.visual.root);
+      entry.visual.dispose();
+      this.enemies.splice(i, 1);
+      this.enemySims.splice(i, 1);
+    }
+    if (this.enemies.length === 0) {
+      if (++this.respawnTimer >= RESPAWN_FRAMES) {
+        this.respawnTimer = 0;
+        this.spawnEnemy();
+      }
+    }
     this.input.endStep();
   }
 
@@ -167,7 +237,9 @@ export class Game {
     const now = performance.now();
     const t = (now - this.startTime) / 1000;
     // アニメーションは sim の時間スケール（ヒットストップ）に従う
-    this.player.syncVisual(alpha, frameDt * this.loop.stepper.timeScale);
+    const animDt = frameDt * this.loop.stepper.timeScale;
+    this.player.syncVisual(alpha, animDt);
+    for (const { enemy, visual } of this.enemies) visual.update(enemy, alpha, animDt, frameDt);
     this.player.getInterpolatedPosition(alpha, _pos);
     this.cam.update(_pos, frameDt);
     this.sky.follow(this.cam.camera);
@@ -178,7 +250,9 @@ export class Game {
     if (nextRatio !== null) this.host.setMaxPixelRatio(nextRatio);
     this.hud.updateDebug(frameDt, now, () => {
       const info = this.host.renderer.info.render;
-      return `sim ${this.loop.stepper.frame}  state ${this.player.state}:${this.player.stateFrame}\n` +
+      const e0 = this.enemies[0]?.enemy;
+      const foe = e0 ? `${e0.state} hp ${e0.health.hp}/${e0.health.max}` : '-';
+      return `sim ${this.loop.stepper.frame}  state ${this.player.state}:${this.player.stateFrame}  enemy ${foe}\n` +
         `calls ${info.calls}  tris ${(info.triangles / 1000).toFixed(0)}k  dpr ${this.host.pixelRatio.toFixed(2)}`;
     });
   }

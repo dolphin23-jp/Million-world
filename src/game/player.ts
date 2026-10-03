@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { InputIntent } from '../input/intent';
 import { ATTACKS, DODGE, MOVE, dodgeRoot, resolveAttack, rootMotionOf, type AttackDef, type AttackFrames } from '../combat/data/attacks';
+import { HitTracker, isActiveFrame } from '../combat/hit';
 import { lerp, lerpAngle, rotateTowards } from '../core/math';
 import type { Circle } from '../world/collision';
 import type { CharacterAsset } from '../character/loader';
@@ -28,6 +29,8 @@ export class Player {
   stateFrame = 0;
   attack: AttackDef | null = null;
   attackFrames: AttackFrames | null = null;
+  /** この攻撃で当てた対象の記録（1 攻撃 1 対象 1 回）。攻撃を始めるたびにリセットする */
+  readonly hitTracker = new HitTracker();
   private attackBuffered = false;
   private dodgeDirX = 0;
   private dodgeDirZ = 1;
@@ -121,6 +124,7 @@ export class Player {
     this.attackBuffered = false;
     this.attack = def;
     this.attackFrames = resolveAttack(def);
+    this.hitTracker.reset();
     this.setState('attack', true);
     // 入力方向があれば即座にそちらを向く（タッチでは向き直りの猶予が重要）
     if (mLen > 0.2) this.yaw = Math.atan2(mx, mz);
@@ -210,7 +214,16 @@ export class Player {
     this.stateSerial++;
   }
 
-  /** 無敵中か（M2 のヒット判定で使う） */
+  /**
+   * 攻撃の持続フレームの中か（ヒット判定を出す間）。step() の後に読む: そのとき stateFrame は
+   * 「攻撃を始めてから進んだ sim フレーム」で、描画されている姿勢のアニメ時刻 stateFrame/60 に等しい
+   */
+  get attackActive(): boolean {
+    const fr = this.attackFrames;
+    return this.state === 'attack' && fr !== null && isActiveFrame(fr.startup, fr.active, this.stateFrame);
+  }
+
+  /** 無敵中か（敵の攻撃のヒット判定で使う） */
   get invulnerable(): boolean {
     return this.state === 'dodge' && this.stateFrame >= DODGE.invulnStart && this.stateFrame <= DODGE.invulnEnd;
   }
