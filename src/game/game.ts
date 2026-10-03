@@ -89,6 +89,7 @@ export class Game {
   private nextEnemyId = 1;
   /** 戦闘の進行（ウェーブ・勝敗・リザルトの集計）。再戦のたびに作り直す */
   encounter: Encounter = new Encounter(DEMO_ENCOUNTER);
+  private encounterStarted = false;
   /** 音声の土台（解放は開始画面のタップ。platform/audio.ts）と、効果音の再生 */
   readonly audio = new AudioBus();
   readonly sfx = new Sfx(this.audio);
@@ -159,7 +160,6 @@ export class Game {
       this.sfx.play('ui');
       this.restart();
     });
-    this.startEncounter();
 
     // --- 入力 ---
     this.touch = new TouchInput();
@@ -211,6 +211,8 @@ export class Game {
 
   start(): void {
     if (!this.ready) throw new Error('preload() が終わっていません');
+    // 戦闘は開始画面のタップのあとに始める（最初の WAVE のバナーが、タップ待ちのあいだに流れて消えないように）
+    if (!this.encounterStarted) this.startEncounter();
     this.loop.start();
   }
 
@@ -253,6 +255,7 @@ export class Game {
 
   /** 戦闘を始める（最初のウェーブがすぐ出る）。def を渡すと別の構成で始められる（開発・スクリーンショット用） */
   private startEncounter(def: EncounterDef = DEMO_ENCOUNTER): void {
+    this.encounterStarted = true;
     this.encounter = new Encounter(def);
     this.hud.setPlayerHp(this.player.health.hp, this.player.health.max);
     this.applyEncounterEvent(this.encounter.step(0, false));
@@ -303,6 +306,8 @@ export class Game {
   }
 
   private step(dt: number): void {
+    // start() を通らずに sim だけ進める開発用の経路（stepNow）でも、戦闘が始まっていることを保証する
+    if (!this.encounterStarted) this.startEncounter();
     const intent = this.input.beginStep();
     if (this.encounter.ended) {
       // リザルトの間は操作を受け付けない（カメラだけ回せる）
