@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Enemy, type EnemyState } from './enemy';
 import { ENEMIES } from './data/enemies';
 import type { HitEvent } from '../combat/hit';
+import { PARRY } from '../combat/data/guard';
 
 const DT = 1 / 60;
 const ATK = ENEMIES.imp.attack;
@@ -297,5 +298,100 @@ describe('Enemy: 攻撃（予備動作 → 攻撃 → 硬直）', () => {
     e.hitTracker.add(0);
     until(e, 'attack');
     expect(e.hitTracker.has(0)).toBe(false);
+  });
+});
+
+describe('Enemy: パリィで弾かれる（stagger。ADR-020）', () => {
+  /** 敵 → プレイヤー（原点）の攻撃の結果。dir はプレイヤーへ向かう（−Z） */
+  const enemyHit = (): HitEvent => hit({ attackerId: 1, targetId: 0, dirX: 0, dirZ: -1 });
+  const windup = (e: Enemy, frame = 1) => {
+    until(e, 'windup', 600, 0, 0);
+    while (e.stateFrame < frame) e.step(DT, 0, 0);
+  };
+  const toAttack = (e: Enemy) => {
+    until(e, 'attack', 600, 0, 0);
+  };
+
+  it('攻撃中に弾かれると体勢を崩し（stagger）、プレイヤーから離れる向きへ押される。parrySerial が増える', () => {
+    const e = make(1.7);
+    toAttack(e);
+    expect(e.vulnerable).toBe(false);
+    e.parried(enemyHit());
+    expect(e.state).toBe('stagger');
+    expect(e.vulnerable).toBe(true);
+    expect(e.parrySerial).toBe(1);
+    expect(e.attackActive).toBe(false);
+    expect(e.attacking).toBe(false); // 攻撃権を手放す
+    const z0 = e.body.z;
+    run(e, ENEMIES.imp.knockbackFrames, 0, 0);
+    expect(e.body.z - z0).toBeCloseTo(PARRY.enemyKnockback * ENEMIES.imp.knockbackScale, 6);
+    expect(e.body.z).toBeGreaterThan(z0); // プレイヤー（原点）から離れる
+  });
+
+  it('予備動作の後半（スーパーアーマー中）でも、弾けば体勢を崩す（アーマーは割り込みを防ぐだけで、弾きは割り込みではない）', () => {
+    const e = make(1.7);
+    windup(e, ATK.armorFromFrame + 2);
+    expect(e.armored).toBe(true);
+    e.parried(enemyHit());
+    expect(e.state).toBe('stagger');
+  });
+
+  it('PARRY.staggerFrames が過ぎると追跡に戻る。そのあと recoverCooldownFrames は予備動作に入らない', () => {
+    const e = make(1.7);
+    toAttack(e);
+    e.parried(enemyHit());
+    // ひるみ（hit）と同じ数え方: stateFrame が staggerFrames に達した次の step で追跡へ移る
+    run(e, PARRY.staggerFrames, 0, 0);
+    expect(e.state).toBe('stagger');
+    expect(e.stateFrame).toBe(PARRY.staggerFrames);
+    run(e, 1, 0, 0);
+    expect(e.state).toBe('chase');
+    for (let i = 0; i < PARRY.recoverCooldownFrames - 1; i++) {
+      e.step(DT, 0, 0);
+      expect(e.state, `+${i}`).not.toBe('windup');
+    }
+  });
+
+  it('体勢を崩しているあいだは、何度当たっても崩れたまま（ひるみに上書きされない）。ダメージは通り、倒れるときは倒れる', () => {
+    const e = make(1.7);
+    toAttack(e);
+    e.parried(enemyHit());
+    const r = e.takeHit(hit({ damage: 20, knockback: 0.3, dirZ: -1 }));
+    expect(r.dealt).toBe(20);
+    expect(e.state).toBe('stagger');
+    expect(e.hitSerial).toBe(1); // 被弾の演出（フラッシュ）は起こる
+    run(e, 5, 0, 0);
+    e.takeHit(hit({ damage: 5, knockback: 0.3, dirZ: -1 }));
+    expect(e.state).toBe('stagger');
+    e.takeHit(hit({ damage: 999, knockback: 0, dirZ: -1 }));
+    expect(e.state).toBe('dead');
+  });
+
+  it('崩れているあいだの被弾のノックバックは、アーマー中の縮小をかけず、そのまま（反撃側で倍率を掛けてある）', () => {
+    const e = make(1.7);
+    toAttack(e);
+    e.parried(enemyHit());
+    run(e, ENEMIES.imp.knockbackFrames + 1, 0, 0); // 弾かれた押し戻しが終わるまで
+    const z0 = e.body.z;
+    e.takeHit(hit({ damage: 5, knockback: 0.5, dirZ: 1 }));
+    run(e, ENEMIES.imp.knockbackFrames, 0, 5);
+    expect(e.body.z - z0).toBeCloseTo(0.5 * ENEMIES.imp.knockbackScale, 6);
+  });
+
+  it('死亡後は弾けない（状態が変わらない）', () => {
+    const e = make(1.7);
+    e.takeHit(hit({ damage: 999, dirZ: -1 }));
+    expect(e.dead).toBe(true);
+    e.parried(enemyHit());
+    expect(e.state).toBe('dead');
+    expect(e.parrySerial).toBe(0);
+  });
+
+  it('プレイヤーが倒れていたら、体勢が戻ったあとは待機に戻る', () => {
+    const e = make(1.7);
+    toAttack(e);
+    e.parried(enemyHit());
+    for (let i = 0; i < PARRY.staggerFrames + 1; i++) e.step(DT, 0, 0, false);
+    expect(e.state).toBe('idle');
   });
 });

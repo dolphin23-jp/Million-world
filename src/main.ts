@@ -1,6 +1,24 @@
 import * as THREE from 'three';
 import { Game } from './game/game';
 import { installGestureGuards } from './platform/safari';
+import { DEFAULT_LOADOUT, LOADOUTS, LOADOUT_ORDER, isLoadoutId, type LoadoutId } from './combat/data/loadouts';
+
+/** 選んだ装備を覚えておく場所。ストレージが使えない（プライベートブラウズ等）ときは覚えないだけ（ゲームは動く） */
+const LOADOUT_KEY = 'mw.loadout';
+function readSavedLoadout(): string | null {
+  try {
+    return localStorage.getItem(LOADOUT_KEY);
+  } catch {
+    return null;
+  }
+}
+function saveLoadout(id: LoadoutId): void {
+  try {
+    localStorage.setItem(LOADOUT_KEY, id);
+  } catch {
+    // 覚えられなくても続ける
+  }
+}
 
 declare global {
   interface Window {
@@ -25,6 +43,11 @@ function boot(): void {
     sandbox: params.get('sandbox') === '1',
   });
   window.__mw = { game, THREE };
+  // 装備: ?loadout=sword-shield（開発・検証用）> 前回選んだもの > 既定（素手の片手剣）
+  const urlLoadout = params.get('loadout');
+  const savedLoadout = readSavedLoadout();
+  const initialLoadout: LoadoutId = isLoadoutId(urlLoadout) ? urlLoadout : isLoadoutId(savedLoadout) ? savedLoadout : DEFAULT_LOADOUT;
+  game.setLoadout(initialLoadout);
   // ?mute=1 で効果音を鳴らさない
   if (params.get('mute') === '1') game.audio.muted = true;
   // ?sfxlab=1: 効果音を書き出して数値検査するための開発用フック（tools/sfx-check.mjs が使う）
@@ -45,6 +68,16 @@ function boot(): void {
       game.start();
     });
   } else {
+    // 開始画面で装備を選べる（選んだものは次回も使う）
+    game.hud.setupLoadoutPicker(
+      LOADOUT_ORDER.map((id) => ({ id, name: LOADOUTS[id].name, detail: LOADOUTS[id].detail })),
+      initialLoadout,
+      (id) => {
+        if (!isLoadoutId(id)) return;
+        game.setLoadout(id);
+        saveLoadout(id);
+      },
+    );
     // 読込完了まではタップしても始まらないが、タップ自体は受け付ける（音声解放に使う予定）
     void Promise.all([loaded.then(() => game.hud.setStartHint('タップして開始')), game.hud.waitForStart(() => game.audio.unlock())]).then(() => game.start());
   }

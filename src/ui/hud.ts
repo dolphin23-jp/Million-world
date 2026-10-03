@@ -80,6 +80,7 @@ export class Hud {
     (document.getElementById('r-time') as HTMLElement).textContent = formatTime(r.seconds);
     (document.getElementById('r-damage') as HTMLElement).textContent = String(r.damageTaken);
     (document.getElementById('r-hits') as HTMLElement).textContent = `${r.hitsTaken} 回`;
+    (document.getElementById('r-parries') as HTMLElement).textContent = `${r.parries} 回`;
     this.retryBtn.classList.remove('armed');
     el.classList.remove('hidden');
     // アニメーションを頭から
@@ -155,6 +156,37 @@ export class Hud {
 
   hideStart(): void {
     this.overlay.classList.add('hidden');
+  }
+
+  /**
+   * 開始画面の装備の選択を作る。チップをタップしても開始しない（開始画面全体の pointerdown へ伝えない）。
+   * onPick は選んだ装備の id を受け取る（保存や装備の反映は呼ぶ側）
+   */
+  setupLoadoutPicker(items: readonly { id: string; name: string; detail: string }[], current: string, onPick: (id: string) => void): void {
+    const root = document.getElementById('loadout-pick');
+    if (!root) return;
+    root.textContent = '';
+    const chips: HTMLElement[] = [];
+    for (const it of items) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'loadout-chip';
+      chip.dataset.loadout = it.id;
+      const b = document.createElement('b');
+      b.textContent = it.name;
+      const small = document.createElement('small');
+      small.textContent = it.detail;
+      chip.append(b, small);
+      chip.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        e.stopPropagation(); // 開始画面のタップ（ゲーム開始）にしない
+        for (const c of chips) c.classList.toggle('selected', c === chip);
+        onPick(it.id);
+      });
+      chip.classList.toggle('selected', it.id === current);
+      chips.push(chip);
+      root.appendChild(chip);
+    }
   }
 
   setStartHint(text: string): void {

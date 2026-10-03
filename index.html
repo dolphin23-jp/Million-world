@@ -29,6 +29,9 @@
       <div id="btn-lock" class="tbtn tbtn-small"><span>LOCK</span></div>
       <div id="btn-dodge" class="tbtn tbtn-mid"><span>回避</span></div>
       <div id="btn-attack" class="tbtn tbtn-big"><span>攻撃</span></div>
+      <div id="btn-guard" class="tbtn tbtn-guard"><span>ガード</span></div>
+      <!-- 装備の切替（次の装備へ）。ラベルは今の装備名（src/input/touch.ts の setEquipLabel） -->
+      <div id="btn-equip" class="tbtn tbtn-equip"><span>装備</span></div>
     </div>
 
     <div id="hud">
@@ -51,6 +54,7 @@
           <div><dt>タイム</dt><dd id="r-time"></dd></div>
           <div><dt>被ダメージ</dt><dd id="r-damage"></dd></div>
           <div><dt>被弾</dt><dd id="r-hits"></dd></div>
+          <div><dt>パリィ</dt><dd id="r-parries"></dd></div>
         </div>
         <button id="result-retry" type="button">もう一度</button>
       </div>
@@ -61,6 +65,8 @@
         <div class="title-main">MILLION WORLD</div>
         <div class="title-sub">prototype M0</div>
       </div>
+      <!-- 装備の選択。src/ui/hud.ts の setupLoadoutPicker が中身を作る -->
+      <div id="loadout-pick"></div>
       <div class="start-hint">タップして開始</div>
     </div>
 

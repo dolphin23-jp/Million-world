@@ -16,6 +16,8 @@ interface Elements {
   camZone: HTMLElement;
   btnAttack: HTMLElement;
   btnDodge: HTMLElement;
+  btnGuard: HTMLElement;
+  btnEquip: HTMLElement;
   btnLock: HTMLElement;
 }
 
@@ -51,6 +53,10 @@ export class TouchInput implements InputSource {
   /** 攻撃ボタンを押している間 true */
   private attackHeld = false;
   private dodgeEdge = false;
+  private guardEdge = false;
+  /** ガードボタンを押している間 true（構えは押している間だけ。ADR-020） */
+  private guardHeld = false;
+  private equipEdge = false;
   private lockEdge = false;
 
   constructor() {
@@ -62,6 +68,8 @@ export class TouchInput implements InputSource {
       camZone: q('cam-zone'),
       btnAttack: q('btn-attack'),
       btnDodge: q('btn-dodge'),
+      btnGuard: q('btn-guard'),
+      btnEquip: q('btn-equip'),
       btnLock: q('btn-lock'),
     };
     this.bindStick();
@@ -76,7 +84,23 @@ export class TouchInput implements InputSource {
       () => (this.attackHeld = false),
     );
     this.bindButton(this.el.btnDodge, () => (this.dodgeEdge = true));
+    // ガードは押している間も読む（保持で構える）
+    this.bindButton(
+      this.el.btnGuard,
+      () => {
+        this.guardEdge = true;
+        this.guardHeld = true;
+      },
+      () => (this.guardHeld = false),
+    );
+    this.bindButton(this.el.btnEquip, () => (this.equipEdge = true));
     this.bindButton(this.el.btnLock, () => (this.lockEdge = true));
+  }
+
+  /** 装備の切替ボタンの表示を今の装備名にする（入力層はロジックを知らないので外から教える） */
+  setEquipLabel(text: string): void {
+    const span = this.el.btnEquip.querySelector('span');
+    if (span && span.textContent !== text) span.textContent = text;
   }
 
   /** ロックオン状態の見た目（入力層はロジックを知らないので外から教える） */
@@ -94,6 +118,9 @@ export class TouchInput implements InputSource {
     if (this.attackEdge) intent.attackPressed = true;
     if (this.dodgeEdge) intent.dodgePressed = true;
     if (this.attackHeld) intent.attackHeld = true;
+    if (this.guardEdge) intent.guardPressed = true;
+    if (this.guardHeld) intent.guardHeld = true;
+    if (this.equipEdge) intent.equipPressed = true;
     if (this.lockEdge) intent.lockPressed = true;
     if (this.switchEdge !== 0) intent.lockSwitch = this.switchEdge;
   }
@@ -101,6 +128,8 @@ export class TouchInput implements InputSource {
   endStep(): void {
     this.attackEdge = false;
     this.dodgeEdge = false;
+    this.guardEdge = false;
+    this.equipEdge = false;
     this.lockEdge = false;
     this.switchEdge = 0;
   }

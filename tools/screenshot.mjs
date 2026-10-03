@@ -184,6 +184,80 @@ try {
   await sleep(120);
   await page.screenshot({ path: 'artifacts/shot-hurt.png' });
 
+  // 9b. ガードとパリィ（盾）: 受け止め（削りだけ通る）→ パリィ（敵が体勢を崩す・PARRY・水色の閃光）→ 反撃（大きなダメージ）。素手のときは剣で受ける。
+  //     シーンごとに結果を数値でも確かめる（失敗したら終了コード 3）
+  const guardScene = (loadout, mode) =>
+    page.evaluate(
+      ([solo, loadout, mode]) => {
+        const g = window.__mw.game;
+        g.restart(solo);
+        g.setLoadout(loadout);
+        g.stepNow(1);
+        const e = g.enemies[0].enemy;
+        e.place(0, 2.4, Math.PI);
+        const hold = (n, extra = {}) => {
+          for (let i = 0; i < n; i++) {
+            g.inject({ guardHeld: true, ...extra });
+            g.stepNow(1);
+          }
+        };
+        // 予備動作の stateFrame が pressAt になったら押す（攻撃の判定は windup の 38f + startup の 3f のあと）
+        const pressAt = mode === 'guard' ? 8 : 35;
+        for (let i = 0; i < 400 && !(e.state === 'windup' && e.stateFrame >= pressAt); i++) g.stepNow(1);
+        const hp0 = g.player.health.hp;
+        g.inject({ guardPressed: true, guardHeld: true });
+        g.stepNow(1);
+        let outcome = 'none';
+        for (let i = 0; i < 60; i++) {
+          const gh = g.player.guardHitSerial;
+          const pr = g.player.parrySerial;
+          hold(1);
+          if (g.player.parrySerial !== pr) outcome = 'parry';
+          else if (g.player.guardHitSerial !== gh) outcome = 'guard';
+          if (outcome !== 'none') break;
+        }
+        const info = { outcome, hpLost: hp0 - g.player.health.hp, enemyState: e.state, playerState: g.player.state, parries: g.encounter.parries };
+        g.renderNow(5);
+        if (mode === 'riposte' && outcome === 'parry') {
+          hold(6);
+          g.inject({ guardHeld: true, attackPressed: true });
+          g.stepNow(1);
+          const hp = e.health.hp;
+          for (let i = 0; i < 40 && e.health.hp === hp; i++) g.stepNow(1);
+          info.riposteDamage = hp - e.health.hp;
+          g.renderNow(5);
+        }
+        return info;
+      },
+      [SOLO, loadout, mode],
+    );
+  const expectGuard = (name, info, want) => {
+    console.log(`[guard] ${name}: ${JSON.stringify(info)}`);
+    if (info.outcome !== want.outcome || (want.noDamage && info.hpLost !== 0) || (want.enemyState && info.enemyState !== want.enemyState)) {
+      console.error(`[guard] ${name}: 期待と違います ${JSON.stringify(want)}`);
+      process.exitCode = 3;
+    }
+  };
+  expectGuard('shield-guard', await guardScene('sword-shield', 'guard'), { outcome: 'guard' });
+  await sleep(120);
+  await page.screenshot({ path: 'artifacts/shot-guard-shield.png' });
+  expectGuard('shield-parry', await guardScene('sword-shield', 'parry'), { outcome: 'parry', noDamage: true, enemyState: 'stagger' });
+  await sleep(120);
+  await page.screenshot({ path: 'artifacts/shot-parry.png' });
+  const rip = await guardScene('sword-shield', 'riposte');
+  expectGuard('shield-riposte', rip, { outcome: 'parry', noDamage: true });
+  if (!(rip.riposteDamage > 0)) {
+    console.error('[guard] 反撃が当たっていません');
+    process.exitCode = 3;
+  }
+  await sleep(120);
+  await page.screenshot({ path: 'artifacts/shot-riposte.png' });
+  expectGuard('sword-guard', await guardScene('sword', 'guard'), { outcome: 'guard' });
+  await sleep(120);
+  await page.screenshot({ path: 'artifacts/shot-guard-sword.png' });
+  // 素手はパリィがない: 受付の時刻に押しても、ただのガードになる
+  expectGuard('sword-no-parry', await guardScene('sword', 'parry'), { outcome: 'guard' });
+
   // 10〜11. ロックオン: 敵 3 体を並べてロック（カメラが対象を向き、枠と上部の HP バーが出る）→ 右へ切替
   await page.evaluate((trio) => {
     const g = window.__mw.game;

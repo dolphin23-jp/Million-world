@@ -160,3 +160,23 @@ describe('spawnPoint', () => {
     expect(Math.hypot(p.x, p.z)).toBeCloseTo(12.5, 9);
   });
 });
+
+describe('Encounter: ガード・パリィの集計', () => {
+  it('ガードで受けた削りダメージは被ダメージに入るが、被弾の回数には数えない。パリィは回数を数える', () => {
+    const e = new Encounter(DEF);
+    e.step(0, false);
+    e.onPlayerHit(12);
+    e.onPlayerGuard(2);
+    e.onPlayerGuard(6);
+    e.onParry();
+    e.onParry();
+    expect(e.hitsTaken).toBe(1);
+    expect(e.damageTaken).toBe(20);
+    expect(e.parries).toBe(2);
+    run(e, DEF.defeatDelayFrames, 0, true);
+    const r = e.result()!;
+    expect(r.parries).toBe(2);
+    expect(r.hitsTaken).toBe(1);
+    expect(r.damageTaken).toBe(20);
+  });
+});

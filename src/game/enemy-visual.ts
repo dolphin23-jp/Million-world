@@ -3,6 +3,7 @@ import type { Enemy } from '../ai/enemy';
 import { clamp, easeOutCubic, lerp, lerpAngle } from '../core/math';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { addOutline, createToonMaterial, type ToonMaterial } from '../render/toon';
+import { PARRY } from '../combat/data/guard';
 
 /**
  * 敵（子鬼）の見た目。プリミティブ製の仮モデルだが、トゥーン着色・輪郭線・影の枠の中に置く（CLAUDE.md 原則 3）。
@@ -15,7 +16,10 @@ import { addOutline, createToonMaterial, type ToonMaterial } from '../render/too
 const WHITE = new THREE.Color(0xffffff);
 /** 予備動作の発光色（赤。紫の体の上で「これから攻撃する」が読める色） */
 const DANGER = new THREE.Color(1, 0.22, 0.16);
+/** パリィで弾かれて体勢を崩しているあいだの発光色（水色。予備動作の赤・被弾の白と見分ける） */
+const STAGGER = new THREE.Color(0.45, 0.88, 1);
 const AXIS_X = new THREE.Vector3(1, 0, 0);
+const AXIS_Z = new THREE.Vector3(0, 0, 1);
 const _q = new THREE.Quaternion();
 const _axis = new THREE.Vector3();
 
@@ -221,6 +225,8 @@ export class EnemyVisual {
     let danger = 0; // 赤い発光 0..1
     let crouch = 0; // しゃがみ 0..1（縦に縮む）
     let pitch = 0; // 前後の傾き（+ で前のめり）
+    let stagger = 0; // パリィで弾かれた体勢の崩れ 0..1
+    let wobble = 0; // 崩れているあいだのふらつき（左右の傾き。rad）
     if (e.state === 'windup') {
       const w = clamp(e.stateFrame / atk.windupFrames, 0, 1);
       raise = easeOutCubic(clamp(w * 1.5, 0, 1));
@@ -236,12 +242,23 @@ export class EnemyVisual {
       danger = 0.4 * (1 - t);
       pitch = 0.45 * swing;
       crouch = 0.05 * (1 - back);
+    } else if (e.state === 'stagger') {
+      // 弾かれた直後に一気にのけぞって腕が跳ね上がり（6f）、ふらつきながら保ち、最後の 14f で立て直す
+      const into = clamp(e.stateFrame / 6, 0, 1);
+      const out = clamp((e.stateFrame - (PARRY.staggerFrames - 14)) / 14, 0, 1);
+      stagger = easeOutCubic(into) * (1 - out);
+      raise = stagger * 0.95;
+      pitch = -0.5 * stagger;
+      crouch = -0.04 * stagger; // 伸び上がる
+      wobble = Math.sin(e.stateFrame * 0.32) * 0.14 * stagger;
     }
 
-    // 白（被弾）が強いあいだは白、そうでなければ赤（予備動作）
+    // 白（被弾）が強いあいだは白、そうでなければ赤（予備動作）。崩れているあいだは水色が脈打つ（反撃のチャンスの合図）
     const white = this.flash * 0.7;
     const red = Math.max(0, danger);
-    if (white >= red) this.setGlow(white);
+    const blue = stagger > 0 ? stagger * (0.4 + 0.2 * Math.sin(e.stateFrame * 0.55)) : 0;
+    if (blue > white && blue > red) this.setGlow(blue, STAGGER);
+    else if (white >= red) this.setGlow(white);
     else this.setGlow(red * 0.8, DANGER);
 
     // 待機のゆらぎ（上下・腕）と、腕の姿勢
@@ -285,6 +302,10 @@ export class EnemyVisual {
     }
     if (pitch !== 0) {
       _q.setFromAxisAngle(AXIS_X, pitch);
+      this.pivot.quaternion.multiply(_q);
+    }
+    if (wobble !== 0) {
+      _q.setFromAxisAngle(AXIS_Z, wobble);
       this.pivot.quaternion.multiply(_q);
     }
     this.pivot.scale.multiplyScalar(shrink);

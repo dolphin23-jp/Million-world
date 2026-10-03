@@ -73,6 +73,28 @@ export const SFX = {
   chargeLevel1: { gain: 0.7, layers: [tone('triangle', 880, 1175, 0.12, 0.5), tone('sine', 1760, 1760, 0.1, 0.18, 0.005, 0.03)] },
   chargeLevel2: { gain: 0.8, layers: [tone('triangle', 1175, 1760, 0.14, 0.55), tone('triangle', 1760, 2349, 0.16, 0.4, 0.005, 0.07), noise('highpass', 4000, 8000, 0.7, 0.18, 0.35, 0.02)] },
 
+  // ---- ガード・パリィ・装備（ADR-020） ----
+  /** 構えに入る: 盾（剣）を前へ出す短い風切り */
+  guardUp: { gain: 0.55, layers: [noise('bandpass', 500, 1700, 0.9, 0.13, 0.6, 0.03), tone('sine', 190, 280, 0.1, 0.22, 0.01)] },
+  /** ガードで受け止めた: 金属の「ガン」。高い響きと低い衝撃 */
+  guard: {
+    gain: 1,
+    layers: [noise('bandpass', 2600, 800, 1.1, 0.1, 0.8), tone('square', 1700, 850, 0.06, 0.22), tone('triangle', 640, 320, 0.15, 0.5), tone('sine', 150, 72, 0.17, 0.8)],
+  },
+  /** パリィ（弾いた）: 澄んだ「キィン」と強い衝撃。受け止めたときよりずっと高く長く響く */
+  parry: {
+    gain: 1,
+    layers: [
+      tone('triangle', 2300, 3000, 0.24, 0.45),
+      tone('sine', 1150, 1700, 0.3, 0.34, 0.005, 0.012),
+      noise('highpass', 3200, 9000, 0.8, 0.15, 0.65, 0.005),
+      tone('square', 900, 420, 0.06, 0.25),
+      tone('sine', 120, 60, 0.2, 0.7),
+    ],
+  },
+  /** 装備を替えた: 2 音の金属の合図（上がっていく） */
+  equip: { gain: 0.7, layers: [tone('triangle', 520, 780, 0.07, 0.5), tone('triangle', 780, 1040, 0.09, 0.45, 0.005, 0.07), noise('highpass', 3500, 7000, 0.7, 0.06, 0.25, 0.005)] },
+
   // ---- 命中 ----
   hit: { gain: 1, layers: [noise('highpass', 900, 600, 0.8, 0.07, 0.9), tone('sine', 230, 85, 0.1, 1), tone('square', 1500, 620, 0.035, 0.16)] },
   hitHeavy: { gain: 1, layers: [noise('lowpass', 3200, 280, 0.8, 0.24, 0.85), tone('sine', 160, 42, 0.28, 0.95), tone('square', 1100, 380, 0.05, 0.16)] },

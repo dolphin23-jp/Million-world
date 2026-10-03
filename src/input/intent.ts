@@ -16,6 +16,11 @@ export interface InputIntent {
   /** 攻撃ボタンを押している間 true（レベル）。長押しの溜めに使う（ADR-018）。押した瞬間は attackPressed も true */
   attackHeld: boolean;
   dodgePressed: boolean;
+  /** ガードボタンの押下エッジと、押している間 true（レベル）。構えは押している間だけ（ADR-020） */
+  guardPressed: boolean;
+  guardHeld: boolean;
+  /** 装備の切替ボタンの押下エッジ（次の装備へ。Game が扱う） */
+  equipPressed: boolean;
   lockPressed: boolean;
   /** ロックオン対象切替（-1 左 / +1 右 / 0 なし） */
   lockSwitch: number;
@@ -30,6 +35,9 @@ export function createEmptyIntent(): InputIntent {
     attackPressed: false,
     attackHeld: false,
     dodgePressed: false,
+    guardPressed: false,
+    guardHeld: false,
+    equipPressed: false,
     lockPressed: false,
     lockSwitch: 0,
   };
@@ -61,6 +69,9 @@ export class InputAggregator {
     it.attackPressed = false;
     it.attackHeld = false;
     it.dodgePressed = false;
+    it.guardPressed = false;
+    it.guardHeld = false;
+    it.equipPressed = false;
     it.lockPressed = false;
     it.lockSwitch = 0;
     for (const s of this.sources) s.collect(it);
