@@ -48,11 +48,11 @@ node tools/recenter-skeleton.mjs <in.glb> <mid.glb> && node tools/reskin-torso.m
 ```
 src/core/       ゲームループ（固定タイムステップ）、時間（ヒットストップ用スケール）、入力抽象化
 src/input/      タッチ（仮想スティック・ボタン・カメラドラッグ）→ 入力意図への変換
-src/render/     レンダラ初期化、トゥーンマテリアル、輪郭線、ポストプロセス、VFX（トレイル・パーティクル・予告の床表示）
+src/render/     レンダラ初期化、トゥーンマテリアル、輪郭線、ポストプロセス、VFX（トレイル・パーティクル・予告の床表示・飛び道具の鬼火）
 src/world/      アリーナ、衝突、環境オブジェクト
 src/character/  キャラクター読込、アニメーション状態機械、リターゲット、手付け攻撃アニメ（ik / rig / pose-solver / authoring。ADR-012）、立ち姿の前傾補正（posture。ADR-024）
-src/combat/     攻撃データ（フレームデータ）、ヒット判定、ダメージ、ロックオン、演出の数値、操作ガイド・技表の表示内容（move-guide / move-tree。純粋関数）
-src/ai/         敵の行動（FSM・攻撃権・予告の床表示の幾何 telegraph。ADR-025）、敵とウェーブの数値（data/）
+src/combat/     攻撃データ（フレームデータ）、ヒット判定、ダメージ、ロックオン、演出の数値、操作ガイド・技表の表示内容（move-guide / move-tree。純粋関数）、飛び道具の sim（projectile。ADR-026）
+src/ai/         敵の行動（FSM・攻撃権・予告の床表示の幾何 telegraph・距離を取って飛び道具を撃つ遠距離型。ADR-025・026）、敵とウェーブの数値（data/）
 src/audio/      効果音（WebAudio 合成のレシピと再生。ADR-017）
 src/ui/         HUD（DOM）: HP バー・ダメージ数字・ロックの枠・リザルト・操作ガイド（下の中央）・技表
 src/game/       上記を束ねるシーン・エンティティ管理
