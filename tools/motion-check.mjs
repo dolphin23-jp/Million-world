@@ -67,9 +67,9 @@ try {
     const trace = await page.evaluate((n) => window.__mw.game.player.visual.authoredTrace[n] ?? null, traceName);
     if (!trace) throw new Error(`クリップがありません: ${traceName}`);
     console.log(`クリップ ${traceName}: 1 行 = 1 フレーム`);
-    console.log('  f     t  elev  elbow wBend wTwist  grip  hipsDrop');
+    console.log('  f     t  elev  elbow wBend wTwist  grip  hipsDrop  wBendL wTwistL rollL');
     trace.forEach((r, f) => {
-      if (f % step === 0) console.log(String(f).padStart(3), r.t.toFixed(2).padStart(5), r.armElevation.toFixed(0).padStart(5), r.elbowBend.toFixed(0).padStart(6), r.wristBend.toFixed(0).padStart(5), r.wristTwist.toFixed(0).padStart(6), r.gripError.toFixed(3).padStart(6), r.hipsDrop.toFixed(3).padStart(8));
+      if (f % step === 0) console.log(String(f).padStart(3), r.t.toFixed(2).padStart(5), r.armElevation.toFixed(0).padStart(5), r.elbowBend.toFixed(0).padStart(6), r.wristBend.toFixed(0).padStart(5), r.wristTwist.toFixed(0).padStart(6), r.gripError.toFixed(3).padStart(6), r.hipsDrop.toFixed(3).padStart(8), (r.wristBendL ?? 0).toFixed(0).padStart(7), (r.wristTwistL ?? 0).toFixed(0).padStart(7), (r.rollL ?? 0).toFixed(0).padStart(6));
     });
     await browser.close();
     try { process.kill(-server.pid, 'SIGTERM'); } catch {}
@@ -78,10 +78,10 @@ try {
   if (statsMode) {
     const stats = await page.evaluate(() => Object.entries(window.__mw.game.player.visual.authoredStats));
     const f1 = (v) => v.toFixed(1).padStart(6);
-    console.log('クリップ        frames  armR  armL   leg  hipsDrop  grip  elevR  wBend wTwist elbowMin');
+    console.log('クリップ        frames  armR  armL   leg  hipsDrop  grip  elevR  wBend wTwist elbowMin  wBendL wTwistL');
     for (const [n, s] of stats) {
-      const flag = s.armRClampedFrames || s.armLClampedFrames || s.legClampedFrames || s.maxArmElevationDeg > 130 || s.maxWristTwistDeg > 150 ? ' ←' : '';
-      console.log(n.padEnd(14), String(s.frames).padStart(6), String(s.armRClampedFrames).padStart(5), String(s.armLClampedFrames).padStart(5), String(s.legClampedFrames).padStart(5), s.maxHipsDrop.toFixed(3).padStart(9), s.maxGripError.toFixed(3).padStart(5), f1(s.maxArmElevationDeg), f1(s.maxWristBendDeg), f1(s.maxWristTwistDeg), f1(s.minElbowBendDeg) + flag);
+      const flag = s.armRClampedFrames || s.armLClampedFrames || s.legClampedFrames || s.maxArmElevationDeg > 130 || s.maxWristTwistDeg > 150 || (s.maxWristTwistLDeg ?? 0) > 150 ? ' ←' : '';
+      console.log(n.padEnd(14), String(s.frames).padStart(6), String(s.armRClampedFrames).padStart(5), String(s.armLClampedFrames).padStart(5), String(s.legClampedFrames).padStart(5), s.maxHipsDrop.toFixed(3).padStart(9), s.maxGripError.toFixed(3).padStart(5), f1(s.maxArmElevationDeg), f1(s.maxWristBendDeg), f1(s.maxWristTwistDeg), f1(s.minElbowBendDeg), f1(s.maxWristBendLDeg ?? 0), f1(s.maxWristTwistLDeg ?? 0) + flag);
     }
     await browser.close();
     try { process.kill(-server.pid, 'SIGTERM'); } catch {}
@@ -125,6 +125,7 @@ try {
       }
       vis.getBladePoints(base, tip);
       row.tip = tip.y;
+      row.tipZ = tip.z; // 剣先の前方（キャラは +Z を向き、クリップの再生では根は動かさないので、そのときの根からの前方距離）
       if (prevTip) maxTip = Math.max(maxTip, tip.distanceTo(prevTip) * 60);
       prevTip = tip.clone();
       row.min = Math.min(...['hipsY', 'headY', 'handR', 'handL', 'footL', 'footR', 'tip'].map((k) => row[k] ?? 9));
@@ -135,11 +136,11 @@ try {
   if (result.error) throw new Error(result.error);
   const fmt = (v) => (v === undefined ? '    -' : v.toFixed(2).padStart(5));
   console.log(`クリップ ${name}（${result.dur.toFixed(2)}s）`);
-  console.log('  f   t  hipsY headY handR handL footL footR   tip   min');
+  console.log('  f   t  hipsY headY handR handL footL footR   tip   min  tipZ');
   let lowest = { v: 9, k: '', f: 0 };
   for (const r of result.rows) {
     for (const k of ['headY', 'handR', 'handL', 'footL', 'footR', 'tip']) if (r[k] !== undefined && r[k] < lowest.v) lowest = { v: r[k], k, f: r.f };
-    if (r.f % step === 0) console.log(String(r.f).padStart(3), (r.f / 60).toFixed(2), fmt(r.hipsY), fmt(r.headY), fmt(r.handR), fmt(r.handL), fmt(r.footL), fmt(r.footR), fmt(r.tip), fmt(r.min));
+    if (r.f % step === 0) console.log(String(r.f).padStart(3), (r.f / 60).toFixed(2), fmt(r.hipsY), fmt(r.headY), fmt(r.handR), fmt(r.handL), fmt(r.footL), fmt(r.footR), fmt(r.tip), fmt(r.min), fmt(r.tipZ));
   }
   console.log(`\n最低の高さ: ${lowest.v.toFixed(3)}m（${lowest.k}、f${lowest.f}）${lowest.v < 0 ? ' ← 床にめり込んでいる' : ''}`);
   console.log(`剣先の最高速: ${result.maxTipSpeed.toFixed(1)} m/s`);

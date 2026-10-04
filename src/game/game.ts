@@ -20,6 +20,7 @@ import { ENEMIES } from '../ai/data/enemies';
 import { EnemyVisual } from './enemy-visual';
 import { HitStop } from '../core/hitstop';
 import { HitFx } from '../render/hit-fx';
+import { GroundFx } from '../render/ground-fx';
 import { SwordTrail } from '../render/sword-trail';
 import { DamageNumbers } from '../ui/damage-numbers';
 import { EnemyBars } from '../ui/enemy-bars';
@@ -29,7 +30,7 @@ import { Encounter, spawnPoint, type EncounterEvent } from './encounter';
 import { DEMO_ENCOUNTER, type EncounterDef } from '../ai/data/encounters';
 import type { Hurtbox } from '../combat/hit';
 import { hitFeedback } from '../combat/feedback';
-import { HIT_FEEDBACK } from '../combat/data/hit-feedback';
+import { GROUND_IMPACT, HIT_FEEDBACK } from '../combat/data/hit-feedback';
 import { GUARD_FEEDBACK, type ParryEffectDef } from '../combat/data/guard';
 import { LOADOUTS, nextLoadout, type LoadoutId } from '../combat/data/loadouts';
 import { FX_TINT } from '../render/hit-fx';
@@ -77,6 +78,9 @@ const SWING_SFX: Record<string, SfxName> = {
   combo1: 'swing1',
   combo2: 'swing2',
   combo3: 'swing3',
+  comboHop: 'swingRetreat',
+  comboSpin: 'swingSweep',
+  comboUpper: 'swingDash',
   heavy: 'swingHeavy',
   lunge: 'swingLunge',
   dash: 'swingDash',
@@ -91,6 +95,9 @@ const SWING_SFX: Record<string, SfxName> = {
   gsDash: 'gsSwingDash',
   gsRise: 'gsSwingRise',
   gsHeavy: 'gsSwingHeavy',
+  gsSmash: 'gsSwingSmash',
+  gsDrop: 'gsSwingDrop',
+  gsSpin2: 'gsSwingSpin',
 };
 /** 溜めの段階が上がったときの合図 */
 const CHARGE_LEVEL_SFX: readonly SfxName[] = ['chargeLevel1', 'chargeLevel2'];
@@ -124,6 +131,10 @@ export class Game {
   private seenChargeLevel = 0;
   readonly hitStop = new HitStop();
   readonly hitFx = new HitFx();
+  /** 地面を叩いた演出（砂ぼこりの輪・ひび割れ・破片。ADR-023） */
+  readonly groundFx = new GroundFx();
+  /** 地面を叩いた合図（Player.impactSerial）を処理し終えた値 */
+  private seenImpact = 0;
   readonly damageNumbers: DamageNumbers;
   readonly enemyBars: EnemyBars;
   readonly lockMarker: LockMarker;
@@ -184,6 +195,7 @@ export class Game {
     this.player = new Player();
     this.scene.add(this.player.root);
     this.scene.add(this.hitFx.group);
+    this.scene.add(this.groundFx.group);
     this.scene.add(this.swordTrail.mesh);
     this.hud.onRetry(() => {
       this.sfx.play('ui');
@@ -331,6 +343,18 @@ export class Game {
     }
   }
 
+  /** 剣が地面を叩いた（AttackDef.impact。地割り・叩き落とし）。敵に当たらなくても、砂ぼこりの輪・ひび割れ・揺れ・ヒットストップ・音を出す */
+  private onGroundImpact(): void {
+    const p = this.player;
+    if (p.impactSerial === this.seenImpact) return;
+    this.seenImpact = p.impactSerial;
+    const { x, z, power } = p.lastImpact;
+    this.groundFx.burst(x, z, power);
+    this.cam.shake.trigger(GROUND_IMPACT.shake.amp * power, GROUND_IMPACT.shake.seconds * Math.min(1.4, 0.7 + power * 0.3));
+    this.hitStop.trigger(Math.round(GROUND_IMPACT.hitStop * power));
+    this.sfx.play('groundSmash', { gain: Math.min(GROUND_IMPACT.sfx.maxGain, GROUND_IMPACT.sfx.gain * power) });
+  }
+
   /** 敵の攻撃がプレイヤーに当たった。ヒットストップ・画面の揺れ・赤いフラッシュ・エフェクト・ダメージ数字・HP バー */
   private onEnemyHit(ev: HitEvent, result: DamageResult): void {
     const fb = hitFeedback(ev, result.killed);
@@ -431,6 +455,7 @@ export class Game {
 
     this.player.step(dt, intent, this.cam.yaw);
     this.soundPlayerState();
+    this.onGroundImpact();
 
     const alive = !this.player.dead;
     // 攻撃権: 同時に予備動作〜攻撃に入れる敵の数を制限する（残りは近くで構えて待つ）
@@ -535,6 +560,7 @@ export class Game {
     this.hitStop.reset();
     this.cam.shake.reset();
     this.hitFx.clear();
+    this.groundFx.clear();
     this.swordTrail.clear();
     this.damageNumbers.clear();
     this.hud.hideResult();
@@ -561,6 +587,7 @@ export class Game {
     this.sky.follow(this.cam.camera);
     this.arena.animate(t);
     this.hitFx.update(frameDt);
+    this.groundFx.update(frameDt);
     if (draw) this.post.render();
     this.damageNumbers.update(this.cam.camera, frameDt, this.host.width, this.host.height);
     const locked = this.lockedEnemy();

@@ -306,6 +306,38 @@ try {
   await sleep(120);
   await page.screenshot({ path: 'artifacts/shot-attack-greatsword.png' });
 
+  // 大剣の地割り（ADR-023）: 最大まで溜めて放つ → 剣が床に当たる瞬間（衝撃の輪・砂ぼこり・ひび割れ・画面の揺れ）。敵は遠くに置く（溜めのあいだに攻撃されて中断されないように）
+  const smash = await page.evaluate((solo) => {
+    const g = window.__mw.game;
+    g.restart(solo);
+    g.setLoadout('greatsword');
+    g.stepNow(1);
+    g.player.body.x = 0;
+    g.player.body.z = 0;
+    g.player.yaw = 0;
+    g.enemies[0].enemy.place(0, 9, Math.PI);
+    g.inject({ attackPressed: true, attackHeld: true });
+    g.stepNow(1);
+    for (let i = 0; i < 160 && !(g.player.state === 'charge' && g.player.chargeLevel >= 2); i++) {
+      g.inject({ attackHeld: true });
+      g.stepNow(1);
+    }
+    const level = g.player.chargeLevel;
+    g.stepNow(1); // 離す
+    const id = g.player.attack ? g.player.attack.id : null;
+    // 床に当たる時刻（0.3s = 18f）の少し後まで進めて、輪が広がっている絵を撮る
+    g.stepNow(21);
+    g.renderNow(6);
+    return { level, id, impacts: g.player.impactSerial };
+  }, SOLO);
+  console.log(`[smash] ${JSON.stringify(smash)}`);
+  if (smash.id !== 'gsSmash' || smash.impacts < 1) {
+    console.error('[smash] 最大まで溜めても地割りが出ていない、または床に当たった合図が出ていません');
+    process.exitCode = 3;
+  }
+  await sleep(120);
+  await page.screenshot({ path: 'artifacts/shot-smash-greatsword.png' });
+
   // 10〜11. ロックオン: 敵 3 体を並べてロック（カメラが対象を向き、枠と上部の HP バーが出る）→ 右へ切替
   await page.evaluate((trio) => {
     const g = window.__mw.game;

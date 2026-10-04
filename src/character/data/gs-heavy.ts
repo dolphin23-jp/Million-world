@@ -17,7 +17,7 @@ const V = 90;
 export const GS_CHARGE_ENTER_T = 0.2;
 
 /** 頭上の構え: 腰を深く落として体を反らせ、剣を頭の上〜後ろへ立てる（刃は後ろ上がり）。両手が頭の上に来る */
-const TOP = {
+export const TOP = {
   hips: { yaw: 4, pitch: -8, z: -0.06, y: -0.2 },
   chest: { yaw: 6, pitch: -14 },
   head: { yaw: 2 },
@@ -40,7 +40,7 @@ export const GS_CHARGE: AuthoredAttack = {
 };
 
 /** 振り下ろしの途中（体の前を通る最高速）: 頭上から前へ。剣が水平に近づく。腰が前へ落ちる */
-const PASS = {
+export const PASS = {
   hips: { yaw: 0, pitch: 10, z: 0.08, y: -0.28 },
   chest: { yaw: 0, pitch: 16 },
   head: { yaw: 0 },
@@ -51,7 +51,7 @@ const PASS = {
 };
 
 /** 叩きつけ: 前へ大きく踏み込んで深く沈み、前へ倒れる。剣先が体の前の床へ届く（切っ先は床すれすれ） */
-const SMASH = {
+export const SMASH = {
   hips: { yaw: 0, pitch: 18, z: 0.12, y: -0.32 },
   chest: { yaw: 0, pitch: 28 },
   head: { yaw: 0 },

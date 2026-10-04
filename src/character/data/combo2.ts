@@ -5,7 +5,7 @@ import { OFFHAND } from './offhand';
 import { pose } from './stagger';
 
 /** 振り抜きの終わりのポーズ。受付が続くあいだ保つ（combo3 の continueFrom がこの姿勢 0.34s を指す） */
-const FOLLOW = {
+export const FOLLOW = {
   hips: { yaw: 14, pitch: 6, z: 0.05, y: -0.1 },
   chest: { yaw: 26, pitch: 11 },
   head: { yaw: 10 },

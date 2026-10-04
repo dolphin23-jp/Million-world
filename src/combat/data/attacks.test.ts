@@ -36,12 +36,13 @@ describe('resolveAttack', () => {
     expect(f.cancelFrame).toBeGreaterThanOrEqual(f.startup + f.active);
   });
 
-  it('定義済みの攻撃はすべて 発生 ≥ 8f, 持続 ≥ 3f, 全体 ≤ 60f', () => {
+  it('定義済みの攻撃はすべて 発生 ≥ 8f, 持続 ≥ 3f, 全体 ≤ 72f（最大まで溜めた地割りだけが 60f を超える長い硬直）', () => {
     for (const a of Object.values(ATTACKS)) {
       const f = resolveAttack(a);
       expect(f.startup, a.id).toBeGreaterThanOrEqual(8);
       expect(f.active, a.id).toBeGreaterThanOrEqual(3);
-      expect(f.total, a.id).toBeLessThanOrEqual(60);
+      expect(f.total, a.id).toBeLessThanOrEqual(72);
+      if (a.id !== 'gsSmash') expect(f.total, a.id).toBeLessThanOrEqual(60);
       expect(f.startup + f.active + f.recovery).toBe(f.total);
     }
   });
@@ -212,6 +213,8 @@ describe('踏み込み（手付けの下半身）', () => {
       ['gsLunge', 'footR', 0.35],
       ['gsRise', 'footR', 0.23],
       ['gsHeavy', 'footL', 0.22],
+      ['gsSmash', 'footL', 0.3],
+      ['gsDrop', 'footL', 0.24],
     ];
     for (const [id, foot, t] of plants) {
       const s = sampler(id);
@@ -226,18 +229,24 @@ describe('踏み込み（手付けの下半身）', () => {
 
   it('受付（cancelAt）から先はルートが止まる（遅めに押しても pose と位置がずれない）', () => {
     for (const a of Object.values(ATTACKS)) {
-      if (!a.next) continue;
+      if (!a.next && !a.branches) continue;
       const root = rootMotionOf(a)!;
       expect(root(a.cancelAt), a.id).toBeCloseTo(root(a.segmentDuration), 9);
     }
   });
 
-  it('次段の始まりの足は、前の技の受付時点の足の位置と世界で一致する（足の z + 原点の付け替え）', () => {
-    for (const id of ['combo1', 'combo2', 'gs1']) {
-      const prev = ATTACKS[id]!;
-      const next = ATTACKS[prev.next!]!;
-      const sp = sampler(id);
-      const sn = sampler(next.id);
+  it('次段（普通の続きも分岐も）の始まりの足は、前の技の受付時点の足の位置と世界で一致する（足の z + 原点の付け替え）', () => {
+    const pairs: [string, string][] = [];
+    for (const a of Object.values(ATTACKS)) {
+      if (a.next) pairs.push([a.id, a.next]);
+      for (const to of Object.values(a.branches ?? {})) pairs.push([a.id, to]);
+    }
+    expect(pairs.length).toBe(8); // 普通の続き 3 + 分岐 5
+    for (const [from, to] of pairs) {
+      const prev = ATTACKS[from]!;
+      const next = ATTACKS[to]!;
+      const sp = sampler(from);
+      const sn = sampler(to);
       const before = sp.sample(prev.cancelAt, sp.newInput());
       const after = sn.sample(0, sn.newInput());
       const originShift = sp.rootZ(prev.cancelAt);
@@ -247,7 +256,7 @@ describe('踏み込み（手付けの下半身）', () => {
   });
 
   it('次段の始まりの 1 フレームは足が動かない（前の技から受け取る足の位置と、最初の保持キーの値が合っている）', () => {
-    for (const id of ['combo2', 'combo3', 'gs2']) {
+    for (const id of ['combo2', 'combo3', 'gs2', 'comboHop', 'comboSpin', 'comboUpper', 'gsSpin2', 'gsDrop']) {
       const s = sampler(id);
       const a = s.sample(0, s.newInput());
       const b = s.sample(1 / 60, s.newInput());
@@ -296,7 +305,9 @@ describe('溜め（長押し）の定義', () => {
 });
 
 describe('大剣の技（手付け・両手持ち。ADR-021）', () => {
-  const gsIds = Object.values(GREATSWORD_MOVESET).concat('gs2', CHARGES.greatsword!.next).filter((v, i, a) => a.indexOf(v) === i);
+  const gsIds = Object.values(GREATSWORD_MOVESET)
+    .concat('gs2', CHARGES.greatsword!.next, 'gsSpin2', 'gsDrop', 'gsSmash')
+    .filter((v, i, a) => a.indexOf(v) === i);
 
   it('技のセットはすべて実在し、手付けクリップとして登録された両手持ち（twoHanded）で、長さが segmentDuration と一致する', () => {
     for (const id of gsIds) {
@@ -385,9 +396,9 @@ describe('大剣の技（手付け・両手持ち。ADR-021）', () => {
     expect(arc('gsSpin').halfAngle).toBeGreaterThanOrEqual(Math.PI);
   });
 
-  it('スーパーアーマーを割れる重さ: 子鬼の armorBreakDamage（30）以上は 2 段目・大回転・跳び叩きつけ・溜め斬り', () => {
+  it('スーパーアーマーを割れる重さ: 子鬼の armorBreakDamage（30）以上は 2 段目・大回転・跳び叩きつけ・叩き落とし・溜め斬り・地割り', () => {
     const breakers = gsIds.filter((id) => ATTACKS[id]!.damage >= 30).sort();
-    expect(breakers).toEqual(['gs2', 'gsDash', 'gsHeavy', 'gsSpin']);
+    expect(breakers).toEqual(['gs2', 'gsDash', 'gsDrop', 'gsHeavy', 'gsSmash', 'gsSpin']);
   });
 
   it('溜め: 構えは 1 段目の予備動作の途中から続き、押し続ける長さは構えのクリップが続く時刻と一致する。段階の威力は片手剣より大きく伸びる', () => {
@@ -401,5 +412,121 @@ describe('大剣の技（手付け・両手持ち。ADR-021）', () => {
     expect(c.levelPower).toHaveLength(c.levels.length + 1);
     expect(c.levelPower[c.levelPower.length - 1]).toBeGreaterThan(CHARGES.sword!.levelPower[CHARGES.sword!.levelPower.length - 1]!);
     expect(c.maxHoldFrames).toBeGreaterThan(c.levels[c.levels.length - 1]!);
+  });
+});
+
+describe('コンボの分岐（スティックの向きで続きが変わる。ADR-023）', () => {
+  const sources = Object.values(ATTACKS).filter((a) => a.branches);
+
+  it('分岐のある技は、片手剣の 1〜3 段目と大剣の 1〜2 段目', () => {
+    expect(sources.map((a) => a.id).sort()).toEqual(['combo1', 'combo2', 'combo3', 'gs1', 'gs2']);
+  });
+
+  it('分岐先は実在する手付けで、前の技の受付時点（cancelAt）の姿勢から続く（continueFrom）。受付は技の途中にある', () => {
+    for (const a of sources) {
+      expect(a.cancelAt, `${a.id} の受付`).toBeLessThan(a.segmentDuration);
+      expect(a.cancelAt, `${a.id} の受付は持続の後`).toBeGreaterThanOrEqual(a.activeEnd);
+      for (const [dir, to] of Object.entries(a.branches!)) {
+        const n = ATTACKS[to]!;
+        expect(n, `${a.id} → ${dir} → ${to}`).toBeDefined();
+        expect(n.authored, to).toBeDefined();
+        expect(n.authored!.continueFrom?.attack, `${to} は ${a.id} から続く`).toBe(a.authored);
+        expect(n.authored!.continueFrom?.t, `${to} の起点`).toBeCloseTo(a.cancelAt, 6);
+      }
+    }
+  });
+
+  it('普通の続き（next）を奪わない: next のある技の分岐は、前（forward）以外の向き（横・後ろ）だけ。next の無い技（コンボの終わり）は、前へ倒したときだけ延長する', () => {
+    for (const a of sources) {
+      const dirs = Object.keys(a.branches!);
+      if (a.next) expect(dirs, a.id).not.toContain('forward');
+      else expect(dirs, a.id).toEqual(['forward']);
+    }
+  });
+
+  it('分岐先はコンボの連鎖（next）をたどって来ない（分岐は 1 段だけ。終端は分岐先で止まる）', () => {
+    for (const a of sources) {
+      for (const to of Object.values(a.branches!)) {
+        expect(ATTACKS[to]!.next, to).toBeUndefined();
+        expect(ATTACKS[to]!.branches, to).toBeUndefined();
+      }
+    }
+  });
+
+  it('分岐先は大剣のものは両手持ち（twoHanded）、片手剣のものは片手。片手剣の分岐先は盾版も焼かれる', () => {
+    for (const a of sources) {
+      for (const to of Object.values(a.branches!)) {
+        const two = ATTACKS[to]!.authored!.twoHanded !== undefined;
+        expect(two, to).toBe(a.authored!.twoHanded !== undefined);
+      }
+    }
+  });
+});
+
+describe('溜めの段階で放つ技が変わる（ChargeDef.levelNext。ADR-023）', () => {
+  it('大剣は最大の段階だけ地割り、途中で離せば溜め斬り。片手剣は変わらない', () => {
+    const c = CHARGES.greatsword!;
+    expect(c.levelNext).toBeDefined();
+    expect(c.levelNext).toHaveLength(c.levels.length + 1);
+    expect(c.levelNext!.slice(0, -1).every((v) => v === undefined)).toBe(true);
+    expect(c.levelNext![c.levelNext!.length - 1]).toBe('gsSmash');
+    expect(CHARGES.sword!.levelNext).toBeUndefined();
+  });
+
+  it('放ちうる技はどれも、溜めの構えの終端から続く手付けで、ダメージは溜め斬り以上（地割りは溜め斬りより重い）', () => {
+    const c = CHARGES.greatsword!;
+    for (const id of new Set([c.next, ...c.levelNext!.filter((v): v is string => v !== undefined)])) {
+      const a = ATTACKS[id]!;
+      expect(a.authored!.continueFrom?.attack, id).toBe(c.clip);
+      expect(a.authored!.continueFrom?.t, id).toBeCloseTo(c.clip.duration, 9);
+      expect(a.damage, id).toBeGreaterThanOrEqual(ATTACKS[c.next]!.damage);
+    }
+  });
+});
+
+describe('地面を叩く技（AttackDef.impact。ADR-023）', () => {
+  const smashes = Object.values(ATTACKS).filter((a) => a.impact);
+
+  it('地割り・叩き落としだけが地面を叩く', () => {
+    expect(smashes.map((a) => a.id).sort()).toEqual(['gsDrop', 'gsSmash']);
+  });
+
+  it('床に当たる時刻は当たりの持続の中、位置は体の前 1〜3m、強さは 0.3〜1.5。剣筋は床に当たるまで続く', () => {
+    for (const a of smashes) {
+      const im = a.impact!;
+      expect(im.t, a.id).toBeGreaterThan(a.activeStart);
+      expect(im.t, a.id).toBeLessThan(a.activeEnd);
+      expect(im.dist, a.id).toBeGreaterThanOrEqual(1);
+      expect(im.dist, a.id).toBeLessThanOrEqual(3);
+      expect(im.power, a.id).toBeGreaterThanOrEqual(0.3);
+      expect(im.power, a.id).toBeLessThanOrEqual(1.5);
+      expect(a.trail[1], a.id).toBeGreaterThan(im.t);
+      // 床に当たる時刻は、フレームの上で 1 つに決まる（Player が f + 1 === round(t × 60) で 1 回だけ出す）
+      expect(Math.round(im.t * 60), a.id).toBeGreaterThan(resolveAttack(a).startup);
+    }
+  });
+
+  it('地割りは叩き落としより強く（威力・衝撃の強さ・範囲）、どちらも溜め斬り（gsHeavy）の威力以下', () => {
+    expect(ATTACKS.gsSmash!.damage).toBeGreaterThan(ATTACKS.gsDrop!.damage);
+    expect(ATTACKS.gsSmash!.impact!.power).toBeGreaterThan(ATTACKS.gsDrop!.impact!.power);
+    const arc = (id: string) => {
+      const h = ATTACKS[id]!.hitbox;
+      if (h.kind !== 'arc') throw new Error(`${id} は扇ではない`);
+      return h;
+    };
+    expect(arc('gsSmash').range).toBeGreaterThan(arc('gsDrop').range);
+    expect(arc('gsSmash').halfAngle).toBeGreaterThan(arc('gsDrop').halfAngle);
+    expect(ATTACKS.gsDrop!.damage).toBeLessThanOrEqual(ATTACKS.gsHeavy!.damage);
+  });
+});
+
+describe('片手剣の分岐の技は、同じ位置づけの技より重い（ダメージ・ノックバック）', () => {
+  it('跳び退き斬り上げ > 下がりながらの払い、打ち上げ > 3 段目の突き、回転斬り > 横薙ぎ以上の広さ（全方位）', () => {
+    expect(ATTACKS.comboHop!.damage).toBeGreaterThan(ATTACKS.retreat!.damage);
+    expect(ATTACKS.comboUpper!.damage).toBeGreaterThan(ATTACKS.combo3!.damage);
+    expect(ATTACKS.comboUpper!.knockback).toBeGreaterThan(ATTACKS.combo3!.knockback);
+    const h = ATTACKS.comboSpin!.hitbox;
+    expect(h.kind === 'arc' && h.halfAngle >= Math.PI).toBe(true);
+    expect(ATTACKS.comboSpin!.damage).toBeGreaterThan(ATTACKS.sweep!.damage);
   });
 });

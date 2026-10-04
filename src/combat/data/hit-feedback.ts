@@ -20,3 +20,15 @@ export const HIT_FEEDBACK = {
   /** プレイヤーが被弾したときのエフェクト・数字の高さ（プレイヤーの足元から m。胸のあたり） */
   playerImpactHeight: 1.1,
 } as const;
+
+/**
+ * 地面を叩いた演出（ADR-023。AttackDef.impact）。強さ（power）を掛けて使う。敵に当たったときの演出（HIT_FEEDBACK）とは別に、床に当たった瞬間に出る。
+ */
+export const GROUND_IMPACT = {
+  /** 強さ 1 のときの画面の揺れ（m）と長さ（秒） */
+  shake: { amp: 0.075, seconds: 0.36 },
+  /** ヒットストップ（sim フレーム）= round(hitStop × power)。剣が床で止まる一瞬の重さ */
+  hitStop: 5,
+  /** 効果音の大きさ = min(maxGain, gain × power) */
+  sfx: { gain: 0.85, maxGain: 1.2 },
+} as const;

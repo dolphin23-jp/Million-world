@@ -22,6 +22,8 @@
  *   --weapon <id>                装備（ロードアウトの id）。例: sword-shield（盾を持つ。盾版の技が出る）
  *   --clip <名前>                sim を使わず、焼いたクリップを直接指定して --frames の時刻（60fps のフレーム番号）の姿勢を撮る。
  *                                ガードの構えなど、状態機械を通さず姿勢だけ見たいとき。例: --clip guardShield  /  --clip combo1@shield
+ *   --track grip|hands|handR|handL|tip   注視点をフレームごとに追尾する（握りの検査用。--dist 1.0 前後で拡大。grip = 右手の握り（剣の柄の位置）、hands = 両手の中点、tip = 剣先）。
+ *                                --height は使われない（追尾の位置が注視点）。--cam front|side|back|three で見る向きを変える
  *   --aim 0,4                    ロックオン中にする（対象の位置 x,z。サンドボックスには敵がいないので、ロック中だけに出る技を撮るため）
  *
  *   例: 回避  node tools/motion-sheet.mjs dodge --script '0:{"dodgePressed":true,"dir":[0,1]}' --end 36 --focus 1.4
@@ -59,6 +61,7 @@ const noOutline = argv.includes('--no-outline');
 const mode = opt('mode', 'tex');
 const weapon = opt('weapon', null);
 const clipName = opt('clip', null);
+const track = opt('track', null);
 const aim = opt('aim', null) ? opt('aim').split(',').map(Number) : null;
 const script = {};
 for (const part of (opt('script', '0:{}') ?? '').split(';').filter(Boolean)) {
@@ -93,6 +96,35 @@ try {
   await page.waitForFunction(() => Boolean(window.__mw?.game?.ready), null, { timeout: 60000 });
   await sleep(500);
   await page.addStyleTag({ content: '#touch-layer, #hud, #start-overlay, #banner, #result { display: none !important; }' });
+
+  // 追尾カメラ（--track）: いま描いたフレームの握りなどの位置へ注視点を置き直して描き直す
+  await page.evaluate(() => {
+    window.__trackPin = (mode) => {
+      const g = window.__mw.game;
+      const THREE = window.__mw.THREE;
+      const root = g.player.visual.root;
+      root.updateMatrixWorld(true);
+      const at = (name) => root.getObjectByName(name)?.getWorldPosition(new THREE.Vector3());
+      const grip = at('sword-socket');
+      const handR = at('RightHand');
+      const handL = at('LeftHand');
+      let p = null;
+      if (mode === 'grip') p = grip;
+      else if (mode === 'handR') p = handR;
+      else if (mode === 'handL') p = handL;
+      else if (mode === 'hands') p = handR && handL ? handR.clone().add(handL).multiplyScalar(0.5) : handR;
+      else if (mode === 'tip') {
+        const sock = root.getObjectByName('sword-socket');
+        if (sock) {
+          const q = sock.getWorldQuaternion(new THREE.Quaternion());
+          p = grip.clone().add(new THREE.Vector3(0, 1, 0).applyQuaternion(q).multiplyScalar(0.9));
+        }
+      }
+      if (!p) throw new Error('--track: 位置が取れません: ' + mode);
+      g.cam.pin(p.x, p.y, p.z);
+      g.renderNow(1);
+    };
+  });
 
   await page.evaluate(([cam, yaw, focus, dist, h, pitch, weapon, aim, noOutline, mode]) => {
     const g = window.__mw.game;
@@ -183,6 +215,7 @@ try {
       }, [clipName, target]);
       if (err) throw new Error(err);
       at = target;
+      if (track) await page.evaluate((m) => window.__trackPin(m), track);
       await sleep(60);
       shots.push({ frame: target, buf: await page.screenshot({ type: 'png' }) });
       continue;
@@ -208,6 +241,7 @@ try {
       }
     }, [at, target, script, CAMS[camName] ?? CAMS.side]);
     at = target;
+    if (track) await page.evaluate((m) => window.__trackPin(m), track);
     await sleep(60);
     shots.push({ frame: target, buf: await page.screenshot({ type: 'png' }) });
   }

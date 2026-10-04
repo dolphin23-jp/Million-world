@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { afterDodgeOf, classifyStick, pickAttack } from './moveset';
+import { afterDodgeOf, classifyStick, pickAttack, pickChargeRelease, pickFollowUp } from './moveset';
 import { DASH_WINDOW_FRAMES, STICK_RULES, SWORD_MOVESET } from './data/moveset';
 
 const deg = (d: number) => (d * Math.PI) / 180;
@@ -66,5 +66,35 @@ describe('afterDodgeOf', () => {
     expect(afterDodgeOf(DASH_WINDOW_FRAMES, 'back')).toBe('back');
     expect(afterDodgeOf(DASH_WINDOW_FRAMES + 1, 'roll')).toBeNull();
     expect(afterDodgeOf(999, 'back')).toBeNull();
+  });
+});
+
+describe('pickFollowUp（コンボの次段の受付。ADR-023）', () => {
+  const branches = { side: 'spin', back: 'hop' } as const;
+  it('スティックを倒していなければ next（普通の続き）', () => {
+    expect(pickFollowUp('combo2', branches, 'none')).toBe('combo2');
+  });
+  it('倒した向きに分岐があればそれ。なければ next', () => {
+    expect(pickFollowUp('combo2', branches, 'side')).toBe('spin');
+    expect(pickFollowUp('combo2', branches, 'back')).toBe('hop');
+    expect(pickFollowUp('combo2', branches, 'forward')).toBe('combo2');
+    expect(pickFollowUp('combo2', undefined, 'side')).toBe('combo2');
+  });
+  it('next の無い技（コンボの終わり）は、分岐のある向きに倒したときだけ続く', () => {
+    const upper = { forward: 'upper' } as const;
+    expect(pickFollowUp(undefined, upper, 'forward')).toBe('upper');
+    expect(pickFollowUp(undefined, upper, 'none')).toBeUndefined();
+    expect(pickFollowUp(undefined, upper, 'side')).toBeUndefined();
+    expect(pickFollowUp(undefined, undefined, 'forward')).toBeUndefined();
+  });
+});
+
+describe('pickChargeRelease（溜めを放つとき）', () => {
+  it('段階に技の指定があればそれ、なければ next', () => {
+    expect(pickChargeRelease('heavy', undefined, 2)).toBe('heavy');
+    expect(pickChargeRelease('heavy', [undefined, undefined, 'smash'], 0)).toBe('heavy');
+    expect(pickChargeRelease('heavy', [undefined, undefined, 'smash'], 1)).toBe('heavy');
+    expect(pickChargeRelease('heavy', [undefined, undefined, 'smash'], 2)).toBe('smash');
+    expect(pickChargeRelease('heavy', [undefined], 5)).toBe('heavy');
   });
 });

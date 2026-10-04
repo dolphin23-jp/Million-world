@@ -13,6 +13,10 @@ import { GS_CARRY, GS_DODGE, GS_DODGE_BACK, GS_STANCE } from './greatsword';
 import { GS1, GS2 } from './gs-combo';
 import { GS_DASH, GS_LUNGE, GS_RETREAT, GS_RISE, GS_SPIN } from './gs-moves';
 import { GS_CHARGE, GS_HEAVY } from './gs-heavy';
+import { GS_SMASH } from './gs-smash';
+import { GS_DROP } from './gs-drop';
+import { GS_SPIN2 } from './gs-chain';
+import { COMBO_HOP, COMBO_SPIN, COMBO_UPPER } from './combo-chain';
 import { GS_GUARD, GS_GUARD_HIT, GS_PARRY } from './gs-guard';
 
 /** 手付けアニメ（authoring.ts）で作る攻撃と回避。HeroVisual が読込時に焼いて、名前でクリップとして登録する */
@@ -20,6 +24,9 @@ export const AUTHORED_ATTACKS: Record<string, AuthoredAttack> = {
   combo1: COMBO1,
   combo2: COMBO2,
   combo3: COMBO3,
+  comboHop: COMBO_HOP,
+  comboSpin: COMBO_SPIN,
+  comboUpper: COMBO_UPPER,
   heavyCharge: HEAVY_CHARGE,
   lunge: LUNGE,
   dash: DASH,
@@ -47,6 +54,9 @@ export const AUTHORED_ATTACKS: Record<string, AuthoredAttack> = {
   gsRise: GS_RISE,
   gsCharge: GS_CHARGE,
   gsHeavy: GS_HEAVY,
+  gsSmash: GS_SMASH,
+  gsDrop: GS_DROP,
+  gsSpin2: GS_SPIN2,
   guardGreatsword: GS_GUARD,
   guardGreatswordHit: GS_GUARD_HIT,
   guardGreatswordParry: GS_PARRY,
