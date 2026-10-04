@@ -11,6 +11,11 @@ import { Arena } from '../world/arena';
 import { clampInsideArena, pushOutOfCircle, separateCircles } from '../world/collision';
 import { Player } from './player';
 import { resolveEnemyAttacks, resolvePlayerAttack } from './combat';
+import { cutProjectiles, resolveProjectilesOnPlayer, resolveReflectedProjectiles, type ProjectileHandlers } from './projectile-combat';
+import { MAX_PROJECTILES, ProjectileSystem, type Projectile, type ProjectileEnd } from '../combat/projectile';
+import { PROJECTILES, PROJECTILE_HEIGHT } from '../combat/data/projectiles';
+import { ProjectileRenderer } from '../render/projectiles';
+import type { Circle } from '../world/collision';
 import { Enemy } from '../ai/enemy';
 import { stepSwarm } from '../ai/swarm';
 import { AudioBus } from '../platform/audio';
@@ -76,6 +81,8 @@ interface EnemyEntry {
   visual: EnemyVisual;
   /** 効果音を鳴らし終えた状態遷移（Enemy.stateSerial） */
   seenSerial: number;
+  /** 弾を作り終えた発射（Enemy.fireSerial） */
+  seenFire: number;
 }
 
 /** プレイヤーの攻撃ごとの振りの効果音 */
@@ -113,7 +120,7 @@ const SWING_SFX: Record<string, SfxName> = {
   gsHeavyRip: 'gsSwingRise',
 };
 /** 敵の攻撃の音（敵の種類ごと。無ければ enemySwing） */
-const ENEMY_ATTACK_SFX: Partial<Record<string, SfxName>> = { boar: 'boarCharge' };
+const ENEMY_ATTACK_SFX: Partial<Record<string, SfxName>> = { boar: 'boarCharge', lantern: 'orbShot' };
 /** 溜めの段階が上がったときの合図 */
 const CHARGE_LEVEL_SFX: readonly SfxName[] = ['chargeLevel1', 'chargeLevel2'];
 
@@ -150,6 +157,9 @@ export class Game {
   readonly groundFx = new GroundFx();
   /** 敵の攻撃の予告の床表示（突進の通り道。ADR-025） */
   private readonly lanes = new TelegraphLanes();
+  /** 飛び道具（提灯の鬼火。ADR-026）の sim と描画 */
+  private readonly projectiles = new ProjectileSystem();
+  private readonly projectileFx = new ProjectileRenderer(MAX_PROJECTILES, PROJECTILES.wisp.radius);
   /** 地面を叩いた合図（Player.impactSerial）を処理し終えた値 */
   private seenImpact = 0;
   readonly damageNumbers: DamageNumbers;
@@ -226,6 +236,7 @@ export class Game {
     this.scene.add(this.hitFx.group);
     this.scene.add(this.groundFx.group);
     this.scene.add(this.lanes.group);
+    this.scene.add(this.projectileFx.group);
     this.scene.add(this.swordTrail.mesh);
     this.hud.onRetry(() => {
       this.sfx.play('ui');
@@ -321,7 +332,7 @@ export class Game {
     enemy.place(x, z, Math.atan2(this.player.body.x - x, this.player.body.z - z));
     const visual = new EnemyVisual(type);
     this.scene.add(visual.root);
-    this.enemies.push({ enemy, visual, seenSerial: enemy.stateSerial });
+    this.enemies.push({ enemy, visual, seenSerial: enemy.stateSerial, seenFire: enemy.fireSerial });
     this.enemySims.push(enemy);
     return enemy;
   }
@@ -428,6 +439,55 @@ export class Game {
     this.encounter.onParry();
   }
 
+  /** 弾き返す先（撃った敵の体）。いなければ（倒した・取り除いた）null */
+  private readonly ownerBody = (id: number): Circle | null => {
+    for (const e of this.enemySims) if (e.id === id && !e.dead) return e.body;
+    return null;
+  };
+
+  /** 敵の弾の命中・防御・消滅の演出（近接の攻撃と同じ演出を、弾の位置で起こす） */
+  private readonly projectileHandlers: ProjectileHandlers = {
+    onHit: (ev, _p, result) => this.onEnemyHit(ev, result),
+    onGuard: (ev, _p, result) => this.onEnemyGuarded(ev, result),
+    onParry: (ev, p, fx) => this.onProjectileParried(ev, p, fx),
+    onEnd: (p, reason) => this.onProjectileEnd(p, reason),
+  };
+  private readonly onProjectileEndCb = (p: Projectile, reason: ProjectileEnd): void => this.onProjectileEnd(p, reason);
+
+  /**
+   * 敵の弾をパリィで弾き返した。弾いた手応えは近接のパリィと同じ演出（強さは構えごとの効果）で、「PARRY」の文字は弾の位置に出す。
+   * 弾は水色になって撃った敵へ飛んでいく（Projectile.reflect）
+   */
+  private onProjectileParried(ev: HitEvent, p: Projectile, fx: ParryEffectDef): void {
+    this.hitStop.trigger(fx.hitStop);
+    this.cam.shake.trigger(fx.shake.amp, fx.shake.seconds);
+    // 弾は自分の目の前で弾くので、近接のパリィ（敵の縁）より閃光を小さくする（画面いっぱいに被らないように）
+    this.hitFx.burst(ev.x, PROJECTILE_HEIGHT, ev.z, ev.dirX, ev.dirZ, fx.burst * 0.6, FX_TINT.parry);
+    this.damageNumbers.spawnText(p.x, PROJECTILE_HEIGHT + 0.5, p.z, 'PARRY', 'parry', fx.labelScale);
+    this.sfx.play(fx.sfx);
+    this.encounter.onParry();
+  }
+
+  /** 弾が消えた。寿命・縁で消えた弾と斬り落とした弾は、小さな閃光とはじける音（当たった・受け止めたときは、その演出がある） */
+  private onProjectileEnd(p: Projectile, reason: ProjectileEnd): void {
+    if (reason === 'clear' || reason === 'hit' || reason === 'guard') return;
+    const cut = reason === 'cut';
+    this.hitFx.burst(p.x, PROJECTILE_HEIGHT, p.z, p.dirX, p.dirZ, cut ? 0.55 : 0.3, p.team === 'player' ? FX_TINT.parry : FX_TINT.orb);
+    this.sfx.play('orbBreak', { gain: cut ? 1 : 0.6 });
+    if (cut) this.hitStop.trigger(2);
+  }
+
+  /** 敵が撃った弾を作る（Enemy.fireSerial が増えたら、その出どころ Enemy.shot から） */
+  private spawnProjectiles(): void {
+    for (const entry of this.enemies) {
+      const e = entry.enemy;
+      if (e.fireSerial === entry.seenFire) continue;
+      entry.seenFire = e.fireSerial;
+      const s = e.shot;
+      this.projectiles.spawn(PROJECTILES[s.projectile], e.id, s.x, s.z, s.dirX, s.dirZ);
+    }
+  }
+
   /** 装備を次へ替える（切替ボタン）。替えられない状態（攻撃・回避・構えの途中など）では何もしない */
   private cycleLoadout(): void {
     this.setLoadout(nextLoadout(this.player.loadout.id));
@@ -519,12 +579,19 @@ export class Game {
     // 攻撃権: 同時に予備動作〜攻撃に入れる敵の数を制限する（残りは近くで構えて待つ）
     stepSwarm(this.enemySims, dt, this.player.body.x, this.player.body.z, alive, this.encounter.def.maxAttackers);
     this.soundEnemyStates();
-    // 先にプレイヤーの攻撃を解決する。同じフレームに当たり合うなら、プレイヤーが先に当てて敵の攻撃を中断する
+    // 敵の弾: 撃たれた弾を作って 1 ステップ飛ばす（寿命・アリーナの縁で消える）
+    this.spawnProjectiles();
+    this.projectiles.step(dt, this.arena.radius, this.onProjectileEndCb);
+    // 先にプレイヤーの攻撃を解決する。同じフレームに当たり合うなら、プレイヤーが先に当てて敵の攻撃を中断する（敵の弾は斬り落とされる）
     resolvePlayerAttack(this.player, this.enemySims, (ev, enemy, result, riposte) => this.onPlayerHit(ev, enemy, result, riposte));
+    cutProjectiles(this.projectiles, this.player, this.onProjectileEndCb);
     resolveEnemyAttacks(this.enemySims, this.player, (ev, _enemy, result) => this.onEnemyHit(ev, result), {
       onGuard: (ev, _enemy, result) => this.onEnemyGuarded(ev, result),
       onParry: (ev, enemy, fx) => this.onEnemyParried(ev, enemy, fx),
     });
+    // 敵の弾 → プレイヤー（ガード・パリィ・無敵の判定は近接の攻撃と同じ）。弾き返した弾 → 敵（大ダメージ。反撃と同じ扱い）
+    resolveProjectilesOnPlayer(this.projectiles, this.player, this.ownerBody, this.projectileHandlers);
+    resolveReflectedProjectiles(this.projectiles, this.enemySims, (ev, enemy, result) => this.onPlayerHit(ev, enemy, result, true), this.onProjectileEndCb);
 
     // 生きている敵は体を持つ（プレイヤーを押し出し、敵どうしは重ならない）。アリーナの外へは出ない
     for (let i = 0; i < this.enemySims.length; i++) {
@@ -620,6 +687,8 @@ export class Game {
     this.hitFx.clear();
     this.groundFx.clear();
     this.lanes.clear();
+    this.projectiles.clear();
+    this.projectileFx.clear();
     this.swordTrail.clear();
     this.damageNumbers.clear();
     this.hud.hideResult();
@@ -648,6 +717,7 @@ export class Game {
     this.hitFx.update(frameDt);
     this.groundFx.update(frameDt);
     this.lanes.update(this.enemySims, frameDt);
+    this.projectileFx.update(this.projectiles, alpha, animDt);
     if (draw) this.post.render();
     this.damageNumbers.update(this.cam.camera, frameDt, this.host.width, this.host.height);
     const locked = this.lockedEnemy();

@@ -3,6 +3,7 @@ import { HitTracker, isActiveFrame, type HitEvent, type Hurtbox } from '../comba
 import { Knockback } from '../combat/knockback';
 import { rotateTowards } from '../core/math';
 import { PARRY_EFFECTS, type ParryEffectDef } from '../combat/data/guard';
+import { PROJECTILES, type ProjectileId } from '../combat/data/projectiles';
 import type { EnemyAttackDef, EnemyDef } from './data/enemies';
 
 /**
@@ -10,9 +11,11 @@ import type { EnemyAttackDef, EnemyDef } from './data/enemies';
  *
  * 状態機械:
  *   idle（出現直後の待ち。プレイヤーが範囲内なら chase）
- *   chase（プレイヤーの方を向いて近づく。stopDistance で止まり、攻撃の距離で待ちが明けていれば windup）
+ *   chase（プレイヤーの方を向いて近づく。stopDistance で止まり、攻撃の距離で待ちが明けていれば windup。
+ *     距離を取る敵（retreatDistance）は、近づかれると向きを保ったまま後ろへ下がる）
  *   windup（予備動作 = テレグラフ。windupTrackFrames まではプレイヤーを向き続け、そのあと向きを固定する）
  *   attack（startup → active（判定が出る。前へ踏み込む）→ recover = 硬直）→ chase
+ *     飛び道具の攻撃（projectile）は、近接の判定が出ず、startup で固定した向きへ弾を 1 つ撃つ（fireSerial / shot。弾の sim は src/combat/projectile.ts）
  *   hit（ひるみ。windup の前半は中断される。後半から attack の終わりまではスーパーアーマー = 弱い攻撃ではひるまず、重撃だけが割り込める）→ chase
  *   stagger / down（パリィで攻撃を弾かれる。スーパーアーマーを無視して予備動作・攻撃を中断する。どちらも parryEffect.frames のあいだ動けず、
  *     攻撃を受けてもひるみに割り込まれない。弾かれてから riposteFrames までに当てた攻撃は反撃として大きなダメージになる = riposte）→ chase
@@ -23,6 +26,16 @@ import type { EnemyAttackDef, EnemyDef } from './data/enemies';
  * stateFrame の約束は Player と同じ: step() の後に読むと「その状態に入ってから進んだ sim フレーム」で、
  * 描画されている姿勢の時刻に一致する（入った step の直後が 1）。
  */
+
+/** 飛び道具を撃った瞬間の弾の出どころ（Game が読んで Projectile を作る） */
+export interface Shot {
+  projectile: ProjectileId;
+  /** 銃口（敵の中心から向きへ muzzle ぶん前）と、撃つ向き（単位ベクトル） */
+  x: number;
+  z: number;
+  dirX: number;
+  dirZ: number;
+}
 
 export type EnemyState = 'idle' | 'chase' | 'windup' | 'attack' | 'recover' | 'hit' | 'stagger' | 'down' | 'dead';
 
@@ -55,6 +68,11 @@ export class Enemy {
   /** 攻撃（突進）に入った位置。床の予告の帯が、動いている敵ではなく出発点に付くよう、見た目側が読む（ADR-025） */
   attackOriginX = 0;
   attackOriginZ = 0;
+  /** 飛び道具を撃つたびに増える（Game が弾を作るため）と、直近の弾の出どころ */
+  fireSerial = 0;
+  readonly shot: Shot = { projectile: 'wisp', x: 0, z: 0, dirX: 0, dirZ: 1 };
+  /** この攻撃で、もう撃ったか（攻撃に入るたびに false） */
+  private fired = false;
 
   // 補間用の前ステップ
   prevX: number;
@@ -93,7 +111,8 @@ export class Enemy {
   /** 攻撃の判定が出ているフレームか（ヒット判定の入力）。step() の後に読む */
   get attackActive(): boolean {
     const a = this.def.attack;
-    return this.state === 'attack' && isActiveFrame(a.startupFrames, a.activeFrames, this.stateFrame);
+    // 飛び道具の攻撃に近接の判定は無い（当たるのは撃った弾）
+    return this.state === 'attack' && !a.projectile && isActiveFrame(a.startupFrames, a.activeFrames, this.stateFrame);
   }
 
   /** 位置と向きを設定する（スポーン直後に補間が前の位置から滑らないよう、前ステップも揃える） */
@@ -189,7 +208,12 @@ export class Enemy {
           break;
         }
         this.faceTarget(wantYaw, dt);
-        if (dist > def.stopDistance) {
+        if (def.retreatDistance !== undefined && dist < def.retreatDistance) {
+          // 近づかれたら、向きを保ったまま後ろへ下がる（距離を取って撃つ敵）
+          const v = def.retreatSpeed ?? def.moveSpeed;
+          moveX = -Math.sin(this.yaw) * v;
+          moveZ = -Math.cos(this.yaw) * v;
+        } else if (dist > def.stopDistance) {
           // 向いている方向へ進む（向き直りが追いつくまでは膨らんで追う）
           moveX = Math.sin(this.yaw) * def.moveSpeed;
           moveZ = Math.cos(this.yaw) * def.moveSpeed;
@@ -209,6 +233,7 @@ export class Enemy {
           this.attackOriginX = this.body.x;
           this.attackOriginZ = this.body.z;
           this.hitTracker.reset();
+          this.fired = false;
           this.setState('attack');
         }
         break;
@@ -218,6 +243,7 @@ export class Enemy {
           const v = atk.lunge / (atk.activeFrames / 60);
           moveX = this.lungeDirX * v;
           moveZ = this.lungeDirZ * v;
+          if (atk.projectile && !this.fired) this.fire(atk.projectile);
         }
         if (this.stateFrame >= atk.startupFrames + atk.activeFrames + atk.recoverFrames) {
           this.cooldown = atk.cooldownFrames;
@@ -244,6 +270,18 @@ export class Enemy {
     this.body.z += (moveZ + this.knockback.velZ) * dt;
     this.knockback.step();
     this.stateFrame++;
+  }
+
+  /** 固定した向きへ飛び道具を撃つ（予備動作で向きを固定してあるので、横へ動けば当たらない） */
+  private fire(id: ProjectileId): void {
+    this.fired = true;
+    const s = this.shot;
+    s.projectile = id;
+    s.dirX = this.lungeDirX;
+    s.dirZ = this.lungeDirZ;
+    s.x = this.body.x + this.lungeDirX * PROJECTILES[id].muzzle;
+    s.z = this.body.z + this.lungeDirZ * PROJECTILES[id].muzzle;
+    this.fireSerial++;
   }
 
   private faceTarget(wantYaw: number, dt: number): void {

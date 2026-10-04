@@ -35,15 +35,16 @@ export const DEMO_ENCOUNTER: EncounterDef = {
       { type: 'imp', offset: -0.55, radius: 6.5 },
       { type: 'imp', offset: 0.55, radius: 6.5 },
     ],
-    // 2 波: 暴れ猪（突進型。ADR-025）が初登場。子鬼 1 体を添える
+    // 2 波: 暴れ猪（突進型。ADR-025）と提灯（遠距離型。ADR-026）が初登場。猪の突進を避けながら、遠くの鬼火にも気を配る
     [
-      { type: 'boar', offset: 0, radius: 8.5 },
-      { type: 'imp', offset: -0.9, radius: 6.5 },
+      { type: 'boar', offset: 0.35, radius: 8.5 },
+      { type: 'lantern', offset: -0.5, radius: 9 },
     ],
-    // 3 波（最後）: 猪 + 子鬼 2 体（猪の突進と子鬼の接近戦を同時にさばく）
+    // 3 波（最後）: 子鬼 2 体 + 猪 + 提灯（接近戦・突進・鬼火を同時にさばく。提灯を先に落とすか、鬼火を弾き返して減らす）
     [
       { type: 'imp', offset: -0.9, radius: 7 },
       { type: 'boar', offset: 0.1, radius: 8.5 },
+      { type: 'lantern', offset: 0.55, radius: 9.5 },
       { type: 'imp', offset: 0.9, radius: 7 },
     ],
   ],
@@ -55,7 +56,7 @@ export const DEMO_ENCOUNTER: EncounterDef = {
 
 /** 評価（上から順に、両方の条件を満たす最初のランク。どれも満たさなければ C）。時間は秒、ダメージは被ダメージの合計 */
 export const RANKS = [
-  { rank: 'S', maxSeconds: 80, maxDamage: 24 },
-  { rank: 'A', maxSeconds: 120, maxDamage: 60 },
-  { rank: 'B', maxSeconds: 180, maxDamage: 90 },
+  { rank: 'S', maxSeconds: 90, maxDamage: 24 },
+  { rank: 'A', maxSeconds: 130, maxDamage: 60 },
+  { rank: 'B', maxSeconds: 190, maxDamage: 90 },
 ] as const;

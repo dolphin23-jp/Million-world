@@ -428,6 +428,90 @@ try {
   await sleep(120);
   await page.screenshot({ path: 'artifacts/shot-boar-down.png' });
 
+  // 提灯（遠距離型。ADR-026）: 予備動作（前に溜めた鬼火 + 床の帯）、飛んでいる鬼火、盾のパリィで水色になって撃った提灯へ戻る鬼火
+  const LANTERN_SOLO = { ...SOLO, waves: [[{ type: 'lantern', offset: 0, radius: 7.5 }]], maxAttackers: 2 };
+  const lanternWindup = await page.evaluate((def) => {
+    const g = window.__mw.game;
+    g.restart(def);
+    g.setLoadout('sword');
+    g.stepNow(1);
+    g.player.body.x = 0;
+    g.player.body.z = 0;
+    g.player.yaw = 0;
+    const e = g.enemies[0].enemy;
+    e.place(0, 7, Math.PI);
+    g.cam.yaw = Math.PI;
+    let n = 0;
+    while (!(e.state === 'windup' && e.stateFrame >= 38) && n++ < 400) g.stepNow(1);
+    g.renderNow(8);
+    return { state: e.state, frame: e.stateFrame };
+  }, LANTERN_SOLO);
+  console.log(`[lantern] windup ${JSON.stringify(lanternWindup)}`);
+  if (lanternWindup.state !== 'windup') {
+    console.error('[lantern] 提灯が予備動作に入っていません');
+    process.exitCode = 3;
+  }
+  await sleep(120);
+  await page.screenshot({ path: 'artifacts/shot-lantern-windup.png' });
+  const lanternOrb = await page.evaluate(() => {
+    const g = window.__mw.game;
+    const e = g.enemies[0].enemy;
+    let n = 0;
+    const dist = () => {
+      const p = g.projectiles.pool.find((q) => q.alive);
+      return p ? Math.hypot(p.x - g.player.body.x, p.z - g.player.body.z) : Infinity;
+    };
+    while (e.fireSerial === 0 && n++ < 200) g.stepNow(1);
+    while (dist() > 4.2 && n++ < 400) g.stepNow(1);
+    g.renderNow(8);
+    return { alive: g.projectiles.aliveCount, dist: dist() };
+  });
+  console.log(`[lantern] orb ${JSON.stringify(lanternOrb)}`);
+  if (lanternOrb.alive !== 1) {
+    console.error('[lantern] 鬼火が飛んでいません');
+    process.exitCode = 3;
+  }
+  await sleep(120);
+  await page.screenshot({ path: 'artifacts/shot-lantern-orb.png' });
+  const lanternParry = await page.evaluate((def) => {
+    const g = window.__mw.game;
+    g.restart(def);
+    g.setLoadout('sword-shield');
+    g.stepNow(1);
+    g.player.body.x = 0;
+    g.player.body.z = 0;
+    g.player.yaw = 0;
+    const e = g.enemies[0].enemy;
+    e.place(0, 7, Math.PI);
+    g.cam.yaw = Math.PI;
+    const parries0 = g.player.parrySerial;
+    let n = 0;
+    const orb = () => g.projectiles.pool.find((q) => q.alive);
+    while (e.fireSerial === 0 && n++ < 300) g.stepNow(1);
+    while (orb() && Math.hypot(orb().x - g.player.body.x, orb().z - g.player.body.z) > 1.9 && n++ < 500) g.stepNow(1);
+    g.inject({ guardPressed: true, guardHeld: true });
+    g.stepNow(1);
+    for (let i = 0; i < 14 && g.player.parrySerial === parries0; i++) {
+      g.inject({ guardHeld: true });
+      g.stepNow(1);
+    }
+    // 弾き返した弾が離れていく少し先の絵（ヒットストップの分は実時間なので、sim をいくつか進める）
+    for (let i = 0; i < 9; i++) {
+      g.inject({ guardHeld: true });
+      g.stepNow(1);
+    }
+    g.renderNow(6);
+    const o = orb();
+    return { parried: g.player.parrySerial - parries0, team: o ? o.team : null, hp: g.player.health.hp };
+  }, LANTERN_SOLO);
+  console.log(`[lantern] parry ${JSON.stringify(lanternParry)}`);
+  if (lanternParry.parried < 1 || lanternParry.team !== 'player' || lanternParry.hp !== 100) {
+    console.error('[lantern] 盾のパリィで鬼火を弾き返せていません（弾が player の陣営・ダメージなし）');
+    process.exitCode = 3;
+  }
+  await sleep(120);
+  await page.screenshot({ path: 'artifacts/shot-lantern-parry.png' });
+
   // 操作ガイド（ADR-024）: ロックして 1 段目を出し、次段の受付が開いた絵（連携の履歴・続けられる技・受付の帯）と、右上の「技表」を開いた絵
   await page.evaluate((solo) => {
     const g = window.__mw.game;
