@@ -2,17 +2,18 @@ import type { WeaponId } from './loadouts';
 
 /**
  * スキル（ADR-031。設計は docs/07-progression-and-world.md）の数値。
- * アクティブスキル「剣技」= 攻撃（ATTACKS）の連なり。1 回の入力で決まった順に技が自動で続く。新しいモーションは作らず、既存の技のつなぎ
- * （AttackDef.next / branches の辺）に沿った連なりだけを作る（姿勢のつなぎ目が自然で、手付けの工数が要らない。辺であることはテストで保証する）。
+ * アクティブスキル「剣技」= 1 回の入力で決まった順に技が自動で続く。**専用の新しいモーション**（SKILL_ATTACKS。src/combat/data/skill-attacks.ts）を中心に、
+ * 既存の技（ATTACKS）を連なりの途中に混ぜてもよい。どの段も、前の段の受付時点（AttackDef.cancelAt）の姿勢から続く（クリップの continueFrom。テストで保証する）。
+ * 多段ヒット（AttackDef.windows）・スーパーアーマー（AttackDef.armor）・回避でのキャンセル（AttackDef.dodgeCancelAt）は攻撃の定義側にある。無敵はつかない。
  * コストはクールダウン（スキルごと）。レベル 1〜SKILL_LEVEL_MAX: 威力・クールダウンが良くなり、連なりが伸びる（minLevel の段が解放される）。
  */
 
-export type SkillId = 'tsubame' | 'samidare' | 'senpu' | 'shippu' | 'dangan' | 'ouzu' | 'houzan' | 'shoryu';
+export type SkillId = 'yotsuba' | 'samidare' | 'tatsumaki' | 'houzan' | 'issen';
 
 export const SKILL_LEVEL_MAX = 5;
 
 export interface SkillStepDef {
-  /** 攻撃 id（ATTACKS のキー）。前の段の AttackDef.next か branches の辺であること */
+  /** 攻撃 id（ATTACKS か SKILL_ATTACKS のキー。findAttack で探す）。前の段の受付時点の姿勢から続くこと（クリップの continueFrom がそうなっているのをテストする） */
   attack: string;
   /** この段が解放されるスキルレベル（省略 = 1）。レベルが上がるほど連なりが伸びる */
   minLevel?: number;
@@ -42,108 +43,72 @@ const POWER_PER_LEVEL = 0.08;
 const COOLDOWN_PER_LEVEL = 0.06;
 
 export const SKILLS: Record<SkillId, SkillDef> = {
-  // ---- 片手剣（盾付きも） ----
-  tsubame: {
-    id: 'tsubame',
-    name: '燕返し',
-    short: '燕返し',
-    detail: '斬って跳び退き、突き込む',
+  // ---- 片手剣（盾付きも）。どれも剣技専用のモーション（SKILL_ATTACKS）。中身は docs/07 §2.1 ----
+  yotsuba: {
+    id: 'yotsuba',
+    name: '四ツ葉',
+    short: '四ツ葉',
+    detail: '右袈裟・右逆袈裟・左袈裟・左逆袈裟の四連斬り',
     family: 'sword',
-    steps: [{ attack: 'combo1' }, { attack: 'comboHop' }, { attack: 'hopThrust', scale: 1.1 }],
-    power: 1.3,
-    powerPerLevel: POWER_PER_LEVEL,
-    cooldownFrames: 480,
-    cooldownPerLevel: COOLDOWN_PER_LEVEL,
-  },
-  samidare: {
-    id: 'samidare',
-    name: '五月雨',
-    short: '五月雨',
-    detail: '連なる斬り。レベルで段が伸びる',
-    family: 'sword',
-    steps: [{ attack: 'combo1' }, { attack: 'combo2' }, { attack: 'combo3' }, { attack: 'comboUpper', minLevel: 3 }, { attack: 'comboSlam', minLevel: 5, scale: 1.1 }],
-    power: 1.25,
-    powerPerLevel: POWER_PER_LEVEL,
-    cooldownFrames: 720,
-    cooldownPerLevel: COOLDOWN_PER_LEVEL,
-  },
-  senpu: {
-    id: 'senpu',
-    name: '旋風',
-    short: '旋風',
-    detail: '二連の斬りから、体ごと回る',
-    family: 'sword',
-    steps: [{ attack: 'combo1' }, { attack: 'combo2' }, { attack: 'comboSpin', scale: 1.1 }],
-    power: 1.3,
+    steps: [{ attack: 'skQuad1' }, { attack: 'skQuad2' }, { attack: 'skQuad3' }, { attack: 'skQuad4', scale: 1.1 }],
+    power: 1.2,
     powerPerLevel: POWER_PER_LEVEL,
     cooldownFrames: 540,
     cooldownPerLevel: COOLDOWN_PER_LEVEL,
   },
-  shippu: {
-    id: 'shippu',
-    name: '疾風突き',
-    short: '疾風突き',
-    detail: '踏み込んで突き、切り返す',
+  samidare: {
+    id: 'samidare',
+    name: '五月雨突き',
+    short: '五月雨',
+    detail: '出の早い高速の突き 5 連。細く前へ長く届く',
     family: 'sword',
-    steps: [{ attack: 'lunge' }, { attack: 'lungeSlash' }],
-    power: 1.35,
-    powerPerLevel: POWER_PER_LEVEL,
-    cooldownFrames: 360,
-    cooldownPerLevel: COOLDOWN_PER_LEVEL,
-  },
-  // ---- 大剣 ----
-  dangan: {
-    id: 'dangan',
-    name: '断岩',
-    short: '断岩',
-    detail: '溜めなしの重い縦斬りと、返しの斬り',
-    family: 'greatsword',
-    steps: [{ attack: 'gsHeavy' }, { attack: 'gsHeavyRip' }],
+    steps: [{ attack: 'skFlurry' }],
     power: 1.15,
     powerPerLevel: POWER_PER_LEVEL,
-    cooldownFrames: 840,
+    cooldownFrames: 480,
     cooldownPerLevel: COOLDOWN_PER_LEVEL,
   },
-  ouzu: {
-    id: 'ouzu',
-    name: '大渦',
-    short: '大渦',
-    detail: '斬ってから、体ごと回って薙ぐ',
-    family: 'greatsword',
-    steps: [{ attack: 'gs1' }, { attack: 'gsSpin2', scale: 1.1 }],
-    power: 1.3,
+  tatsumaki: {
+    id: 'tatsumaki',
+    name: '竜巻',
+    short: '竜巻',
+    detail: '体ごと 2 周半回る。前の半円に 3 回・後ろに 2 回。回っているあいだはスーパーアーマー',
+    family: 'sword',
+    steps: [{ attack: 'skWhirl' }],
+    power: 1.15,
     powerPerLevel: POWER_PER_LEVEL,
-    cooldownFrames: 600,
+    cooldownFrames: 720,
     cooldownPerLevel: COOLDOWN_PER_LEVEL,
   },
+  // ---- 大剣。どれも剣技専用のモーション（SKILL_ATTACKS） ----
   houzan: {
     id: 'houzan',
     name: '崩山',
     short: '崩山',
-    detail: '二連の斬りから、地を叩き割る',
+    detail: '右から払い、左から払い、頭上から地を叩き割る。衝撃波が地面と周囲へ広がる',
     family: 'greatsword',
-    steps: [{ attack: 'gs1' }, { attack: 'gs2' }, { attack: 'gsDrop', scale: 1.1 }],
-    power: 1.25,
+    steps: [{ attack: 'skGsSweep1' }, { attack: 'skGsSweep2' }, { attack: 'skGsSlam' }],
+    power: 1.2,
     powerPerLevel: POWER_PER_LEVEL,
-    cooldownFrames: 780,
+    cooldownFrames: 900,
     cooldownPerLevel: COOLDOWN_PER_LEVEL,
   },
-  shoryu: {
-    id: 'shoryu',
-    name: '昇竜',
-    short: '昇竜',
-    detail: '斬り上げ、跳んで叩きつける',
+  issen: {
+    id: 'issen',
+    name: '一閃',
+    short: '一閃',
+    detail: '剣を引いて少し溜め、一瞬で踏み込んで斬り抜ける。前へ長く広い 1 撃。溜めの間はスーパーアーマー',
     family: 'greatsword',
-    steps: [{ attack: 'gsRise' }, { attack: 'gsRiseSlam', scale: 1.1 }],
-    power: 1.3,
+    steps: [{ attack: 'skGsIssen' }],
+    power: 1.2,
     powerPerLevel: POWER_PER_LEVEL,
-    cooldownFrames: 720,
+    cooldownFrames: 780,
     cooldownPerLevel: COOLDOWN_PER_LEVEL,
   },
 };
 
 /** 一覧に並べる順（系統ごとにまとまる） */
-export const SKILL_ORDER: readonly SkillId[] = ['tsubame', 'samidare', 'senpu', 'shippu', 'dangan', 'ouzu', 'houzan', 'shoryu'];
+export const SKILL_ORDER: readonly SkillId[] = ['yotsuba', 'samidare', 'tatsumaki', 'houzan', 'issen'];
 
 export function isSkillId(v: unknown): v is SkillId {
   return typeof v === 'string' && Object.prototype.hasOwnProperty.call(SKILLS, v);

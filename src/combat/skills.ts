@@ -49,9 +49,10 @@ export class SkillBook {
    * 最初のレベル。省略したら全スキル Lv1（M6-1 は習得の仕組みが無いので、全部使える。M6-3 のスキルポイントで 0 から振る形になる）
    */
   constructor(initial?: Partial<Record<SkillId, number>>) {
-    this.levels = { tsubame: 0, samidare: 0, senpu: 0, shippu: 0, dangan: 0, ouzu: 0, houzan: 0, shoryu: 0 };
-    this.cooldown = { ...this.levels };
-    this.cooldownMax = { ...this.levels };
+    const zero = Object.fromEntries(SKILL_ORDER.map((id) => [id, 0])) as Record<SkillId, number>;
+    this.levels = { ...zero };
+    this.cooldown = { ...zero };
+    this.cooldownMax = { ...zero };
     for (const id of SKILL_ORDER) this.levels[id] = Math.min(SKILL_LEVEL_MAX, Math.max(0, initial?.[id] ?? 1));
   }
 

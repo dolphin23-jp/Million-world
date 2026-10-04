@@ -705,6 +705,14 @@ body {
     -2px -2px #0f2a4a, 2px -2px #0f2a4a, -2px 2px #0f2a4a, 2px 2px #0f2a4a,
     0 0 12px rgba(120, 210, 255, 0.85);
 }
+.dmg-armor {
+  color: #ffd27a;
+  letter-spacing: 0.14em;
+  text-shadow:
+    -3px 0 #4a2f0a, 3px 0 #4a2f0a, 0 -3px #4a2f0a, 0 3px #4a2f0a,
+    -2px -2px #4a2f0a, 2px -2px #4a2f0a, -2px 2px #4a2f0a, 2px 2px #4a2f0a,
+    0 0 12px rgba(255, 190, 90, 0.8);
+}
 .dmg-item {
   color: #ffe9a8;
   letter-spacing: 0.06em;
