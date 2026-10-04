@@ -10,7 +10,7 @@ import type { WeaponId } from './loadouts';
 
 export type SkillId = 'yotsuba' | 'samidare' | 'tatsumaki' | 'houzan' | 'issen';
 
-export const SKILL_LEVEL_MAX = 5;
+export const SKILL_LEVEL_MAX = 10;
 
 export interface SkillStepDef {
   /** 攻撃 id（ATTACKS か SKILL_ATTACKS のキー。findAttack で探す）。前の段の受付時点の姿勢から続くこと（クリップの continueFrom がそうなっているのをテストする） */
@@ -39,8 +39,9 @@ export interface SkillDef {
   cooldownPerLevel: number;
 }
 
-const POWER_PER_LEVEL = 0.08;
-const COOLDOWN_PER_LEVEL = 0.06;
+/** レベルごとの数値の伸び（滑らかに。Lv10 で威力 +45%・クールダウン −31.5%）。モーションが変わるのは Lv4 と Lv7（SkillStepDef.evolve。M6-3b） */
+const POWER_PER_LEVEL = 0.05;
+const COOLDOWN_PER_LEVEL = 0.035;
 
 export const SKILLS: Record<SkillId, SkillDef> = {
   // ---- 片手剣（盾付きも）。どれも剣技専用のモーション（SKILL_ATTACKS）。中身は docs/07 §2.1 ----

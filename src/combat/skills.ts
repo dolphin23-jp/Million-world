@@ -72,6 +72,20 @@ export class SkillBook {
     return SKILL_ORDER.filter((id) => SKILLS[id].family === family && this.levels[id] >= 1).map((id) => SKILLS[id]);
   }
 
+  /** 武器の系統ごとに選んでいるスキル（セーブ用。選んでいない系統は含まない） */
+  selection(): Partial<Record<WeaponId, SkillId>> {
+    return { ...this.selected };
+  }
+
+  /** セーブから選択を戻す（使えない・系統が合わないものは無視する） */
+  restoreSelection(sel: Partial<Record<WeaponId, SkillId>>): void {
+    for (const fam of ['sword', 'greatsword'] as const) {
+      const id = sel[fam];
+      if (id && SKILLS[id]?.family === fam && this.levels[id] >= 1) this.selected[fam] = id;
+    }
+    this.serial++;
+  }
+
   /** その系統の、いま選んでいるスキル（使えるものが無ければ null） */
   selectedFor(family: WeaponId): SkillDef | null {
     const id = this.selected[family];
