@@ -149,6 +149,42 @@ try {
   });
   await page.screenshot({ path: 'artifacts/shot-combat-hit.png' });
 
+  // 会心（ADR-035）: 乱数を固定して、会心でない 1 発と会心の 1 発を当てる。会心はダメージが会心ダメージ（初期 ×1.5）になり、金色の大きな数字（末尾に「!」）が出る
+  const critShot = await page.evaluate((solo) => {
+    const g = window.__mw.game;
+    const hitOnce = (rng) => {
+      g.restart(solo);
+      g.stepNow(60);
+      g.player.body.x = 0;
+      g.player.body.z = 0;
+      g.player.yaw = 0;
+      const e = g.enemies[0].enemy;
+      e.place(0, 1.9, Math.PI);
+      e.health.hp = e.health.max = 9999;
+      g.critRng = rng;
+      const hp0 = e.health.hp;
+      g.inject({ attackPressed: true });
+      g.stepNow(1);
+      for (let i = 0; i < 60 && e.hitSerial === 0; i++) g.stepNow(1);
+      g.renderNow(3);
+      return hp0 - e.health.hp;
+    };
+    const plain = hitOnce(() => 1);
+    const plainEl = document.querySelector('.dmg-crit') !== null;
+    const crit = hitOnce(() => 0);
+    const el = document.querySelector('.dmg-crit');
+    return { plain, crit, plainEl, text: el ? el.textContent : null, mods: { rate: g.player.mods.critRate, dmg: g.player.mods.critDamage } };
+  }, SOLO);
+  console.log(`[crit] ${JSON.stringify(critShot)}`);
+  if (critShot.plainEl || critShot.crit !== Math.round(critShot.plain * critShot.mods.dmg) || critShot.text !== `${critShot.crit}!`) {
+    console.error('[crit] 会心のダメージ（通常の会心ダメージ倍）・金色の数字（末尾に「!」）が出ていない');
+    process.exitCode = 3;
+  }
+  await page.screenshot({ path: 'artifacts/shot-crit.png' });
+  await page.evaluate(() => {
+    window.__mw.game.critRng = () => 1; // 以降の撮影シーンは、会心で数字が揺れないように会心なしで固定する
+  });
+
   await page.evaluate(() => {
     const g = window.__mw.game;
     const e = g.enemies[0].enemy;
