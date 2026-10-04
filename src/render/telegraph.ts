@@ -47,7 +47,7 @@ export class TelegraphLanes {
   readonly group = new THREE.Group();
   private readonly meshes: THREE.Mesh[] = [];
   private readonly mats: THREE.MeshBasicMaterial[] = [];
-  private readonly view: LaneView = { x: 0, z: 0, yaw: 0, length: 0, width: 0, intensity: 0, locked: false, striking: false };
+  private readonly view: LaneView = { x: 0, z: 0, yaw: 0, length: 0, width: 0, intensity: 0, locked: false, striking: false, unblockable: false };
 
   constructor() {
     this.group.name = 'telegraph-lanes';

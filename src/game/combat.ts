@@ -127,8 +127,9 @@ export function resolveEnemyAttacks<E extends EnemyAttackerView>(
     if (collectHits(_origin, atk.hitbox, _boxes, enemy.hitTracker, _hit) === 0) continue;
     total++;
     const ev = makeHitEvent(enemy.id, _origin, victim.body, atk);
-    // 防御: 構えの正面からの攻撃は、パリィなら弾き（ダメージなし・敵が体勢を崩す）、ガードなら軽減して受け止める（ADR-020）
-    const outcome = victim.guardOutcome?.(ev) ?? 'none';
+    // 防御: 構えの正面からの攻撃は、パリィなら弾き（ダメージなし・敵が体勢を崩す）、ガードなら軽減して受け止める（ADR-020）。
+    // ガード不能の攻撃（ADR-027）は構えていても被弾する
+    const outcome = atk.unblockable ? 'none' : (victim.guardOutcome?.(ev) ?? 'none');
     if (outcome === 'parry' && victim.parry && enemy.parried) {
       const effect = victim.parry(ev);
       enemy.parried(ev, effect);

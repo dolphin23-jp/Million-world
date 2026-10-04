@@ -5,6 +5,7 @@
 
 import { type HitboxDef } from '../../combat/hit';
 import type { ProjectileId } from '../../combat/data/projectiles';
+import { POISE_BREAK, type PoiseDef } from '../../combat/data/poise';
 
 const deg = (d: number) => (d * Math.PI) / 180;
 
@@ -38,10 +39,21 @@ export interface EnemyAttackDef {
   /** 持続中に前へ踏み込む距離（m） */
   lunge: number;
   /**
-   * 予告（テレグラフ）の床表示（ADR-025）。あれば、予備動作のあいだ「どこが危ないか」を床に出す。
-   * lane = 向いている方向へまっすぐ伸びる帯（突進の通り道。長さは踏み込み lunge + 当たりの届く距離）。width は帯の幅（m）で、横へ動いて避けられる幅の目安
+   * 予告（テレグラフ）の床表示（ADR-025・027）。あれば、予備動作のあいだ「どこが危ないか」を床に出す。
+   * lane = 向いている方向へまっすぐ伸びる帯（突進・飛び道具の通り道。長さは踏み込み lunge + 当たりの届く距離）。width は帯の幅（m）で、横へ動いて避けられる幅の目安
+   * circle = 敵を中心にした円（全周の攻撃。半径は当たりの届く距離 hitbox.range）。予備動作の進みに合わせて内側から満ちていき、満ちたときに攻撃が来る（円の外へ出れば避けられる）
    */
-  telegraph?: { kind: 'lane'; width: number };
+  telegraph?: { kind: 'lane'; width: number } | { kind: 'circle' };
+  /**
+   * ガード不能の攻撃（ADR-027）: ガードもパリィもできず、構えていても被弾する（回避か、当たらない場所へ逃げる）。
+   * 床の予告と予備動作の合図を、防げる攻撃と色分けする
+   */
+  unblockable?: boolean;
+  /**
+   * 地面を叩く攻撃（ADR-027）: 判定が出る瞬間に、床で砂ぼこりの輪・ひび割れが弾け、画面が揺れる。値は演出の強さ（GroundFx.burst の power。輪の半径 = 1.2 + 1.5 × power）。
+   * 全周の攻撃（circle の予告）では、輪の広がりが当たりの半径に合うよう power を決める
+   */
+  groundImpact?: number;
   /**
    * 飛び道具を撃つ攻撃（ADR-026）。攻撃に入って startupFrames で、予備動作で固定した向きへ弾を撃つ（近接の判定は出ない。hitbox・damage・knockback・hitStop・lunge は使わない）。
    * 帯（telegraph）の長さは弾の飛ぶ距離
@@ -82,6 +94,12 @@ export interface EnemyDef {
    */
   retreatDistance?: number;
   retreatSpeed?: number;
+  /**
+   * 常時スーパーアーマー（重装型。ADR-027）: 攻撃していなくても、armorBreakDamage 未満の攻撃ではひるまない（ダメージは通り、ノックバックは armorKnockbackScale 倍）。
+   * ひるまない代わりに poise（体勢ゲージ）が減り、崩れたときだけ止まる
+   */
+  hyperArmor?: boolean;
+  poise?: PoiseDef;
   attack: EnemyAttackDef;
 }
 
@@ -207,6 +225,50 @@ export const ENEMIES = {
       lunge: 0,
       telegraph: { kind: 'lane', width: 0.8 },
       projectile: 'wisp',
+    },
+  },
+  /**
+   * 岩鬼（ADR-027。M5-3）: 重装型。ひるまない（常時スーパーアーマー）代わりに、受けたダメージで体勢ゲージ（80）が減り、0 になると膝をついて動けなくなる（反撃 1.8 倍）。
+   * 攻撃は金棒を振りかぶって地面を叩く「地ならし」1 種で、**全周・ガード不能**（ガードもパリィも効かない）。避け方は、予告の円（床。半径 3.0m）の外へ出る、ロールの無敵で抜ける、
+   * または予備動作のうちに体勢を崩して中断させる。予備動作 1.07 秒（前半 34f は追い、後半は固定）・硬直 1.17 秒（反撃のチャンス）。
+   */
+  ogre: {
+    id: 'ogre',
+    name: '岩鬼',
+    hp: 320,
+    radius: 0.95,
+    height: 2.6,
+    hitStunFrames: 20,
+    knockbackFrames: 14,
+    knockbackScale: 0.12,
+    deathFrames: 90,
+    turnSpeed: 2.2,
+    moveSpeed: 1.7,
+    aggroRange: 18,
+    stopDistance: 2.6,
+    spawnIdleFrames: 70,
+    hyperArmor: true,
+    poise: { max: 80, regenDelayFrames: 150, regenPerFrame: 0.35, breakEffect: POISE_BREAK },
+    attack: {
+      range: 3.4,
+      windupFrames: 64,
+      windupTrackFrames: 34,
+      armorFromFrame: 0,
+      armorBreakDamage: 9999,
+      armorKnockbackScale: 0.12,
+      startupFrames: 6,
+      activeFrames: 5,
+      recoverFrames: 70,
+      cooldownFrames: 60,
+      // 全周（半角 180°）。届く距離 3.0m（プレイヤーの体の縁がここに触れたら当たる）
+      hitbox: { kind: 'arc', range: 3.0, halfAngle: Math.PI },
+      damage: 32,
+      knockback: 3.4,
+      hitStop: 12,
+      lunge: 0,
+      telegraph: { kind: 'circle' },
+      unblockable: true,
+      groundImpact: 1.2,
     },
   },
 } as const satisfies Record<string, EnemyDef>;

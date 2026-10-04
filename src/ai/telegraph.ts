@@ -21,6 +21,23 @@ export interface LaneView {
   /** 向きが固定された（避けるなら今動く）か、突進が始まったか */
   locked: boolean;
   striking: boolean;
+  /** ガード不能の攻撃か（色を替える） */
+  unblockable: boolean;
+}
+
+/** 円形の予告 1 つの見た目の入力（全周の攻撃。ADR-027） */
+export interface CircleView {
+  /** 円の中心（床の XZ）と半径（m） */
+  x: number;
+  z: number;
+  radius: number;
+  /** 濃さ 0..1 */
+  intensity: number;
+  /** 予備動作の進み 0..1（内側から満ちていく円の大きさ。1 で攻撃が来る） */
+  fill: number;
+  locked: boolean;
+  striking: boolean;
+  unblockable: boolean;
 }
 
 /** 予告を出せる敵の部分（Enemy がそのまま満たす） */
@@ -51,6 +68,7 @@ export function laneOf(e: TelegraphSource, out: LaneView): boolean {
   if (!t || t.kind !== 'lane') return false;
   out.length = laneLength(atk);
   out.width = t.width;
+  out.unblockable = atk.unblockable === true;
   if (e.state === 'windup') {
     const locked = e.stateFrame >= atk.windupTrackFrames;
     // 追っているあいだは薄く伸びてくる（0.12 → 0.4）。固定されたら濃く、突進の直前まで脈打つ
@@ -73,6 +91,42 @@ export function laneOf(e: TelegraphSource, out: LaneView): boolean {
     out.z = e.attackOriginZ;
     out.yaw = e.yaw;
     out.intensity = 1 - 0.85 * u;
+    out.locked = true;
+    out.striking = true;
+    return true;
+  }
+  return false;
+}
+
+/** 円の予告を out に書いて true。出さない状態（円の予告の無い攻撃・予備動作と攻撃以外）は false */
+export function circleOf(e: TelegraphSource, out: CircleView): boolean {
+  const atk = e.attackDef;
+  const t = atk.telegraph;
+  if (!t || t.kind !== 'circle') return false;
+  out.radius = atk.hitbox.kind === 'arc' ? atk.hitbox.range : atk.hitbox.length;
+  out.unblockable = atk.unblockable === true;
+  if (e.state === 'windup') {
+    const locked = e.stateFrame >= atk.windupTrackFrames;
+    const track = Math.min(1, e.stateFrame / Math.max(1, atk.windupTrackFrames));
+    const pulse = 0.08 * Math.sin(e.stateFrame * 0.55);
+    // 敵は予備動作のあいだ動かない（ノックバックで少しずれたら、その位置に付いていく）
+    out.x = e.body.x;
+    out.z = e.body.z;
+    out.fill = Math.min(1, e.stateFrame / Math.max(1, atk.windupFrames));
+    out.intensity = locked ? 0.62 + pulse + 0.2 * out.fill : 0.18 + 0.3 * track;
+    out.locked = locked;
+    out.striking = false;
+    return true;
+  }
+  if (e.state === 'attack') {
+    // 攻撃が出たあと: 全面が強く光って、すぐ薄れる（判定の持続 + 少し）
+    const flash = atk.startupFrames + atk.activeFrames + 8;
+    const u = Math.min(1, e.stateFrame / Math.max(1, flash));
+    if (u >= 1) return false;
+    out.x = e.attackOriginX;
+    out.z = e.attackOriginZ;
+    out.fill = 1;
+    out.intensity = 1 - 0.9 * u;
     out.locked = true;
     out.striking = true;
     return true;
