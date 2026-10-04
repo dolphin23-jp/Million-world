@@ -8,9 +8,9 @@ import { PROJECTILES, PROJECTILE_HEIGHT } from '../combat/data/projectiles';
 import { WISP_COLORS, glowTexture } from '../render/projectiles';
 
 /**
- * 敵（子鬼・暴れ猪・提灯・岩鬼）の見た目。プリミティブ製の仮モデルだが、トゥーン着色・輪郭線・影の枠の中に置く（CLAUDE.md 原則 3）。
+ * 敵（子鬼・暴れ猪・提灯・岩鬼・小蝙蝠）の見た目。プリミティブ製の仮モデルだが、トゥーン着色・輪郭線・影の枠の中に置く（CLAUDE.md 原則 3）。
  * 種類（kind）ごとに部品とポーズの付け方が違い（子鬼は腕を振り上げて叩きつける。暴れ猪は前脚で地面を掻いて頭を下げ、突進で脚を回す。
- * 提灯は宙に浮いて、予備動作で前に鬼火を溜め、撃つ反動で前のめりになる。岩鬼は金棒を頭上へ振りかぶって地面へ叩きつけ、体勢が減るほど体の割れ目が光り、崩れると膝をつく）、
+ * 小蝙蝠は宙を羽ばたいて浮き、予備動作で翼を広げて仰け反り、急降下で噛みつく。提灯は宙に浮いて、予備動作で前に鬼火を溜め、撃つ反動で前のめりになる。岩鬼は金棒を頭上へ振りかぶって地面へ叩きつけ、体勢が減るほど体の割れ目が光り、崩れると膝をつく）、
  * 被弾・のけぞり・倒れ・弾かれの反応と発光は共通。
  * 原点は足元、正面は +Z。体（pivot）は被弾でのけぞり・つぶれ、死亡で倒れる。
  *
@@ -116,6 +116,20 @@ export const LANTERN_COLORS = {
   tongue: 0xff7fa8,
 } as const;
 
+export const BAT_COLORS = {
+  body: 0x35407a,
+  wing: 0x5a68c8,
+  wingRim: 0xd0d8ff,
+  belly: 0xf0c6d8,
+  dark: 0x1a1f40,
+  eye: 0xffe45c,
+  fang: 0xfff6e0,
+} as const;
+
+/** 小蝙蝠の体の中心の高さ（宙に浮く）と体の半径。倒れて落ちるときの落下量に使う */
+const BAT_Y = 1.0;
+const BAT_R = 0.2;
+
 export const OGRE_COLORS = {
   skin: 0xc98b4e,
   skinRim: 0xffe0b8,
@@ -168,6 +182,7 @@ export class EnemyVisual {
     if (kind === 'boar') this.buildBoar();
     else if (kind === 'lantern') this.buildLantern();
     else if (kind === 'ogre') this.buildOgre();
+    else if (kind === 'bat') this.buildBat();
     else this.build();
   }
 
@@ -188,7 +203,7 @@ export class EnemyVisual {
   }
 
   private toon(color: number, over: Partial<Parameters<typeof createToonMaterial>[0]> = {}): ToonMaterial {
-    const rim = this.kind === 'boar' ? BOAR_COLORS.bodyRim : this.kind === 'lantern' ? LANTERN_COLORS.paperRim : this.kind === 'ogre' ? OGRE_COLORS.skinRim : IMP_COLORS.bodyRim;
+    const rim = this.kind === 'boar' ? BOAR_COLORS.bodyRim : this.kind === 'lantern' ? LANTERN_COLORS.paperRim : this.kind === 'ogre' ? OGRE_COLORS.skinRim : this.kind === 'bat' ? BAT_COLORS.wingRim : IMP_COLORS.bodyRim;
     const m = createToonMaterial({ color, steps: 3, shadowLevel: 0.5, rimColor: rim, rimStrength: 0.4, ...over });
     this.flashables.push({ mat: m, baseEmissive: m.emissive.clone(), baseIntensity: m.emissiveIntensity });
     return m;
@@ -465,6 +480,52 @@ export class EnemyVisual {
     }
   }
 
+  /**
+   * 小蝙蝠の部品（ADR-028）: 丸い胴・頭・とがった耳・牙・発光する目、薄く平たい翼 2 枚（肩が軸。羽ばたく）。部品の座標は体の中心（BAT_Y の高さ）が原点で、
+   * pivot ごと中心を軸に傾く（急降下の前傾・仰け反り・落ちるときの回転）。翼は armL / armR を使う。群れで 6〜7 体出るので、描画呼び出しは 1 体あたり 5 メッシュ前後に抑える。
+   */
+  private buildBat(): void {
+    const C = BAT_COLORS;
+    const body = this.toon(0xffffff, { vertexColors: true });
+    const eyeMat = this.toon(0xffffff, { vertexColors: true, steps: 2, shadowLevel: 0.9, rimStrength: 0, emissive: C.eye, emissiveIntensity: 0.9 });
+    const solid: Part[] = [
+      { geo: new THREE.SphereGeometry(BAT_R, 12, 9), color: C.body, pos: [0, 0, 0], scale: [1, 0.95, 1.25] },
+      { geo: new THREE.SphereGeometry(0.15, 12, 9), color: C.body, pos: [0, 0.06, 0.23] },
+      { geo: new THREE.ConeGeometry(0.06, 0.18, 6), color: C.body, pos: [-0.09, 0.22, 0.2], rot: [0, 0, 0.22] },
+      { geo: new THREE.ConeGeometry(0.06, 0.18, 6), color: C.body, pos: [0.09, 0.22, 0.2], rot: [0, 0, -0.22] },
+      { geo: new THREE.ConeGeometry(0.03, 0.1, 5), color: C.fang, pos: [-0.05, -0.06, 0.34], rot: [0, 0, Math.PI] },
+      { geo: new THREE.ConeGeometry(0.03, 0.1, 5), color: C.fang, pos: [0.05, -0.06, 0.34], rot: [0, 0, Math.PI] },
+      { geo: new THREE.ConeGeometry(0.03, 0.1, 5), color: C.body, pos: [-0.07, -0.2, -0.1] },
+      { geo: new THREE.ConeGeometry(0.03, 0.1, 5), color: C.body, pos: [0.07, -0.2, -0.1] },
+    ];
+    this.mesh(this.pivot, mergeParts(solid), body, 0.02);
+    // 輪郭線のない細部: 腹の淡い色・耳の内側
+    const detail: Part[] = [
+      { geo: new THREE.SphereGeometry(0.14, 10, 7), color: C.belly, pos: [0, -0.07, 0.1], scale: [1, 0.8, 1.2] },
+      { geo: new THREE.ConeGeometry(0.03, 0.1, 5), color: C.belly, pos: [-0.09, 0.21, 0.23], rot: [0.2, 0, 0.22] },
+      { geo: new THREE.ConeGeometry(0.03, 0.1, 5), color: C.belly, pos: [0.09, 0.21, 0.23], rot: [0.2, 0, -0.22] },
+    ];
+    this.mesh(this.pivot, mergeParts(detail), body, 0);
+    const eyes: Part[] = [
+      { geo: new THREE.SphereGeometry(0.04, 8, 6), color: C.eye, pos: [-0.065, 0.1, 0.355], scale: [1, 1.2, 0.6] },
+      { geo: new THREE.SphereGeometry(0.04, 8, 6), color: C.eye, pos: [0.065, 0.1, 0.355], scale: [1, 1.2, 0.6] },
+    ];
+    this.mesh(this.pivot, mergeParts(eyes), eyeMat, 0);
+
+    // 翼: 肩が軸の平たい楕円 + 翼の骨（濃い線）。左右で同じジオメトリ（右側。左は group の向きで反転して使う）
+    const wing = mergeParts([
+      { geo: new THREE.SphereGeometry(0.4, 12, 6), color: C.wing, pos: [0.42, 0, -0.04], scale: [1, 0.07, 0.62] },
+      { geo: new THREE.CylinderGeometry(0.012, 0.012, 0.78, 5), color: C.dark, pos: [0.4, 0.03, 0.12], rot: [0, 0, Math.PI / 2] },
+      { geo: new THREE.ConeGeometry(0.035, 0.12, 5), color: C.dark, pos: [0.82, 0.03, 0.12], rot: [0, 0, -Math.PI / 2] },
+    ]);
+    for (const [grp, s] of [[this.armL, -1], [this.armR, 1]] as const) {
+      grp.position.set(s * 0.12, 0.06, 0);
+      this.pivot.add(grp);
+      const m = this.mesh(grp, wing, body, 0.012);
+      m.scale.x = s; // 左は鏡写し
+    }
+  }
+
   /** 発光（被弾のフラッシュ・予備動作の予告）。amount 0..1、color は発光の色（既定は白） */
   setGlow(amount: number, color: THREE.Color = WHITE): void {
     for (const f of this.flashables) {
@@ -498,6 +559,7 @@ export class EnemyVisual {
     const boar = this.kind === 'boar';
     const lantern = this.kind === 'lantern';
     const ogre = this.kind === 'ogre';
+    const bat = this.kind === 'bat';
 
     // --- 攻撃の予備動作（テレグラフ）と攻撃 ---
     // windup: 腕を振り上げ、体が赤く光り、しゃがんで後ろへ反る。attack: 腕を前へ叩きつけて前のめり、そのあと硬直で戻る
@@ -521,6 +583,9 @@ export class EnemyVisual {
         // 鬼火を溜めながら、後ろへ反ってふくらむ（撃つ前のため）
         crouch = -0.1 * w;
         pitch = -0.22 * w;
+      } else if (bat) {
+        // 翼を高く広げて、鼻先を上げて仰け反る（急降下の構え）
+        pitch = -0.55 * w;
       } else {
         crouch = 0.12 * w;
         pitch = -0.28 * w;
@@ -533,6 +598,13 @@ export class EnemyVisual {
       danger = 0.4 * (1 - clamp(e.stateFrame / dash, 0, 1));
       pitch = 0.1 * swing + 0.035 * Math.sin(e.stateFrame * 0.5) * settle * (1 - settle * 0.5);
       crouch = 0.04 + 0.05 * settle * (1 - settle);
+    } else if (e.state === 'attack' && bat) {
+      // 急降下: 判定のあいだ（startup + active）は鼻先を下げて翼をたたみ、そのあとの硬直で体を起こして羽ばたきに戻る
+      const dive = atk.startupFrames + atk.activeFrames;
+      const back = clamp((e.stateFrame - dive) / atk.recoverFrames, 0, 1);
+      swing = e.stateFrame <= dive ? 1 : 1 - easeOutCubic(back);
+      danger = 0.35 * (1 - clamp(e.stateFrame / dive, 0, 1));
+      pitch = 0.75 * swing;
     } else if (e.state === 'attack' && lantern) {
       // 撃った反動: 前へのめって（pitch）縮み、硬直のあいだにゆっくり戻る。撃った瞬間は紫に光る
       const back = clamp((e.stateFrame - atk.startupFrames - atk.activeFrames) / atk.recoverFrames, 0, 1);
@@ -595,7 +667,7 @@ export class EnemyVisual {
 
     // 待機のゆらぎ（上下・腕）と、腕の姿勢
     // 提灯は宙に浮いているので、ゆったり大きく上下する
-    const bob = lantern ? Math.sin(this.idleTime * 2.4) * 0.06 : Math.sin(this.idleTime * 3.2) * 0.025 * (1 - raise) * (1 - fallen);
+    const bob = bat ? Math.sin(this.idleTime * 5) * 0.06 + Math.sin(this.idleTime * 8.3) * 0.03 : lantern ? Math.sin(this.idleTime * 2.4) * 0.06 : Math.sin(this.idleTime * 3.2) * 0.025 * (1 - raise) * (1 - fallen);
     const sway = 1 - Math.max(raise, swing);
     const armBase = 0.28 + Math.sin(this.idleTime * 3.2) * 0.05 * sway;
     if (boar) {
@@ -609,6 +681,16 @@ export class EnemyVisual {
       fr!.rotation.x = -raise * 0.9 * pawR - gallop;
       bl!.rotation.x = -gallop * 0.9 + raise * 0.15;
       br!.rotation.x = gallop * 0.9 + raise * 0.15;
+    } else if (bat) {
+      // 羽ばたき: 普段は大きく上下に（14 rad/s）、予備動作は高く広げて小刻みに、急降下ではたたむ。弾かれて動けないあいだは力なく垂れる
+      const t = this.idleTime;
+      let flap = 0.1 + Math.sin(t * 14) * 0.75;
+      if (e.state === 'windup') flap = 0.95 + Math.sin(t * 30) * 0.12;
+      else if (e.state === 'attack') flap = lerp(0.1 + Math.sin(t * 14) * 0.75, -0.55, swing);
+      else if (e.state === 'stagger' || e.state === 'down') flap = -0.5 + Math.sin(t * 6) * 0.1;
+      else if (dead) flap = -0.7;
+      this.armL.rotation.z = -flap;
+      this.armR.rotation.z = flap;
     } else if (lantern) {
       // 房は体の動きに遅れて揺れる（下がるとき・撃った反動で振れる）
       this.tassel.rotation.set(Math.sin(this.idleTime * 3.1) * 0.18 - pitch * 0.9, 0, Math.sin(this.idleTime * 2.3) * 0.2);
@@ -675,14 +757,16 @@ export class EnemyVisual {
       sz = Math.cos(this.shakeSeed * 1.7 + this.shake * 77) * amp;
     }
     // 倒れたとき、足元を軸に回すと胴が地面にめり込むので、胴の太さのぶん持ち上げる
-    if (lantern) {
-      // 体の中心（pivot の原点）を高さ LANTERN_Y に置く。倒れたら（死亡）真下へ落ちて、紙の胴の半径ぶんの高さで横たわる
+    if (lantern || bat) {
+      // 体の中心（pivot の原点）を高さ（提灯 LANTERN_Y・小蝙蝠 BAT_Y）に置く。倒れたら（死亡）真下へ落ちて、胴の半径ぶんの高さで横たわる
+      const cy = lantern ? LANTERN_Y : BAT_Y;
+      const cr = lantern ? LANTERN_R : BAT_R;
       let drop = 0;
       if (dead) {
-        const t = clamp(e.stateFrame / 16, 0, 1);
-        drop = t * t * (LANTERN_Y - LANTERN_R);
+        const t = clamp(e.stateFrame / (lantern ? 16 : 12), 0, 1);
+        drop = t * t * (cy - cr);
       }
-      this.pivot.position.set(sx, LANTERN_Y + bob - drop - sink, sz);
+      this.pivot.position.set(sx, cy + bob - drop - sink, sz);
     } else if (boar) {
       // 横倒しになると、胴の中心が足元を軸に横へ回るので、体の下に戻し、胴の半径ぶん持ち上げる
       const roll = BOAR_ROLL * fallen;

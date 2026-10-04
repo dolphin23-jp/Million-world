@@ -586,6 +586,83 @@ try {
   await sleep(120);
   await page.screenshot({ path: 'artifacts/shot-ogre-break.png' });
 
+  // 小蝙蝠の群れ（小型の群れ。ADR-028）: 6 体が周りを回って囲む絵と、数体が急降下で噛みつきに来る絵、大剣の薙ぎ払いで落とした絵
+  const BAT_WAVE = { ...SOLO, waves: [Array.from({ length: 6 }, (_, i) => ({ type: 'bat', offset: (i - 2.5) * 0.5, radius: 8 }))], maxAttackers: 2 };
+  const bats = await page.evaluate((def) => {
+    const g = window.__mw.game;
+    g.restart(def);
+    g.setLoadout('greatsword');
+    g.stepNow(1);
+    g.player.body.x = 0;
+    g.player.body.z = 0;
+    g.player.yaw = 0;
+    g.cam.yaw = Math.PI;
+    let n = 0;
+    const es = g.enemies.map((e) => e.enemy);
+    // 囲まれて周回している絵（攻撃に入る直前まで）
+    while (!es.some((e) => e.state === 'windup' && e.stateFrame >= 6) && n++ < 600) {
+      g.player.health.hp = 100;
+      g.stepNow(1);
+    }
+    g.renderNow(6);
+    return { states: es.map((e) => e.state), minD: Math.min(...es.map((e) => Math.hypot(e.body.x, e.body.z))) };
+  }, BAT_WAVE);
+  console.log(`[bat] swarm ${JSON.stringify(bats)}`);
+  if (!bats.states.includes('windup')) {
+    console.error('[bat] 小蝙蝠が予備動作に入っていません');
+    process.exitCode = 3;
+  }
+  await sleep(120);
+  await page.screenshot({ path: 'artifacts/shot-bat-swarm.png' });
+  const batDive = await page.evaluate(() => {
+    const g = window.__mw.game;
+    const es = g.enemies.map((e) => e.enemy);
+    let n = 0;
+    while (es.filter((e) => e.state === 'attack').length < 2 && n++ < 400) {
+      g.player.health.hp = 100;
+      g.stepNow(1);
+    }
+    g.stepNow(4);
+    g.renderNow(6);
+    return { attacking: es.filter((e) => e.state === 'attack').length, windup: es.filter((e) => e.state === 'windup').length };
+  });
+  console.log(`[bat] dive ${JSON.stringify(batDive)}`);
+  await sleep(120);
+  await page.screenshot({ path: 'artifacts/shot-bat-dive.png' });
+  const batSweep = await page.evaluate((def) => {
+    const g = window.__mw.game;
+    // 新しい群れで（さっきの群れは急降下の途中で、並べ直しても飛んでいってしまう）
+    g.restart(def);
+    g.setLoadout('greatsword');
+    g.stepNow(1);
+    g.cam.yaw = Math.PI;
+    const es = g.enemies.map((e) => e.enemy);
+    // 蝙蝠を前方に並べて、大剣の一振り（横斬り）でまとめて落とす
+    es.forEach((e, i) => e.place((i - 2.5) * 0.55, 1.3 + (i % 2) * 0.25, Math.PI));
+    g.player.reset(); // 噛みつかれてひるんでいても、振れる状態から
+    g.player.body.x = 0;
+    g.player.body.z = 0;
+    g.player.yaw = 0;
+    g.inject({ attackPressed: true });
+    g.stepNow(1);
+    // 大剣は振りが遅い（判定が出るまで少しかかる）。誰かが落ちてから数フレーム後の絵にする
+    let n = 0;
+    while (!es.some((e) => e.dead) && n++ < 60) {
+      g.player.health.hp = 100;
+      g.stepNow(1);
+    }
+    g.stepNow(3);
+    g.renderNow(5);
+    return { dead: es.filter((e) => e.dead).length, frames: n };
+  }, BAT_WAVE);
+  console.log(`[bat] sweep ${JSON.stringify(batSweep)}`);
+  if (batSweep.dead < 3) {
+    console.error('[bat] 大剣の一振りで前方の蝙蝠を落とせていません（3 体以上）');
+    process.exitCode = 3;
+  }
+  await sleep(120);
+  await page.screenshot({ path: 'artifacts/shot-bat-sweep.png' });
+
   // 操作ガイド（ADR-024）: ロックして 1 段目を出し、次段の受付が開いた絵（連携の履歴・続けられる技・受付の帯）と、右上の「技表」を開いた絵
   await page.evaluate((solo) => {
     const g = window.__mw.game;
