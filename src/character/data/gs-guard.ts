@@ -16,7 +16,8 @@ const GUARD_HOLD = {
   hips: { yaw: -8, pitch: 5, z: 0.03, y: -0.1 },
   chest: { yaw: -12, pitch: 5 },
   head: { yaw: 6 },
-  grip: [-4, 8, 0.4] as V3,
+  // r = 0.36: 骨の位置を体の中心へ補正した（ADR-022）あと、左腕が 3cm 短くなった（48.7 → 45.6〜46.7cm）ので、0.40 だと左手が柄に届かず腕が伸び切る。右手を 4cm 手前へ
+  grip: [-4, 8, 0.36] as V3,
   blade: [0.5, 0.82, 0.27] as V3,
   face: [0, 0, 1] as V3,
   roll: -180,
