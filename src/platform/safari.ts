@@ -7,8 +7,16 @@ export function installGestureGuards(): void {
   // ピンチ拡大（Safari 独自イベント）
   document.addEventListener('gesturestart', prevent, { passive: false });
   document.addEventListener('gesturechange', prevent, { passive: false });
-  // スクロール・バウンス
-  document.addEventListener('touchmove', prevent, { passive: false });
+  // スクロール・バウンス。ただし data-scroll を付けた領域（一時停止メニューの本文など、縦に長い一覧）の中は、ふつうにスクロールさせる
+  document.addEventListener(
+    'touchmove',
+    (e) => {
+      const t = e.target;
+      if (t instanceof Element && t.closest('[data-scroll]')) return;
+      e.preventDefault();
+    },
+    { passive: false },
+  );
   // ダブルタップ拡大
   let lastTouchEnd = 0;
   document.addEventListener(

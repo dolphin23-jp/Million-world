@@ -1,27 +1,26 @@
+import { DEFAULT_SLOT_LAYOUT, layoutSlots, pickSlot, type SlotLayoutConfig, type SlotPoint } from './slot-layout';
+
 /**
- * スロットボタンの操作（ADR-030）。アイテム欄・将来のスキル欄が使い回す「タップで使う・長押し（またはスワイプ）で一覧を開き、指をすべらせて選ぶ」ジェスチャの状態機械。
+ * スロットボタンの操作（ADR-030・033）。アイテム欄・スキル欄が使い回す「タップで使う・長押し（またはスワイプ）で一覧を開き、指をすべらせて選ぶ」ジェスチャの状態機械。
  * DOM にも時間にも依存しない純粋なクラス（指の位置はボタンの中心からの差 (x, y) px、時刻は ms を呼ぶ側が渡す）。DOM 側は src/input/slot-button.ts。
  *
  * 操作:
  * - 短く押して離す → tap（選んでいるものを使う）
- * - 押したまま holdMs 経つ、または openDragPx を超えて指が動く → open（一覧が開く）。一覧はボタンから dir の向きへ伸び、i 番目（0 始まり）の選択肢は
- *   ボタンの中心から (i + 1) × pitchPx の位置にある。指がいちばん近い選択肢が hover（ボタン自身の近く = -1 は「選ばない」）
- * - 開いているあいだに離す → hover の選択肢を choose。ボタンの近くで離したら cancel（何も選ばない）
+ * - 押したまま holdMs 経つ、または openDragPx を超えて指が動く → open（一覧が開く）。一覧はボタンを中心にした**同心円（扇）の上**に並び、
+ *   指のいる向きと距離で選ぶ（配置と選び方は src/input/slot-layout.ts）。指がいる選択肢が hover（ボタンの近く・扇の外へ動いたら -1 = 選ばない）
+ * - 開いているあいだに離す → hover の選択肢を choose。ボタンの近く・扇の外で離したら cancel（何も選ばない）
  */
 
 export interface SlotGestureConfig {
   /** 長押しで一覧が開くまで（ms） */
   holdMs: number;
-  /** 指がこの距離（px）以上動いたら、待たずに一覧を開く（上へ払う操作） */
+  /** 指がこの距離（px）以上動いたら、待たずに一覧を開く（払う操作） */
   openDragPx: number;
-  /** 選択肢の間隔（px） */
-  pitchPx: number;
-  /** 一覧が伸びる向き（単位ベクトル。画面座標: x 右が正、y 下が正。上へ伸ばすなら (0, -1)） */
-  dirX: number;
-  dirY: number;
+  /** 選択肢の同心円の配置・選び方 */
+  layout: SlotLayoutConfig;
 }
 
-export const DEFAULT_SLOT_GESTURE: SlotGestureConfig = { holdMs: 260, openDragPx: 24, pitchPx: 72, dirX: 0, dirY: -1 };
+export const DEFAULT_SLOT_GESTURE: SlotGestureConfig = { holdMs: 260, openDragPx: 24, layout: DEFAULT_SLOT_LAYOUT };
 
 export type SlotEvent =
   | { type: 'open' }
@@ -42,11 +41,25 @@ export class SlotGesture {
   private curY = 0;
   private hover = -1;
 
+  /** 選択肢の配置（個数が変わったときだけ作り直す） */
+  private points: SlotPoint[] = [];
+  private pointsFor = -1;
+
   constructor(
     private readonly cfg: SlotGestureConfig,
     /** 一覧の選択肢の数（開く瞬間・動くたびに読む） */
     private readonly count: () => number,
   ) {}
+
+  /** いまの選択肢の配置（ボタンの中心からの位置。描画が同じ配置を使う） */
+  layout(): readonly SlotPoint[] {
+    const n = this.count();
+    if (n !== this.pointsFor) {
+      this.pointsFor = n;
+      this.points = layoutSlots(n, this.cfg.layout);
+    }
+    return this.points;
+  }
 
   get isOpen(): boolean {
     return this.phase === 'open';
@@ -119,13 +132,8 @@ export class SlotGesture {
     return { type: 'open' };
   }
 
-  /** (x, y) にいちばん近い選択肢の番号。ボタンの近く（1 つ目の選択肢の半分より手前）は -1、いちばん遠い選択肢より先は最後の選択肢 */
+  /** (x, y)（ボタンの中心から）にいる選択肢の番号。ボタンの近く・扇の外は -1（選ばない） */
   indexAt(x: number, y: number): number {
-    const n = this.count();
-    if (n <= 0) return -1;
-    const d = x * this.cfg.dirX + y * this.cfg.dirY; // 一覧の向きに沿った距離
-    const k = Math.round(d / this.cfg.pitchPx) - 1;
-    if (k < 0) return -1;
-    return Math.min(n - 1, k);
+    return pickSlot(this.layout(), x, y, this.cfg.layout);
   }
 }

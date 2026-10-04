@@ -155,6 +155,11 @@ export interface EnemyDef {
   orbitSpeed?: number;
   /** 飛んでいる敵（ADR-028）: プレイヤーを押し出さず、地上の敵とも体を押し合わない（群れの敵どうしだけが重ならない） */
   flying?: boolean;
+  /**
+   * 倒したときにもらえる経験値（M6-2。ADR-033）。デモ 1 周（ボスの呼んだ手下は 0）で約 660。
+   * 呼ばれた手下（Game の summonedIds）は、ここの値にかかわらず 0（呼ばせて稼げないように）
+   */
+  xp?: number;
   /** 倒したときのアイテムのドロップ（ADR-030）。種類ごとに別々の確率で抽選する。無ければ落とさない（ボス・呼ばれた手下は落とさない） */
   drops?: readonly DropDef[];
   attack: EnemyAttackDef;
@@ -269,6 +274,7 @@ export const ENEMIES = {
   imp: {
     id: 'imp',
     name: '子鬼',
+    xp: 20,
     hp: 80,
     radius: 0.5,
     height: 1.7,
@@ -311,6 +317,7 @@ export const ENEMIES = {
   boar: {
     id: 'boar',
     name: '暴れ猪',
+    xp: 40,
     hp: 110,
     radius: 0.7,
     height: 1.15,
@@ -352,6 +359,7 @@ export const ENEMIES = {
   lantern: {
     id: 'lantern',
     name: '提灯',
+    xp: 35,
     hp: 50,
     radius: 0.45,
     height: 1.5,
@@ -396,6 +404,7 @@ export const ENEMIES = {
   ogre: {
     id: 'ogre',
     name: '岩鬼',
+    xp: 100,
     hp: 320,
     radius: 0.95,
     height: 2.6,
@@ -444,6 +453,7 @@ export const ENEMIES = {
   bat: {
     id: 'bat',
     name: '小蝙蝠',
+    xp: 6,
     hp: 12,
     radius: 0.3,
     height: 1.6,
@@ -486,6 +496,7 @@ export const ENEMIES = {
   boss: {
     id: 'boss',
     name: '夜行の大将',
+    xp: 250,
     hp: 900,
     radius: 1.25,
     height: 3.9,

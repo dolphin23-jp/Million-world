@@ -7,6 +7,7 @@ import { PARRY_EFFECTS, type GuardDef, type ParryEffectDef } from '../combat/dat
 import { guardOutcome as resolveGuardOutcome, guardedDamage, type GuardOutcome } from '../combat/guard';
 import { afterDodgeOf, classifyStick, pickAttack, pickChargeRelease, pickFollowUp, type AfterDodge, type StickDir } from '../combat/moveset';
 import { applyDamage, createHealth, type DamageResult } from '../combat/health';
+import { BASE_MODIFIERS, type Modifiers } from '../combat/modifiers';
 import { HitTracker, isActiveFrame, type HitEvent, type Hurtbox } from '../combat/hit';
 import { Knockback } from '../combat/knockback';
 import type { SkillRun } from '../combat/skills';
@@ -40,6 +41,11 @@ export class Player {
   /** 当たり判定。被弾側のハートボックスを兼ねる（円 + id + 無敵）。invulnerable は refreshHurtbox() で更新する */
   readonly body: Hurtbox = { id: PLAYER_ID, x: 0, z: 0, r: MOVE.radius, invulnerable: false };
   readonly health = createHealth(PLAYER_STATS.maxHp);
+  /**
+   * 効果の集計（成長のステータス・将来のパッシブや装備。ADR-033）。戦闘の数値はここから読む。Game が成長が変わるたびに setModifiers で渡す
+   * （最大体力・移動・攻撃の速さ・無敵・パリィの受付・受けるダメージ・ダメージとノックバックの倍率）
+   */
+  mods: Readonly<Modifiers> = BASE_MODIFIERS;
   yaw = 0;
   velX = 0;
   velZ = 0;
@@ -265,7 +271,7 @@ export class Player {
    * 無敵（回避の無敵フレーム・被弾後の無敵・死亡）の間は呼ばれない想定（body.invulnerable で当たり判定が除外する）
    */
   takeHit(ev: HitEvent): DamageResult {
-    const r = applyDamage(this.health, ev.damage);
+    const r = applyDamage(this.health, this.takenDamage(ev.damage));
     this.hitSerial++;
     this.lastHit = ev;
     // スーパーアーマー（剣技の一部。AttackDef.armor）: 割れない重さの攻撃は、ダメージは受けるが、ひるまず・飛ばされず、攻撃を続ける（短い無敵はつく）
@@ -293,6 +299,33 @@ export class Player {
     this.setState(r.killed ? 'dead' : 'hit', true);
     this.refreshHurtbox();
     return r;
+  }
+
+  /**
+   * 効果の集計を入れ替える。最大体力が変わったら、増えた分だけ体力も増やす（減ったら、最大を超えないように切る）。
+   * 戦闘中（一時停止メニューからの振り分け）でも安全に呼べる
+   */
+  setModifiers(m: Readonly<Modifiers>): void {
+    this.mods = m;
+    const max = PLAYER_STATS.maxHp + m.maxHp;
+    const delta = max - this.health.max;
+    this.health.max = max;
+    if (this.state !== 'dead') this.health.hp = Math.min(max, Math.max(1, this.health.hp + Math.max(0, delta)));
+  }
+
+  /** 攻撃のダメージ・ノックバックの倍率（STR。AttackerView）。resolvePlayerAttack が読む */
+  get damageMul(): number {
+    return this.mods.damage;
+  }
+
+  get knockbackMul(): number {
+    return this.mods.knockback;
+  }
+
+  /** 受けるダメージ（VIT による軽減。ダメージのある攻撃は最低 1 は通る） */
+  private takenDamage(damage: number): number {
+    if (damage <= 0) return 0;
+    return Math.max(1, Math.round(damage * this.mods.damageTaken));
   }
 
   /** いまスーパーアーマーが効いていて、damage の攻撃では割れないか */
@@ -365,7 +398,7 @@ export class Player {
     if (mLen > 0.01) {
       const targetYaw = Math.atan2(mx, mz);
       this.yaw = rotateTowards(this.yaw, targetYaw, MOVE.turnSpeed * dt);
-      const speed = MOVE.runSpeed * this.loadout.runSpeedScale;
+      const speed = MOVE.runSpeed * this.loadout.runSpeedScale * this.mods.moveSpeed;
       this.velX = approach(this.velX, mx * speed, MOVE.accel * dt);
       this.velZ = approach(this.velZ, mz * speed, MOVE.accel * dt);
       this.setState('run');
@@ -413,8 +446,10 @@ export class Player {
       this.chain.length = 0;
       this.chain.push(def.id);
     }
-    this.attack = def;
-    this.attackFrames = resolveAttack(def);
+    // 攻撃の速さ（DEX）: 倍率が 1 でなければ、rate を掛けた写しを使う（攻撃を始めるたびに 1 つだけ作る。フレーム・アニメ・ルートの進みが同じ rate に従う）
+    const speed = this.mods.attackSpeed;
+    this.attack = speed === 1 ? def : { ...def, rate: def.rate * speed };
+    this.attackFrames = resolveAttack(this.attack);
     this.attackPower = power;
     this.winIdx = -1;
     this.winGroup = -1;
@@ -469,12 +504,13 @@ export class Player {
       this.velZ = approach(this.velZ, 0, MOVE.decel * 2 * dt);
     }
 
-    // 地面を叩く技: 剣が床に当たる時刻に演出の合図を出す（描画されている姿勢の時刻 = stateFrame / 60 が impact.t になる step）
-    if (a.impact && f + 1 === Math.round((a.impact.t * 60) / a.rate)) {
+    // 地面を叩く技: 剣が床に当たる時刻に演出の合図を出す（描画されている姿勢の時刻 = stateFrame / 60 が impact.t になる step）。echoes があれば、遅れて広がる輪もそれぞれの時刻に
+    for (const im of fr.impacts) {
+      if (f + 1 !== im.frame) continue;
       this.impactSerial++;
-      this.lastImpact.x = this.body.x + Math.sin(this.yaw) * a.impact.dist;
-      this.lastImpact.z = this.body.z + Math.cos(this.yaw) * a.impact.dist;
-      this.lastImpact.power = a.impact.power * this.attackPower;
+      this.lastImpact.x = this.body.x + Math.sin(this.yaw) * im.dist;
+      this.lastImpact.z = this.body.z + Math.cos(this.yaw) * im.dist;
+      this.lastImpact.power = im.power * this.attackPower;
     }
     // 長押し: 1 段目を押し続けていたら、予備動作の途中で溜めへ移る（離したら通常の 1 段目のまま）
     if (!intent.attackHeld) this.heldSinceBegin = false;
@@ -717,13 +753,13 @@ export class Player {
   /** パリィの受付中か（構えに入ってから parryFrames 以内。見た目が盾を光らせるのに使う）。step() の後に読む */
   get parryWindow(): boolean {
     const g = this.guard;
-    return this.state === 'guard' && g !== null && g.parryFrames > 0 && this.stateFrame >= 1 && this.stateFrame <= g.parryFrames;
+    return this.state === 'guard' && g !== null && g.parryFrames > 0 && this.stateFrame >= 1 && this.stateFrame <= g.parryFrames + this.mods.parryFrames;
   }
 
   /** 敵の攻撃（ev）に対する防御の結果。被弾の前に呼ぶ。構えていなければ 'none' */
   guardOutcome(ev: HitEvent): GuardOutcome {
     if (this.state !== 'guard' || !this.guard) return 'none';
-    return resolveGuardOutcome(this.guard, this.stateFrame, this.yaw, ev.dirX, ev.dirZ);
+    return resolveGuardOutcome(this.guard, this.stateFrame, this.yaw, ev.dirX, ev.dirZ, this.mods.parryFrames);
   }
 
   /**
@@ -732,7 +768,7 @@ export class Player {
    */
   guardBlock(ev: HitEvent): DamageResult {
     const g = this.guard!;
-    const r = applyDamage(this.health, guardedDamage(ev.damage, g));
+    const r = applyDamage(this.health, this.takenDamage(guardedDamage(ev.damage, g)));
     this.guardHitSerial++;
     this.lastGuardHit = ev;
     this.guardStun = g.hitStunFrames;
@@ -799,7 +835,7 @@ export class Player {
   private get inDodgeInvuln(): boolean {
     if (this.state !== 'dodge') return false;
     const d = DODGES[this.dodgeKind];
-    return this.stateFrame >= d.invulnStart && this.stateFrame <= d.invulnEnd;
+    return this.stateFrame >= d.invulnStart && this.stateFrame <= d.invulnEnd + this.mods.dodgeInvuln;
   }
 
   /**

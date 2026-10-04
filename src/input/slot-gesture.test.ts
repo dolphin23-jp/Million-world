@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_SLOT_GESTURE, SlotGesture } from './slot-gesture';
 
-const CFG = DEFAULT_SLOT_GESTURE; // 上へ伸びる、pitch 72、hold 260ms、openDrag 24px
+const CFG = DEFAULT_SLOT_GESTURE; // 真上を中心にした同心円、hold 260ms、openDrag 24px
 
 function gesture(n = 3): SlotGesture {
   return new SlotGesture(CFG, () => n);
@@ -54,79 +54,107 @@ describe('SlotGesture: 開く', () => {
   });
 });
 
-describe('SlotGesture: 選ぶ', () => {
+describe('SlotGesture: 選ぶ（同心円の上の選択肢を、指の向きと距離で選ぶ）', () => {
   function opened(n = 3): SlotGesture {
     const g = gesture(n);
     g.down(0, 0, 0);
     g.tick(CFG.holdMs);
     return g;
   }
+  /** i 番目の選択肢の位置へ指を動かす */
+  const to = (g: SlotGesture, i: number) => {
+    const p = g.layout()[i]!;
+    return g.move(p.x, p.y);
+  };
 
-  it('上へすべらせた距離で選択肢が決まる（i 番目は (i+1) × pitch）', () => {
-    const g = opened();
-    expect(g.move(0, -CFG.pitchPx)).toEqual({ type: 'hover', index: 0 });
-    expect(g.move(0, -CFG.pitchPx * 2)).toEqual({ type: 'hover', index: 1 });
-    expect(g.move(0, -CFG.pitchPx * 3)).toEqual({ type: 'hover', index: 2 });
+  it('選択肢の位置へ動かすと、その番号が hover になり、離すと choose', () => {
+    const g = opened(5);
+    expect(to(g, 0)).toEqual({ type: 'hover', index: 0 });
+    expect(to(g, 3)).toEqual({ type: 'hover', index: 3 });
+    expect(to(g, 4)).toEqual({ type: 'hover', index: 4 });
+    expect(g.up(500)).toEqual({ type: 'choose', index: 4 });
+  });
+
+  it('輪をなぞるように動かすと、番号が順に変わる', () => {
+    const g = opened(5);
+    const seen: number[] = [];
+    for (let deg = -170; deg <= -10; deg += 4) {
+      const ev = g.move(Math.cos((deg * Math.PI) / 180) * 120, Math.sin((deg * Math.PI) / 180) * 120);
+      if (ev?.type === 'hover') seen.push(ev.index);
+    }
+    expect(seen).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  it('輪より遠くへ払っても、その向きの選択肢（払う操作で選べる）', () => {
+    const g = opened(3);
+    const p = g.layout()[2]!;
+    g.move(p.x * 2.2, p.y * 2.2);
+    expect(g.hoverIndex).toBe(2);
     expect(g.up(500)).toEqual({ type: 'choose', index: 2 });
   });
 
-  it('いちばん遠い選択肢より先へ行っても最後の選択肢のまま', () => {
-    const g = opened(2);
-    g.move(0, -CFG.pitchPx * 9);
-    expect(g.hoverIndex).toBe(1);
-    expect(g.up(500)).toEqual({ type: 'choose', index: 1 });
-  });
-
-  it('ボタンの近く（1 つ目の半分より手前）は選ばない: 離すと cancel', () => {
+  it('ボタンの近くは選ばない: 離すと cancel', () => {
     const g = opened();
-    g.move(0, -CFG.pitchPx);
-    expect(g.move(0, -CFG.pitchPx * 0.4)).toEqual({ type: 'hover', index: -1 });
+    to(g, 1);
+    expect(g.move(0, -CFG.layout.cancelRadius * 0.5)).toEqual({ type: 'hover', index: -1 });
     expect(g.up(500)).toEqual({ type: 'cancel' });
   });
 
-  it('下（一覧と逆）へすべらせても選ばない', () => {
+  it('扇と逆（下）へすべらせても選ばない', () => {
     const g = opened();
-    g.move(0, CFG.pitchPx * 2);
+    g.move(0, 150);
     expect(g.hoverIndex).toBe(-1);
     expect(g.up(500)).toEqual({ type: 'cancel' });
   });
 
   it('同じ選択肢の上では hover を繰り返さない', () => {
     const g = opened();
-    g.move(0, -CFG.pitchPx);
-    expect(g.move(2, -CFG.pitchPx - 4)).toBeNull();
+    const p = g.layout()[1]!;
+    g.move(p.x, p.y);
+    expect(g.move(p.x + 3, p.y - 3)).toBeNull();
   });
 
-  it('開いた瞬間に、指がすでに選択肢の上なら hover はそれ（上へ払って開いたとき）', () => {
-    const g = gesture();
+  it('開いた瞬間に、指がすでに選択肢の上なら hover はそれ（払って開いたとき）', () => {
+    const g = gesture(3);
     g.down(0, 0, 0);
-    // 一気に 1 つ目の位置まですべらせる
-    expect(g.move(0, -CFG.pitchPx)).toEqual({ type: 'open' });
-    expect(g.hoverIndex).toBe(0);
-    expect(g.up(80)).toEqual({ type: 'choose', index: 0 });
+    const p = g.layout()[1]!;
+    expect(g.move(p.x, p.y)).toEqual({ type: 'open' });
+    expect(g.hoverIndex).toBe(1);
+    expect(g.up(80)).toEqual({ type: 'choose', index: 1 });
   });
 
   it('選択肢が 0 個なら、どこにいても選ばない', () => {
     const g = opened(0);
-    g.move(0, -CFG.pitchPx * 2);
+    g.move(0, -150);
     expect(g.hoverIndex).toBe(-1);
+    expect(g.layout()).toEqual([]);
+  });
+
+  it('個数が変わると配置も変わる（開く瞬間・動くたびに個数を読む）', () => {
+    let n = 2;
+    const g = new SlotGesture(CFG, () => n);
+    expect(g.layout().length).toBe(2);
+    n = 7;
+    expect(g.layout().length).toBe(7);
   });
 
   it('cancel() は開いていれば cancel を返し、何も選ばないまま終わる', () => {
     const g = opened();
-    g.move(0, -CFG.pitchPx);
+    to(g, 1);
     expect(g.cancel()).toEqual({ type: 'cancel' });
     expect(g.isDown).toBe(false);
     expect(g.up(10)).toBeNull();
   });
 
-  it('向きを左にすると、左へすべらせて選ぶ', () => {
-    const g = new SlotGesture({ ...CFG, dirX: -1, dirY: 0 }, () => 3);
+  it('扇の向きを左にすると、左側の向きで選ぶ', () => {
+    const g = new SlotGesture({ ...CFG, layout: { ...CFG.layout, centerDeg: 180 } }, () => 3);
     g.down(0, 0, 0);
     g.tick(CFG.holdMs);
-    g.move(-CFG.pitchPx * 2, 0);
+    const p = g.layout()[1]!;
+    expect(p.x).toBeLessThan(-100);
+    g.move(p.x, p.y);
     expect(g.hoverIndex).toBe(1);
-    g.move(0, -CFG.pitchPx * 2); // 上へは伸びない
+    g.move(150, 0); // 右は扇の外
     expect(g.hoverIndex).toBe(-1);
   });
 });

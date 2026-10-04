@@ -20,7 +20,10 @@ import type { Circle } from '../world/collision';
 import { Mystical } from '../combat/mystical';
 import { Inventory } from '../combat/inventory';
 import { SkillBook } from '../combat/skills';
-import { SKILLS, isSkillId, type SkillDef } from '../combat/data/skills';
+import { SKILLS, SKILL_ORDER, isSkillId, type SkillDef } from '../combat/data/skills';
+import { Growth } from '../combat/growth';
+import { makeSave, parseSave } from '../combat/save';
+import { clearSave, readSave, writeSave } from '../platform/storage';
 import { ITEMS, ITEM_ORDER, ITEM_RULES, type ItemId } from '../combat/data/items';
 import { MYSTICAL } from '../combat/data/mystical';
 import { Enemy } from '../ai/enemy';
@@ -52,7 +55,11 @@ import type { DamageResult } from '../combat/health';
 import { ThirdPersonCamera } from './camera';
 import { Hud } from '../ui/hud';
 import { MoveGuide } from '../ui/move-guide';
-import { MoveList } from '../ui/move-list';
+import { PauseMenu } from '../ui/pause-menu';
+import { StatusTab } from '../ui/menu/status-tab';
+import { SkillsTab } from '../ui/menu/skills-tab';
+import { MovesTab } from '../ui/menu/moves-tab';
+import { SettingsTab } from '../ui/menu/settings-tab';
 import { buildGuide, type GuideContext } from '../combat/move-guide';
 import { buildMoveTree } from '../combat/move-tree';
 import { onVisibility } from '../platform/safari';
@@ -200,6 +207,14 @@ export class Game {
   private skillUiKey = '';
   /** ボスが呼んだ手下の id（倒してもアイテムを落とさない = 呼ばせて稼げないように） */
   private readonly summonedIds = new Set<number>();
+  /** 成長（経験値・レベル・ポイント・ステータス。ADR-033）。セーブから読み、変わるたびに保存する。ステージ・闘技場に依存しない（経験値は撃破の合図から受け取る） */
+  readonly growth: Growth;
+  /** 成長の表示（HUD）を合わせ終えた Growth.serial と、この挑戦で得た経験値・始めたときのレベル（リザルトに出す） */
+  private seenGrowth = -1;
+  private xpRun = 0;
+  private levelAtRunStart = 1;
+  /** false = 保存しない（サンドボックス。モーションの確認が成長を書き換えないように） */
+  private readonly persistEnabled: boolean;
   /** 地面を叩いた合図（Player.impactSerial）を処理し終えた値 */
   private seenImpact = 0;
   /** スーパーアーマーで受けた合図（Player.armorSerial）を処理し終えた値 */
@@ -218,9 +233,10 @@ export class Game {
   readonly input = new InputAggregator();
   readonly touch: TouchInput;
   readonly hud: Hud;
-  /** 操作ガイド（下の帯）と技表（ADR-024）。技表を開いているあいだは戦闘を止める */
+  /** 操作ガイド（下の帯。ADR-024）と、一時停止メニュー（ステータス・スキル・技表・設定。ADR-033）。メニューを開いているあいだは戦闘を止める */
   private readonly moveGuide: MoveGuide;
-  private readonly moveList: MoveList;
+  private readonly menu: PauseMenu;
+  private readonly movesTab: MovesTab;
   private paused = false;
   private readonly guideCtx: GuideContext = {
     state: 'idle', moveset: LOADOUTS[DEFAULT_LOADOUT].moveset, chargeId: LOADOUTS[DEFAULT_LOADOUT].charge, attackId: null, trail: [], frame: 0, cancelFrame: 0, total: 0,
@@ -243,9 +259,8 @@ export class Game {
     this.hud = new Hud();
     this.hud.setDebugVisible(opts.debug ?? true);
     this.moveGuide = new MoveGuide(document.getElementById('move-guide')!);
-    this.moveList = new MoveList();
-    this.moveList.onGuideVisible((on) => this.moveGuide.setVisible(on));
-    this.moveList.onOpen((open) => (this.paused = open));
+    this.menu = new PauseMenu();
+    this.movesTab = new MovesTab();
     this.damageNumbers = new DamageNumbers(document.getElementById('fx-layer')!);
     this.enemyBars = new EnemyBars(document.getElementById('fx-layer')!);
     this.lockMarker = new LockMarker(document.getElementById('fx-layer')!);
@@ -277,6 +292,14 @@ export class Game {
 
     this.player = new Player();
     this.scene.add(this.player.root);
+    // 成長: セーブから戻して、スキルのレベル・選択と、戦闘の数値（Modifiers）に反映する。サンドボックスは読み書きしない
+    this.persistEnabled = !this.sandbox;
+    const save = this.persistEnabled ? parseSave(readSave()) : null;
+    this.growth = new Growth(save ?? undefined);
+    if (save) this.skills.restoreSelection(save.selected);
+    this.levelAtRunStart = this.growth.level;
+    this.applyGrowth();
+    this.setupMenu();
     this.scene.add(this.hitFx.group);
     this.scene.add(this.groundFx.group);
     this.scene.add(this.lanes.group);
@@ -296,7 +319,10 @@ export class Game {
       this.sfx.play('ui');
     };
     this.touch.onSkillChoose = (id) => {
-      if (isSkillId(id) && this.skills.select(id)) this.sfx.play('ui');
+      if (isSkillId(id) && this.skills.select(id)) {
+        this.sfx.play('ui');
+        this.persist();
+      }
     };
     this.touch.setEquipLabel(this.player.loadout.name);
     this.refreshMoveList();
@@ -335,6 +361,7 @@ export class Game {
         if (!this.loop.isRunning) this.loop.start();
       } else {
         this.loop.stop();
+        this.persist();
       }
     });
   }
@@ -417,7 +444,8 @@ export class Game {
       this.sfx.play('wave');
     } else {
       const r = this.encounter.result();
-      if (r) this.hud.showResult(r);
+      if (r) this.hud.showResult(r, { gained: this.xpRun, from: this.levelAtRunStart, to: this.growth.level });
+      this.persist();
       this.sfx.play(ev.phase === 'victory' ? 'victory' : 'defeat');
     }
   }
@@ -435,12 +463,105 @@ export class Game {
     if (result.killed) this.sfx.play('kill');
     if (result.killed) {
       this.encounter.onKill();
+      this.awardXp(enemy);
       this.dropItems(enemy);
       // ボスを倒すと手下（呼ばれた小蝙蝠など）は消える（倒した数には入らない）
       if (enemy.def.boss) for (const e of this.enemySims) if (e !== enemy) e.vanish();
       // 最後のウェーブの最後の 1 体: スローモーション
       if (this.encounter.onLastWave && !this.enemySims.some((e) => !e.dead)) this.hitStop.slow(FINISH_SLOW.scale, FINISH_SLOW.seconds);
     }
+  }
+
+  // ---------------------------------------------------------------- 成長（ADR-033）
+
+  /**
+   * 成長の状態を、スキルのレベル・戦闘の数値（Modifiers）・HUD に反映する（起動時・振り分けが変わったとき・「最初から」）。
+   * 戦闘中（一時停止メニューからの振り分け）でも呼べる
+   */
+  private applyGrowth(): void {
+    for (const id of SKILL_ORDER) this.skills.setLevel(id, this.growth.skillLevel(id));
+    this.player.setModifiers(this.growth.modifiers);
+    this.hud.setPlayerHp(this.player.health.hp, this.player.health.max);
+    this.syncGrowthUi();
+    this.menu.refreshMarks();
+  }
+
+  /** HUD のレベル・経験値を合わせる。毎ステップ呼んでよい（変わったときだけ触る） */
+  private syncGrowthUi(): void {
+    if (this.seenGrowth === this.growth.serial) return;
+    this.seenGrowth = this.growth.serial;
+    this.hud.setGrowth(this.growth.level, this.growth.xp, this.growth.xpNeed);
+  }
+
+  /**
+   * 敵を倒したときの経験値。**呼ばれた手下（ボスの召喚）は 0**（呼ばせて稼げないように。ドロップと同じ）。
+   * レベルが上がったら「LEVEL UP」の文字・音・HUD の光を出して保存する
+   */
+  private awardXp(enemy: Enemy): void {
+    if (this.summonedIds.has(enemy.id)) return;
+    const xp = (enemy.def as EnemyDef).xp ?? 0;
+    if (xp <= 0) return;
+    this.xpRun += xp;
+    const gained = this.growth.addXp(xp);
+    this.syncGrowthUi();
+    if (gained > 0) {
+      const p = this.player;
+      this.damageNumbers.spawnText(p.body.x, 2.15, p.body.z, `LEVEL UP  Lv ${this.growth.level}`, 'level', 1.25);
+      this.hitFx.burst(p.body.x, HIT_FEEDBACK.playerImpactHeight, p.body.z, 0, 0, 0.9, FX_TINT.poise);
+      this.sfx.play('levelUp');
+      this.hud.flashLevelUp();
+      this.menu.refreshMarks();
+      this.persist();
+    }
+  }
+
+  /** 一時停止メニューのタブを作る（ステータス・スキル・技表・設定。機能が増えたらここへタブを足す） */
+  private setupMenu(): void {
+    const onChange = (): void => {
+      // 振り分けが変わった: 戦闘の数値・スキルのレベルを合わせ、保存して、画面を更新する
+      this.applyGrowth();
+      this.persist();
+      this.sfx.play('ui');
+      this.menu.refresh();
+    };
+    this.menu.addTab(new StatusTab({ growth: this.growth, onChange }));
+    this.menu.addTab(new SkillsTab({ growth: this.growth, book: this.skills, currentFamily: () => this.player.loadout.weapon, onChange }));
+    this.menu.addTab(this.movesTab);
+    this.menu.addTab(
+      new SettingsTab({
+        onGuideVisible: (on) => this.moveGuide.setVisible(on),
+        onResetProgress: () => this.resetProgress(),
+      }),
+    );
+    this.menu.select('status');
+    this.menu.onOpen((open) => {
+      this.paused = open;
+      if (open) {
+        this.growth.beginEdit();
+        this.sfx.play('ui');
+      } else {
+        this.growth.endEdit();
+        this.persist();
+      }
+    });
+    this.menu.refreshMarks();
+  }
+
+  /** 「最初から」: 成長・スキルのレベルと選択・セーブを消す（戦闘はそのまま続く） */
+  private resetProgress(): void {
+    this.growth.reset();
+    this.skills.clearSelection();
+    clearSave();
+    this.applyGrowth();
+    this.persist();
+    this.menu.refresh();
+    this.sfx.play('ui');
+  }
+
+  /** 成長とスキル欄の選択を保存する（レベルアップ・振り分け・スキルの選択・戦闘の終わり・タブを離れるとき）。できなくても続ける */
+  persist(): void {
+    if (!this.persistEnabled) return;
+    writeSave(makeSave(this.growth, this.skills.selection()));
   }
 
   /** 剣が地面を叩いた（AttackDef.impact。地割り・叩き落とし）。敵に当たらなくても、砂ぼこりの輪・ひび割れ・揺れ・ヒットストップ・音を出す */
@@ -511,7 +632,7 @@ export class Game {
    * 発動の演出: 強いヒットストップ・画面の揺れ・青紫の閃光・「MYSTICAL」の文字・音
    */
   private onJustDodge(): boolean {
-    if (this.mystical.trigger()) {
+    if (this.mystical.trigger(this.growth.modifiers.mysticalFrames)) {
       const p = this.player;
       p.setMystical(true);
       this.mysticalWas = true;
@@ -557,7 +678,7 @@ export class Game {
       if (r.reason !== 'wait' && ITEM_RULES.denySound) this.sfx.play('itemDeny');
       return;
     }
-    const healed = p.heal(ITEMS[r.item].heal);
+    const healed = p.heal(ITEMS[r.item].heal * this.growth.modifiers.heal);
     this.hud.setPlayerHp(p.health.hp, p.health.max);
     this.hitFx.burst(p.body.x, HIT_FEEDBACK.playerImpactHeight, p.body.z, 0, 0, 0.8, FX_TINT.heal);
     this.damageNumbers.spawn(p.body.x, HIT_FEEDBACK.playerImpactHeight + 0.7, p.body.z, healed, 'heal');
@@ -571,7 +692,7 @@ export class Game {
   private useSkill(): void {
     const p = this.player;
     if (p.dead) return;
-    const run = this.skills.prepare(p.loadout.weapon);
+    const run = this.skills.prepare(p.loadout.weapon, this.growth.modifiers.skillPower);
     if (!run) {
       this.sfx.play('itemDeny');
       return;
@@ -585,7 +706,7 @@ export class Game {
     this.seenSkillSerial = p.skillSerial;
     const id = p.lastSkill;
     if (!id) return;
-    this.skills.start(id);
+    this.skills.start(id, this.growth.modifiers.skillCooldown);
     this.damageNumbers.spawnText(p.body.x, 1.95, p.body.z, SKILLS[id].name, 'skill', 1.2);
     this.sfx.play('skillStart');
   }
@@ -708,7 +829,7 @@ export class Game {
   /** 技表を、いまの装備の技で作り直す */
   private refreshMoveList(): void {
     const l = this.player.loadout;
-    this.moveList.setMoves(l.name, buildMoveTree(l.moveset, l.charge));
+    this.movesTab.setMoves(l.name, buildMoveTree(l.moveset, l.charge));
   }
 
   /** ミスティカルドッジの画面の色・ゲージ（発動中は残り、切れたあとは次までの溜まり具合） */
@@ -969,6 +1090,8 @@ export class Game {
     this.seenSkillSerial = this.player.skillSerial;
     this.seenArmor = this.player.armorSerial;
     this.seenSwing = this.player.swingSerial;
+    this.xpRun = 0;
+    this.levelAtRunStart = this.growth.level;
     this.inventory.reset();
     this.summonedIds.clear();
     this.lockOn.release();

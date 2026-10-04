@@ -45,21 +45,23 @@
       <div id="mystical-fx"></div>
       <div id="mystical-gauge" data-state="ready"><div class="mystical-fill"></div></div>
       <div id="hp-player" class="hp"><div class="hp-lag"></div><div class="hp-fill"></div></div>
+      <!-- レベルと経験値（HP バーの左。ADR-033）。値は src/ui/hud.ts の setGrowth -->
+      <div id="lv-box"><span class="lv-num">Lv 1</span><div class="lv-bar"><div class="lv-fill"></div></div></div>
       <div id="hp-boss" class="hp" style="display: none"><div class="hp-lag"></div><div class="hp-fill"></div><div class="poise"><div class="poise-fill"></div></div><span class="hp-name"></span></div>
       <div id="hp-target" class="hp" style="display: none"><div class="hp-lag"></div><div class="hp-fill"></div><div class="poise"><div class="poise-fill"></div></div><span class="hp-name"></span></div>
       <div id="debug"></div>
       <!-- 操作ガイド（攻撃ボタンとスティックの向きで何が出るか）。中身は src/ui/move-guide.ts が作る -->
       <div id="move-guide" data-mode="hidden"></div>
-      <!-- 技表を開くボタン（装備の切替の下）。押している間は pointer を受ける -->
-      <button id="btn-moves" type="button">技表</button>
+      <!-- メニュー（一時停止。ステータス・スキル・技表・設定）を開くボタン（装備の切替の下）。未使用のポイントがあると金の点が付く（src/ui/pause-menu.ts） -->
+      <button id="btn-menu" type="button">メニュー</button>
     </div>
 
-    <!-- 技表（装備の技の一覧）。開いているあいだは戦闘を止める。中身は src/ui/move-list.ts が作る -->
-    <div id="moves-overlay" class="hidden">
-      <div class="ml-card">
-        <div class="ml-head"><span class="ml-title"></span><button class="ml-close" type="button">閉じる</button></div>
-        <div class="ml-body"></div>
-        <label class="ml-guide"><input type="checkbox" checked /> 画面の下に操作ガイドを出す</label>
+    <!-- 一時停止メニュー（ADR-033）。開いているあいだは戦闘を止める。タブ（ステータス・スキル・技表・設定）の中身は src/ui/menu/*.ts が作る。機能が増えたらタブを足す -->
+    <div id="menu-overlay" class="hidden">
+      <div class="menu-card">
+        <div class="menu-head"><span class="menu-title">メニュー</span><button class="menu-close" type="button">閉じる</button></div>
+        <div class="menu-tabs"></div>
+        <div class="menu-body" data-scroll></div>
       </div>
     </div>
 
@@ -72,6 +74,7 @@
         <div class="result-rank"><span></span></div>
         <div class="result-rows">
           <div><dt>撃破</dt><dd id="r-kills"></dd></div>
+          <div><dt>経験値</dt><dd id="r-xp"></dd></div>
           <div><dt>タイム</dt><dd id="r-time"></dd></div>
           <div><dt>被ダメージ</dt><dd id="r-damage"></dd></div>
           <div><dt>被弾</dt><dd id="r-hits"></dd></div>

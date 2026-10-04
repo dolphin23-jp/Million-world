@@ -1,8 +1,10 @@
 import { DEFAULT_SLOT_GESTURE, SlotGesture, type SlotEvent, type SlotGestureConfig } from './slot-gesture';
+import { ringArcs } from './slot-layout';
 
 /**
  * スロットボタン（DOM。ADR-030）。アイテム欄・将来のスキル欄が使い回す部品。
- * ボタンには「いま選んでいるもの」を出し、タップでそれを使う。長押し（または上へ払う）と一覧が開き、指をすべらせて離すと選び替わる。
+ * ボタンには「いま選んでいるもの」を出し、タップでそれを使う。長押し（または払う）と一覧が開き、指をすべらせて離すと選び替わる。
+ * 一覧はボタンを中心にした**同心円（扇）の上**に並ぶ（縦に並べると選びづらいため。配置・選び方は src/input/slot-layout.ts）。
  * ジェスチャの判定は src/input/slot-gesture.ts（純粋）。ここは Pointer Events・一覧の表示・ボタンの見た目だけ。
  * 何を使うか・選ぶかは呼ぶ側（onTap / onChoose）。入力層はロジックを知らない（touch.ts と同じ約束）。
  */
@@ -67,6 +69,9 @@ export class SlotButton {
   private readonly gesture: SlotGesture;
   private readonly cfg: SlotGestureConfig;
   private readonly menu: HTMLElement;
+  /** 輪の目安の弧（開いたとき、使っている輪だけ描く） */
+  private readonly arcs: SVGSVGElement;
+  private readonly arcPaths: SVGPathElement[] = [];
   private readonly opts: OptEl[] = [];
   private options: readonly SlotOption[] = [];
   private optionsKey = '';
@@ -95,6 +100,9 @@ export class SlotButton {
     this.el.append(this.faceIcon, this.faceLabel, this.faceBadge, this.cooldownEl);
     // 一覧はボタンの兄弟（ボタンの押し込み表示の scale に巻き込まれないように）。表示のときだけ位置を決める
     this.menu = div('slot-menu');
+    this.arcs = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    this.arcs.setAttribute('class', 'slot-arcs');
+    this.menu.appendChild(this.arcs);
     this.el.parentElement?.appendChild(this.menu);
     this.bind();
   }
@@ -135,7 +143,7 @@ export class SlotButton {
     this.options = options;
     if (key === this.optionsKey) return;
     this.optionsKey = key;
-    this.menu.textContent = '';
+    for (const e of this.opts) e.root.remove();
     this.opts.length = 0;
     for (const o of options) {
       const root = div('slot-opt');
@@ -211,16 +219,43 @@ export class SlotButton {
     }
   }
 
-  /** 一覧をボタンから dir の向きへ並べて見せる。i 番目の中心はボタンの中心から (i + 1) × pitch */
+  /** 一覧をボタンを中心にした同心円（扇）の上へ並べて見せる。i 番目の中心はボタンの中心から layout の位置 */
   private openMenu(): void {
     this.el.classList.add('open');
     this.menu.classList.add('show');
+    const layout = this.gesture.layout();
     for (let i = 0; i < this.opts.length; i++) {
-      const d = (i + 1) * this.cfg.pitchPx;
+      const p = layout[i];
       const s = this.opts[i]!.root.style;
-      s.left = `${this.cx + this.cfg.dirX * d - OPT_SIZE / 2}px`;
-      s.top = `${this.cy + this.cfg.dirY * d - OPT_SIZE / 2}px`;
+      if (!p) {
+        s.display = 'none';
+        continue;
+      }
+      s.display = '';
+      s.left = `${this.cx + p.x - OPT_SIZE / 2}px`;
+      s.top = `${this.cy + p.y - OPT_SIZE / 2}px`;
     }
+    // 輪の目安の弧（ボタンを中心にした円の一部）
+    const arcs = ringArcs(layout, this.cfg.layout);
+    while (this.arcPaths.length < arcs.length) {
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('class', 'slot-arc');
+      this.arcs.appendChild(path);
+      this.arcPaths.push(path);
+    }
+    this.arcPaths.forEach((path, i) => {
+      const a = arcs[i];
+      if (!a) {
+        path.setAttribute('d', '');
+        return;
+      }
+      const x0 = this.cx + Math.cos(a.from) * a.radius;
+      const y0 = this.cy + Math.sin(a.from) * a.radius;
+      const x1 = this.cx + Math.cos(a.to) * a.radius;
+      const y1 = this.cy + Math.sin(a.to) * a.radius;
+      const large = a.to - a.from > Math.PI ? 1 : 0;
+      path.setAttribute('d', `M ${x0.toFixed(1)} ${y0.toFixed(1)} A ${a.radius} ${a.radius} 0 ${large} 1 ${x1.toFixed(1)} ${y1.toFixed(1)}`);
+    });
   }
 
   private closeMenu(): void {

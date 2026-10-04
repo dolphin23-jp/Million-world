@@ -3,7 +3,7 @@ import { Player } from './player';
 import { resolvePlayerAttack, type CombatTarget } from './combat';
 import { Enemy } from '../ai/enemy';
 import { ENEMIES, type EnemyDef } from '../ai/data/enemies';
-import { SkillBook } from '../combat/skills';
+import { SkillBook, skillPower } from '../combat/skills';
 import { SKILLS, type SkillId } from '../combat/data/skills';
 import { findAttack } from '../combat/data/skill-attacks';
 import { ATTACKS } from '../combat/data/attacks';
@@ -477,5 +477,186 @@ describe('剣技: 始められる状態・途切れ・クールダウン', () =>
   it('装備の系統で使えるスキルが替わる（大剣は大剣の最初のスキル）', () => {
     const sc = scene('greatsword', 2.0);
     expect(sc.book.prepare(sc.player.loadout.weapon)!.skill).toBe('houzan');
+  });
+});
+
+describe('剣技の進化（Lv4 と Lv7。ADR-034）: 連なりと当たり数', () => {
+  const HIT = (damage: number) => ({ attackerId: 9, targetId: 0, damage, knockback: 3, hitStop: 0, dirX: 0, dirZ: -1, x: 0, z: 0 });
+  const of = (sc: Scene, id: number) => sc.hits.filter((h) => h.targetId === id);
+  const dmg = (attack: string, skill: SkillId, level: number, scale = 1) => Math.round(findAttack(attack)!.damage * skillPower(SKILLS[skill], level) * scale);
+
+  it('四ツ葉: Lv1〜3 は 4 連、Lv4 で突き込みが 5 つ目に、Lv7 で回し斬りが 6 つ目に付く。足された段の威力は倍率つき', () => {
+    for (const [lv, expected] of [
+      [3, ['skQuad1', 'skQuad2', 'skQuad3', 'skQuad4']],
+      [4, ['skQuad1', 'skQuad2', 'skQuad3', 'skQuad4', 'skQuad5']],
+      [6, ['skQuad1', 'skQuad2', 'skQuad3', 'skQuad4', 'skQuad5']],
+      [7, ['skQuad1', 'skQuad2', 'skQuad3', 'skQuad4', 'skQuad5', 'skQuad6']],
+      [10, ['skQuad1', 'skQuad2', 'skQuad3', 'skQuad4', 'skQuad5', 'skQuad6']],
+    ] as const) {
+      const sc = scene('sword', 1.6, { yotsuba: lv });
+      sc.book.select('yotsuba');
+      expect(sc.useSkill(), `Lv${lv}`).toBe(true);
+      sc.run(420);
+      expect(sc.attacks, `Lv${lv}`).toEqual([...expected]);
+      expect(sc.player.state).not.toBe('attack');
+      const p = skillPower(SKILLS.yotsuba, lv);
+      const steps = SKILLS.yotsuba.steps.filter((s) => (s.minLevel ?? 1) <= lv);
+      expect(sc.powers.map((x) => +x.toFixed(4))).toEqual(steps.map((s) => +(p * (s.scale ?? 1)).toFixed(4)));
+    }
+  });
+
+  it('四ツ葉 Lv7: 6 つ目の回し斬りは、前の半円と後ろの半円の 2 つの窓を持つ。Lv4 より敵に当たる回数が 1 つ増える', () => {
+    const quad6 = findAttack('skQuad6')!;
+    expect(quad6.windows!.length).toBe(2);
+    expect(quad6.windows![0]!.yawOffset ?? 0).toBe(0);
+    expect(quad6.windows![1]!.yawOffset).toBe(Math.PI);
+    const hitsOn = (lv: number) => {
+      const sc = scene('sword', 1.6, { yotsuba: lv }, [{ x: 0, z: 2.0 }]);
+      sc.book.select('yotsuba');
+      sc.useSkill();
+      sc.run(420);
+      return { first: of(sc, 1).length, second: of(sc, 10).length, last: sc.attacks[sc.attacks.length - 1] };
+    };
+    const lv4 = hitsOn(4);
+    const lv7 = hitsOn(7);
+    expect(lv4.last).toBe('skQuad5');
+    expect(lv7.last).toBe('skQuad6');
+    expect(lv7.first).toBe(lv4.first + 1);
+    expect(lv7.second).toBe(lv4.second + 1);
+  });
+
+  it('五月雨突き: Lv1〜3 は 5 回・Lv4〜6 は 7 回・Lv7〜 は 9 回。9 連目のとどめは、深く長く・ダメージ 2.2 倍・ふっ飛ばし 4 倍', () => {
+    const run = (lv: number, n: number) => {
+      const sc = scene('sword', 2.6, { samidare: lv });
+      sc.book.select('samidare');
+      sc.useSkill();
+      sc.run(n);
+      return sc;
+    };
+    const a = run(3, 90);
+    expect(a.attacks).toEqual(['skFlurry']);
+    expect(a.hits.length).toBe(5);
+    const b = run(4, 110);
+    expect(b.attacks).toEqual(['skFlurry7']);
+    expect(b.hits.length).toBe(7);
+    // Lv4 の 7 連は、どの突きも同じ威力（とどめの強い突きは 9 連から）
+    for (const h of b.hits) expect(h.damage).toBe(dmg('skFlurry7', 'samidare', 4));
+    const c = run(7, 130);
+    expect(c.attacks).toEqual(['skFlurry9']);
+    expect(c.hits.length).toBe(9);
+    expect(c.hits[8]!.damage).toBe(dmg('skFlurry9', 'samidare', 7, 2.2));
+    expect(c.hits[7]!.damage).toBe(dmg('skFlurry9', 'samidare', 7));
+    expect(c.hits[8]!.knockback).toBeGreaterThan(c.hits[7]!.knockback * 3);
+    // 間隔は 5 連と同じ速さで続く
+    const gaps = c.hitFrames.slice(1).map((t, i) => t - c.hitFrames[i]!);
+    for (const g of gaps.slice(0, 7)) expect(g).toBeLessThanOrEqual(9);
+  });
+
+  it('竜巻: Lv1〜3 は 2 周半（前 3・後ろ 2）、Lv4 は 3 周半（前 4・後ろ 3）、Lv7 は 4 周半（前 5・後ろ 4）', () => {
+    // 周回が増えると体が前へ進む量も増える（extraRoot）ので、的は体が追い越さない遠さ（2.2m）に置く
+    for (const [lv, front, back, n] of [
+      [1, 3, 2, 140],
+      [4, 4, 3, 170],
+      [7, 5, 4, 200],
+    ] as const) {
+      const sc = scene('sword', 2.2, { tatsumaki: lv }, [{ x: 0, z: -1.0 }]);
+      sc.book.select('tatsumaki');
+      sc.useSkill();
+      sc.run(n);
+      expect(of(sc, 1).length, `Lv${lv} 前`).toBe(front);
+      expect(of(sc, 10).length, `Lv${lv} 後ろ`).toBe(back);
+    }
+  });
+
+  it('竜巻の進化形も、回っているあいだはスーパーアーマー（軽い攻撃では怯まず、重い攻撃には割られる）', () => {
+    for (const lv of [4, 7]) {
+      const light = scene('sword', 1.3, { tatsumaki: lv });
+      light.book.select('tatsumaki');
+      light.useSkill();
+      light.run(30);
+      light.player.takeHit(HIT(14));
+      expect(light.player.state, `Lv${lv}`).toBe('attack');
+      const heavy = scene('sword', 1.3, { tatsumaki: lv });
+      heavy.book.select('tatsumaki');
+      heavy.useSkill();
+      heavy.run(30);
+      heavy.player.takeHit(HIT(32));
+      expect(heavy.player.state, `Lv${lv}`).toBe('hit');
+    }
+  });
+
+  it('崩山 Lv4: 叩きつけが飛翔崩山に替わり、衝撃波が 2 重（内側 → 外側）。外側の輪は別の組なので、同じ敵へもう一度当たる', () => {
+    const sc = scene('greatsword', 5.0, { houzan: 4 }, [{ x: 3.4, z: 4.2 }, { x: 0, z: 9.5 }]);
+    sc.book.select('houzan');
+    sc.useSkill();
+    sc.run(260);
+    expect(sc.attacks).toEqual(['skGsSweep1', 'skGsSweep2', 'skGsSlamLeap']);
+    const leap = findAttack('skGsSlamLeap')!;
+    expect(leap.impact).toBeDefined();
+    expect(leap.echoes!.length).toBe(1);
+    // 叩きつけの地面の演出は 2 回（本体 + 余波の輪）
+    expect(sc.player.impactSerial).toBeGreaterThanOrEqual(2);
+    // 横の敵: 内側の輪（0.6 倍）と外側の輪（0.45 倍）の両方が当たる（別の組）
+    const side = of(sc, 10);
+    expect(side.length).toBeGreaterThanOrEqual(1);
+    expect(side.length).toBeLessThanOrEqual(2);
+  });
+
+  it('崩山 Lv4: 叩きつけの地面の演出が 2 回出る（本体と、遅れて広がる外側の輪）', () => {
+    const sc = scene('greatsword', 1.8, { houzan: 4 });
+    sc.book.select('houzan');
+    sc.useSkill();
+    const before = sc.player.impactSerial;
+    sc.run(260);
+    expect(sc.player.impactSerial).toBe(before + 2);
+  });
+
+  it('崩山 Lv7: 飛翔崩山のあとに地裂が続く（長い線の当たり + 地面の演出）', () => {
+    const sc = scene('greatsword', 1.8, { houzan: 7 });
+    sc.book.select('houzan');
+    sc.useSkill();
+    const before = sc.player.impactSerial;
+    sc.run(320);
+    expect(sc.attacks).toEqual(['skGsSweep1', 'skGsSweep2', 'skGsSlamLeap', 'skGsRip']);
+    expect(sc.player.impactSerial).toBe(before + 3);
+    expect(sc.player.state).not.toBe('attack');
+  });
+
+  it('崩山 Lv7 の地裂は、前方に長く届く（正面 5.5m 先でも当たる）が、横には当たらない', () => {
+    const sc = scene('greatsword', 1.8, { houzan: 7 }, [{ x: 3.0, z: 3.0 }]);
+    sc.book.select('houzan');
+    sc.useSkill();
+    sc.run(320);
+    expect(sc.hits.some((h) => h.damage === dmg('skGsRip', 'houzan', 7))).toBe(true);
+    expect(of(sc, 10).some((h) => h.damage === dmg('skGsRip', 'houzan', 7))).toBe(false);
+  });
+
+  it('一閃: Lv1〜3 は 1 撃、Lv4 で返し斬りが続き（2 連）、Lv7 で突き抜けが続く（3 連）', () => {
+    for (const [lv, expected] of [
+      [3, ['skGsIssen']],
+      [4, ['skGsIssen', 'skGsIssen2']],
+      [6, ['skGsIssen', 'skGsIssen2']],
+      [7, ['skGsIssen', 'skGsIssen2', 'skGsIssenLunge']],
+    ] as const) {
+      const sc = scene('greatsword', 5.4, { issen: lv });
+      sc.book.select('issen');
+      expect(sc.useSkill(), `Lv${lv}`).toBe(true);
+      sc.run(260);
+      expect(sc.attacks, `Lv${lv}`).toEqual([...expected]);
+      expect(sc.player.state, `Lv${lv}`).not.toBe('attack');
+      expect(sc.hits.length, `Lv${lv}`).toBeGreaterThanOrEqual(expected.length);
+    }
+  });
+
+  it('一閃の進化形も、溜め（返し斬りの引き込み）のあいだはスーパーアーマー。重い攻撃には割られる', () => {
+    const sc = scene('greatsword', 5.4, { issen: 4 });
+    sc.book.select('issen');
+    sc.useSkill();
+    for (let i = 0; i < 200 && sc.attacks.length < 2; i++) sc.step();
+    expect(sc.attacks).toEqual(['skGsIssen', 'skGsIssen2']);
+    sc.run(3);
+    sc.player.takeHit(HIT(14));
+    expect(sc.player.state).toBe('attack');
+    expect(sc.player.armorSerial).toBe(1);
   });
 });

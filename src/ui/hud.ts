@@ -10,6 +10,11 @@ export class Hud {
   private readonly hpFill: HTMLElement;
   private readonly hpLag: HTMLElement;
   private readonly hurtFlashEl: HTMLElement;
+  private readonly lvBox: HTMLElement;
+  private readonly lvNum: HTMLElement;
+  private readonly lvFill: HTMLElement;
+  /** レベル表示の直近の状態（変化があったときだけ DOM を触る） */
+  private lvKey = '';
   private readonly mysticFx: HTMLElement;
   private readonly mysticGauge: HTMLElement;
   private readonly mysticFill: HTMLElement;
@@ -46,6 +51,9 @@ export class Hud {
     this.hpFill = hp.querySelector('.hp-fill') as HTMLElement;
     this.hpLag = hp.querySelector('.hp-lag') as HTMLElement;
     this.hurtFlashEl = document.getElementById('hurt-flash')!;
+    this.lvBox = document.getElementById('lv-box')!;
+    this.lvNum = this.lvBox.querySelector('.lv-num') as HTMLElement;
+    this.lvFill = this.lvBox.querySelector('.lv-fill') as HTMLElement;
     this.mysticFx = document.getElementById('mystical-fx')!;
     this.mysticGauge = document.getElementById('mystical-gauge')!;
     this.mysticFill = this.mysticGauge.querySelector('.mystical-fill') as HTMLElement;
@@ -92,14 +100,15 @@ export class Hud {
     this.bannerEl.classList.add('show');
   }
 
-  /** リザルト（勝ち: ランクあり / 負け）。「もう一度」は RETRY_ARM_MS 経ってから押せる */
-  showResult(r: ResultSummary): void {
+  /** リザルト（勝ち: ランクあり / 負け）。「もう一度」は RETRY_ARM_MS 経ってから押せる。xp = この挑戦で得た経験値とレベルの変化（ADR-033） */
+  showResult(r: ResultSummary, xp?: { gained: number; from: number; to: number }): void {
     const el = this.resultEl;
     const win = r.phase === 'victory';
     el.classList.toggle('defeat', !win);
     (el.querySelector('.result-title') as HTMLElement).textContent = win ? 'VICTORY' : 'DEFEAT';
     (el.querySelector('.result-rank span') as HTMLElement).textContent = r.rank ?? '';
     (document.getElementById('r-kills') as HTMLElement).textContent = String(r.kills);
+    (document.getElementById('r-xp') as HTMLElement).textContent = xp ? `+${xp.gained}${xp.to > xp.from ? `（Lv ${xp.from} → ${xp.to}）` : ''}` : '—';
     (document.getElementById('r-time') as HTMLElement).textContent = formatTime(r.seconds);
     (document.getElementById('r-damage') as HTMLElement).textContent = String(r.damageTaken);
     (document.getElementById('r-hits') as HTMLElement).textContent = `${r.hitsTaken} 回`;
@@ -223,6 +232,24 @@ export class Hud {
     this.mysticGauge.dataset.state = state;
     this.mysticGauge.classList.toggle('warn', on && warn);
     this.mysticFill.style.width = `${pct}%`;
+  }
+
+  /** レベルと経験値（HP バーの左）。xpNeed = 次のレベルまでの経験値（0 = 上限）。毎フレーム呼んでよい（変化があったときだけ DOM を触る） */
+  setGrowth(level: number, xp: number, xpNeed: number): void {
+    const pct = xpNeed > 0 ? Math.round((xp / xpNeed) * 100) : 100;
+    const key = `${level}:${pct}`;
+    if (key === this.lvKey) return;
+    this.lvKey = key;
+    this.lvNum.textContent = xpNeed > 0 ? `Lv ${level}` : `Lv ${level} MAX`;
+    this.lvFill.style.width = `${pct}%`;
+  }
+
+  /** レベルが上がった瞬間の光 */
+  flashLevelUp(): void {
+    const el = this.lvBox;
+    el.classList.remove('up');
+    void el.offsetWidth;
+    el.classList.add('up');
   }
 
   /** 被弾の画面フラッシュ（縁が赤くなる）。連続で呼ばれたらアニメーションをやり直す */

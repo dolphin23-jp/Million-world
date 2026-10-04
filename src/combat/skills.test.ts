@@ -1,11 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import { SKILLS, SKILL_LEVEL_MAX, SKILL_ORDER, type SkillDef, type SkillId } from './data/skills';
-import { SkillBook, skillCooldown, skillPower, skillSteps } from './skills';
+import { SkillBook, skillCooldown, skillInfo, skillPower, skillSteps, stepAttackAt } from './skills';
 import { resolveAttack } from './data/attacks';
-import { findAttack } from './data/skill-attacks';
+import { SKILL_ATTACKS, findAttack } from './data/skill-attacks';
 
 const SWORD = SKILL_ORDER.filter((id) => SKILLS[id].family === 'sword');
 const GREAT = SKILL_ORDER.filter((id) => SKILLS[id].family === 'greatsword');
+
+const LEVELS = Array.from({ length: SKILL_LEVEL_MAX }, (_, i) => i + 1);
+/** そのスキルがレベル lv で使う連なり（進化の差し替え後の攻撃 id） */
+const chainAt = (id: SkillId, lv: number): string[] => skillSteps(SKILLS[id], lv).map((s) => s.attack);
+/** そのスキルが取りうる攻撃 id すべて（元の段 + 進化先） */
+const allAttackIds = (id: SkillId): string[] => {
+  const out = new Set<string>();
+  for (const s of SKILLS[id].steps) {
+    out.add(s.attack);
+    for (const e of s.evolve ?? []) out.add(e.attack);
+  }
+  return [...out];
+};
 
 describe('スキルのデータの整合', () => {
   it('id・名前は重複せず、ボタンに出す短い表記は 4 文字まで', () => {
@@ -19,61 +32,90 @@ describe('スキルのデータの整合', () => {
     }
   });
 
-  it('連なりの攻撃 id はすべて実在し（ATTACKS か SKILL_ATTACKS）、武器の系統と合っている（大剣の技は両手持ち）', () => {
+  it('連なりの攻撃 id（進化の差し替え先も）はすべて実在し（ATTACKS か SKILL_ATTACKS）、武器の系統と合っている（大剣の技は両手持ち）', () => {
     for (const id of SKILL_ORDER) {
       const def = SKILLS[id];
       expect(def.steps.length).toBeGreaterThanOrEqual(1);
-      for (const s of def.steps) {
-        const a = findAttack(s.attack);
-        expect(a, `${id}: ${s.attack}`).toBeTruthy();
-        expect(a!.authored, `${id}: ${s.attack} は手付け`).toBeTruthy();
-        expect(a!.authored!.twoHanded !== undefined, `${id}: ${s.attack}`).toBe(def.family === 'greatsword');
+      for (const aid of allAttackIds(id)) {
+        const a = findAttack(aid);
+        expect(a, `${id}: ${aid}`).toBeTruthy();
+        expect(a!.authored, `${id}: ${aid} は手付け`).toBeTruthy();
+        expect(a!.authored!.twoHanded !== undefined, `${id}: ${aid}`).toBe(def.family === 'greatsword');
       }
     }
   });
 
-  it('連なりの隣り合う 2 つは、後ろの手付けが前の技の受付時点（cancelAt）の姿勢から続く（continueFrom）= 姿勢のつなぎ目が自然', () => {
+  it('どのレベルの連なりでも、隣り合う 2 つは後ろの手付けが前の技の受付時点（cancelAt）の姿勢から続く（continueFrom）= 進化しても姿勢のつなぎ目が自然', () => {
     for (const id of SKILL_ORDER) {
-      const steps = SKILLS[id].steps;
-      for (let i = 0; i + 1 < steps.length; i++) {
-        const a = findAttack(steps[i]!.attack)!;
-        const b = findAttack(steps[i + 1]!.attack)!;
-        const cf = b.authored!.continueFrom;
-        expect(cf, `${id}: ${a.id} → ${b.id} の continueFrom`).toBeDefined();
-        expect(cf!.attack, `${id}: ${a.id} → ${b.id}`).toBe(a.authored);
-        expect(cf!.t, `${id}: ${a.id} → ${b.id} の受付の時刻`).toBeCloseTo(a.cancelAt, 6);
+      for (const lv of LEVELS) {
+        const chain = chainAt(id, lv);
+        for (let i = 0; i + 1 < chain.length; i++) {
+          const a = findAttack(chain[i]!)!;
+          const b = findAttack(chain[i + 1]!)!;
+          const cf = b.authored!.continueFrom;
+          expect(cf, `${id} Lv${lv}: ${a.id} → ${b.id} の continueFrom`).toBeDefined();
+          expect(cf!.attack, `${id} Lv${lv}: ${a.id} → ${b.id}`).toBe(a.authored);
+          expect(cf!.t, `${id} Lv${lv}: ${a.id} → ${b.id} の受付の時刻`).toBeCloseTo(a.cancelAt, 6);
+        }
       }
     }
   });
 
   it('次の段へ移れる受付（cancelFrame）と回避のキャンセル（dodgeCancel）は、全体の中にあり、受付は持続（当たり）が終わったあと', () => {
     for (const id of SKILL_ORDER) {
-      for (const s of SKILLS[id].steps) {
-        const a = findAttack(s.attack)!;
+      for (const aid of allAttackIds(id)) {
+        const a = findAttack(aid)!;
         const fr = resolveAttack(a);
-        expect(fr.cancelFrame, `${id}: ${s.attack}`).toBeGreaterThanOrEqual(fr.startup + fr.active);
-        expect(fr.dodgeCancel, `${id}: ${s.attack}`).toBeLessThanOrEqual(fr.total);
-        expect(fr.dodgeCancel, `${id}: ${s.attack}`).toBeGreaterThan(0);
+        expect(fr.cancelFrame, `${id}: ${aid}`).toBeGreaterThanOrEqual(fr.startup + fr.active);
+        expect(fr.dodgeCancel, `${id}: ${aid}`).toBeLessThanOrEqual(fr.total);
+        expect(fr.dodgeCancel, `${id}: ${aid}`).toBeGreaterThan(0);
       }
     }
   });
 
   it('多段の技の窓は時間順で重ならず、窓の範囲が activeStart〜activeEnd と一致し、クリップの長さの中にある', () => {
     for (const id of SKILL_ORDER) {
-      for (const s of SKILLS[id].steps) {
-        const a = findAttack(s.attack)!;
+      for (const aid of allAttackIds(id)) {
+        const a = findAttack(aid)!;
         if (!a.windows) continue;
         let prevEnd = -1;
         for (const w of a.windows) {
-          expect(w.start, `${id}: ${s.attack}`).toBeGreaterThanOrEqual(prevEnd);
-          expect(w.end, `${id}: ${s.attack}`).toBeGreaterThan(w.start);
+          expect(w.start, `${id}: ${aid}`).toBeGreaterThanOrEqual(prevEnd);
+          expect(w.end, `${id}: ${aid}`).toBeGreaterThan(w.start);
           prevEnd = w.end;
         }
-        expect(a.activeStart, `${id}: ${s.attack}`).toBeCloseTo(a.windows[0]!.start, 6);
-        expect(a.activeEnd, `${id}: ${s.attack}`).toBeCloseTo(a.windows[a.windows.length - 1]!.end, 6);
-        expect(a.activeEnd, `${id}: ${s.attack}`).toBeLessThanOrEqual(a.segmentDuration);
+        expect(a.activeStart, `${id}: ${aid}`).toBeCloseTo(a.windows[0]!.start, 6);
+        expect(a.activeEnd, `${id}: ${aid}`).toBeCloseTo(a.windows[a.windows.length - 1]!.end, 6);
+        expect(a.activeEnd, `${id}: ${aid}`).toBeLessThanOrEqual(a.segmentDuration);
       }
     }
+  });
+
+  it('窓のグループ（同じ群は 1 回の当たり = 1 度だけ）は窓の順に 0 から連番で、echoes（余波の輪）は当たりの後ろの時刻にある', () => {
+    for (const id of SKILL_ORDER) {
+      for (const aid of allAttackIds(id)) {
+        const a = findAttack(aid)!;
+        if (a.windows) {
+          let prev = 0;
+          for (const w of a.windows) {
+            const g = w.group ?? 0;
+            expect(g, `${id}: ${aid}`).toBeGreaterThanOrEqual(prev);
+            expect(g - prev, `${id}: ${aid} の群の番号は 1 ずつ`).toBeLessThanOrEqual(1);
+            prev = g;
+          }
+        }
+        const fr = resolveAttack(a);
+        for (const im of fr.impacts) {
+          expect(im.frame, `${id}: ${aid} の接地の衝撃`).toBeGreaterThan(0);
+          expect(im.frame, `${id}: ${aid} の接地の衝撃`).toBeLessThanOrEqual(fr.total);
+        }
+      }
+    }
+  });
+
+  it('SKILL_ATTACKS に、どのスキルからも使われない攻撃は残っていない（作って忘れた定義の掃除）', () => {
+    const used = new Set<string>(SKILL_ORDER.flatMap(allAttackIds));
+    for (const aid of Object.keys(SKILL_ATTACKS)) expect(used.has(aid), aid).toBe(true);
   });
 
   it('剣技は 3 つ以上の当たりがあるもの（連なりの段 + 窓の数）が少なくとも 1 本ある。段の解放レベルは先頭が 1 で、後ろへ向けて単調に増える', () => {
@@ -135,6 +177,74 @@ describe('skillSteps: レベルで連なりが伸びる', () => {
   it('cooldown の倍率（INT など）が掛かる', () => {
     expect(skillCooldown(synth, 1, 0.5)).toBe(300);
     expect(skillCooldown(synth, 3)).toBe(Math.round(600 * 0.9));
+  });
+
+  it('進化（evolve）: 段の攻撃が、満たしている中でいちばん高いレベルのものに差し替わる。段の数・威力は変わらない', () => {
+    const evo: SkillDef = {
+      ...synth,
+      steps: [{ attack: 'a', evolve: [{ minLevel: 4, attack: 'a4' }, { minLevel: 7, attack: 'a7' }] }, { attack: 'b', minLevel: 2, evolve: [{ minLevel: 7, attack: 'b7' }] }],
+    };
+    expect(skillSteps(evo, 1).map((s) => s.attack)).toEqual(['a']);
+    expect(skillSteps(evo, 3).map((s) => s.attack)).toEqual(['a', 'b']);
+    expect(skillSteps(evo, 4).map((s) => s.attack)).toEqual(['a4', 'b']);
+    expect(skillSteps(evo, 6).map((s) => s.attack)).toEqual(['a4', 'b']);
+    expect(skillSteps(evo, 7).map((s) => s.attack)).toEqual(['a7', 'b7']);
+    expect(skillSteps(evo, 10).map((s) => s.attack)).toEqual(['a7', 'b7']);
+    expect(skillSteps(evo, 7)[0]!.power).toBeCloseTo(skillSteps(evo, 3)[0]!.power + 0.1 * 4, 9);
+    // evolve の並びが昇順でなくても、いちばん高い minLevel が勝つ
+    const rev: SkillDef = { ...synth, steps: [{ attack: 'a', evolve: [{ minLevel: 7, attack: 'a7' }, { minLevel: 4, attack: 'a4' }] }] };
+    expect(stepAttackAt(rev.steps[0]!, 5)).toBe('a4');
+    expect(stepAttackAt(rev.steps[0]!, 9)).toBe('a7');
+    expect(stepAttackAt(rev.steps[0]!, 1)).toBe('a');
+  });
+});
+
+describe('5 つの剣技の進化（Lv4 と Lv7 だけ。ADR-034）', () => {
+  it('モーション（連なりの攻撃 id）が変わるのは Lv3→4 と Lv6→7 の 2 回だけ。そのほかのレベルアップでは同じ連なりで数値だけが伸びる', () => {
+    for (const id of SKILL_ORDER) {
+      const changed: number[] = [];
+      for (let lv = 2; lv <= SKILL_LEVEL_MAX; lv++) {
+        if (chainAt(id, lv).join() !== chainAt(id, lv - 1).join()) changed.push(lv);
+      }
+      expect(changed, id).not.toEqual([]);
+      for (const lv of changed) expect([4, 7], `${id} Lv${lv}`).toContain(lv);
+    }
+  });
+
+  it('剣技ごとの連なり（Lv1 / Lv4 / Lv7）', () => {
+    expect(chainAt('yotsuba', 1)).toEqual(['skQuad1', 'skQuad2', 'skQuad3', 'skQuad4']);
+    expect(chainAt('yotsuba', 4)).toEqual(['skQuad1', 'skQuad2', 'skQuad3', 'skQuad4', 'skQuad5']);
+    expect(chainAt('yotsuba', 7)).toEqual(['skQuad1', 'skQuad2', 'skQuad3', 'skQuad4', 'skQuad5', 'skQuad6']);
+    expect(chainAt('samidare', 1)).toEqual(['skFlurry']);
+    expect(chainAt('samidare', 4)).toEqual(['skFlurry7']);
+    expect(chainAt('samidare', 7)).toEqual(['skFlurry9']);
+    expect(chainAt('tatsumaki', 1)).toEqual(['skWhirl']);
+    expect(chainAt('tatsumaki', 4)).toEqual(['skWhirl35']);
+    expect(chainAt('tatsumaki', 7)).toEqual(['skWhirl45']);
+    expect(chainAt('houzan', 1)).toEqual(['skGsSweep1', 'skGsSweep2', 'skGsSlam']);
+    expect(chainAt('houzan', 4)).toEqual(['skGsSweep1', 'skGsSweep2', 'skGsSlamLeap']);
+    expect(chainAt('houzan', 7)).toEqual(['skGsSweep1', 'skGsSweep2', 'skGsSlamLeap', 'skGsRip']);
+    expect(chainAt('issen', 1)).toEqual(['skGsIssen']);
+    expect(chainAt('issen', 4)).toEqual(['skGsIssen', 'skGsIssen2']);
+    expect(chainAt('issen', 7)).toEqual(['skGsIssen', 'skGsIssen2', 'skGsIssenLunge']);
+  });
+
+  it('進化のたびに、当たり（窓の数 + 段）は減らない = 進化は必ず「増える・派手になる」', () => {
+    const hits = (id: SkillId, lv: number): number => chainAt(id, lv).reduce((n, a) => n + (findAttack(a)!.windows?.length ?? 1), 0);
+    for (const id of SKILL_ORDER) {
+      expect(hits(id, 4), id).toBeGreaterThanOrEqual(hits(id, 1));
+      expect(hits(id, 7), id).toBeGreaterThanOrEqual(hits(id, 4));
+      expect(hits(id, 7), id).toBeGreaterThan(hits(id, 1));
+    }
+  });
+
+  it('進化の説明（evolutions）は Lv4 と Lv7 の 2 件', () => {
+    for (const id of SKILL_ORDER) {
+      const ev = SKILLS[id].evolutions;
+      expect(ev, id).toBeDefined();
+      expect(ev!.map((e) => e.level)).toEqual([4, 7]);
+      for (const e of ev!) expect(e.text.length, `${id} Lv${e.level}`).toBeGreaterThan(4);
+    }
   });
 });
 
@@ -243,5 +353,38 @@ describe('SkillBook', () => {
     expect(b.ready(id)).toBe(true);
     expect(b.level(id)).toBe(4);
     expect(b.selectedFor('sword')!.id).toBe(id);
+  });
+});
+
+describe('画面に出すスキルの数値（skillInfo）と選択のクリア', () => {
+  it('レベルが上がるほど威力が伸び、クールダウンが縮み、連なりは伸びる（または同じ）', () => {
+    for (const id of SKILL_ORDER) {
+      const def = SKILLS[id];
+      let prev = skillInfo(def, 1);
+      for (let lv = 2; lv <= SKILL_LEVEL_MAX; lv++) {
+        const cur = skillInfo(def, lv);
+        expect(cur.power, `${id} Lv${lv}`).toBeGreaterThan(prev.power);
+        expect(cur.cooldownSec, `${id} Lv${lv}`).toBeLessThan(prev.cooldownSec);
+        expect(cur.steps, `${id} Lv${lv}`).toBeGreaterThanOrEqual(prev.steps);
+        prev = cur;
+      }
+    }
+  });
+  it('数値はなめらかに伸びる（Lv10 でも威力 +45%・クールダウン −31.5% 前後）', () => {
+    const def = SKILLS.yotsuba;
+    const a = skillInfo(def, 1);
+    const b = skillInfo(def, SKILL_LEVEL_MAX);
+    expect(b.power / a.power).toBeGreaterThan(1.3);
+    expect(b.power / a.power).toBeLessThan(1.5);
+    expect(b.cooldownSec / a.cooldownSec).toBeGreaterThan(0.6);
+    expect(b.cooldownSec / a.cooldownSec).toBeLessThan(0.75);
+  });
+  it('選択をクリアすると、系統の最初のスキルに戻る', () => {
+    const b = new SkillBook();
+    b.select('tatsumaki');
+    expect(b.selectedFor('sword')!.id).toBe('tatsumaki');
+    b.clearSelection();
+    expect(b.selectedFor('sword')!.id).toBe(SKILL_ORDER.find((id) => SKILLS[id].family === 'sword'));
+    expect(b.selection()).toEqual({});
   });
 });

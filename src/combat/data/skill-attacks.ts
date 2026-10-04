@@ -1,6 +1,51 @@
 import { ATTACKS, type AttackDef, type HitWindow } from './attacks';
-import { FLURRY, FLURRY_COUNT, QUAD3, QUAD3_HOLD_T, QUAD4, QUAD4_HOLD_T, WHIRL, WHIRL_PASSES, WHIRL_STOP_T, flurryThrustT } from '../../character/data/skill-sword';
-import { GSK_ISSEN, GSK_SLAM, GSK_SLAM_IMPACT_T, GSK_SWEEP1, GSK_SWEEP1_HOLD_T, GSK_SWEEP2, GSK_SWEEP2_HOLD_T, ISSEN_DASH_FROM, ISSEN_PASS_T } from '../../character/data/skill-greatsword';
+import {
+  FLURRY,
+  FLURRY5,
+  FLURRY7,
+  FLURRY9,
+  FLURRY_7,
+  FLURRY_9,
+  QUAD3,
+  QUAD3_HOLD_T,
+  QUAD4,
+  QUAD4_HOLD_T,
+  QUAD5,
+  QUAD5_HOLD_T,
+  QUAD6,
+  QUAD6_PASSES,
+  WHIRL,
+  WHIRL25,
+  WHIRL35,
+  WHIRL45,
+  WHIRL_35,
+  WHIRL_45,
+  flurryTimes,
+  whirlPasses,
+  whirlTimes,
+  type FlurrySpec,
+  type WhirlSpec,
+} from '../../character/data/skill-sword';
+import type { AuthoredAttack } from '../../character/authoring';
+import {
+  GSK_ISSEN,
+  GSK_ISSEN_BACK,
+  GSK_ISSEN_BACK_HOLD_T,
+  GSK_ISSEN_LUNGE,
+  GSK_RIP,
+  GSK_SLAM,
+  GSK_SLAM_IMPACT_T,
+  GSK_SLAM_LEAP,
+  GSK_SLAM_LEAP_HOLD_T,
+  GSK_SLAM_LEAP_IMPACT_T,
+  GSK_SWEEP1,
+  GSK_SWEEP1_HOLD_T,
+  GSK_SWEEP2,
+  GSK_SWEEP2_HOLD_T,
+  ISSEN_DASH_FROM,
+  ISSEN_HOLD_T,
+  ISSEN_PASS_T,
+} from '../../character/data/skill-greatsword';
 import type { HitboxDef } from '../hit';
 
 const deg = (d: number) => (d * Math.PI) / 180;
@@ -62,59 +107,121 @@ SKILL_ATTACKS.skQuad4 = {
   fade: 0.05,
 };
 
-// 高速突き 5 連（五月雨突き）: 細く前へ長い線の当たり。5 回の窓（突きが伸び切る前後）
-const FLURRY_BOX: HitboxDef = { kind: 'line', length: 3.1, radius: 0.32 };
-const FLURRY_WINDOWS = windows(Array.from({ length: FLURRY_COUNT }, (_, n) => flurryThrustT(n)), 0.015, 0.04, { hitbox: FLURRY_BOX });
-SKILL_ATTACKS.skFlurry = {
-  id: 'skFlurry',
-  segment: 'flurry',
-  authored: FLURRY,
-  segmentDuration: FLURRY.duration,
-  activeStart: FLURRY_WINDOWS[0]!.start,
-  activeEnd: FLURRY_WINDOWS[FLURRY_COUNT - 1]!.end,
-  cancelAt: 999,
-  trail: [0.08, 0.7],
-  rate: 1,
+// 突き込み（四ツ葉の 5 つ目。Lv4 から）: 右足を踏み込んで真っ直ぐ突く。細く前へ長い線の当たり
+SKILL_ATTACKS.skQuad5 = {
+  id: 'skQuad5',
+  segment: 'quad5',
+  authored: QUAD5,
+  segmentDuration: QUAD5.duration,
+  activeStart: 0.15,
+  activeEnd: 0.23,
+  cancelAt: QUAD5_HOLD_T,
+  trail: [0.12, 0.3],
+  rate: 1.1,
   lunge: 0,
-  hitbox: FLURRY_BOX,
-  windows: FLURRY_WINDOWS,
-  // 最初の突きのあとから、回避・ガードで途中でやめられる
-  dodgeCancelAt: FLURRY_WINDOWS[0]!.end + 0.02,
-  damage: 7,
-  hitStop: 3,
-  knockback: 0.3,
-  fade: 0.06,
+  hitbox: { kind: 'line', length: 3.4, radius: 0.42 },
+  damage: 20,
+  hitStop: 8,
+  knockback: 2.2,
+  fade: 0.05,
+};
+// 回し斬り（四ツ葉の 6 つ目。Lv7 から）: 1 回転して、前の半円に 1 回・後ろの半円に 1 回
+const QUAD6_HALF: HitboxDef = { kind: 'arc', range: 2.3, halfAngle: deg(90) };
+const QUAD6_WINDOWS = windows(
+  QUAD6_PASSES.map((p) => p.t),
+  0.05,
+  0.05,
+  (i) => (QUAD6_PASSES[i]!.rear ? { hitbox: QUAD6_HALF, yawOffset: Math.PI } : { hitbox: QUAD6_HALF }),
+);
+SKILL_ATTACKS.skQuad6 = {
+  id: 'skQuad6',
+  segment: 'quad6',
+  authored: QUAD6,
+  segmentDuration: QUAD6.duration,
+  activeStart: QUAD6_WINDOWS[0]!.start,
+  activeEnd: QUAD6_WINDOWS[QUAD6_WINDOWS.length - 1]!.end,
+  cancelAt: 999,
+  trail: [0.14, 0.4],
+  rate: 1.1,
+  lunge: 0,
+  hitbox: QUAD6_HALF,
+  windows: QUAD6_WINDOWS,
+  dodgeCancelAt: QUAD6_WINDOWS[0]!.end + 0.03,
+  damage: 14,
+  hitStop: 6,
+  knockback: 1.0,
+  fade: 0.05,
 };
 
-// 回転斬り 2 周半（竜巻）: 前・後ろ・前・後ろ・前の 5 回の窓（前の半円に 3 回、後ろの半円に 2 回）。回っているあいだはスーパーアーマー
+// 高速突き（五月雨突き）: 細く前へ長い線の当たり。突きが伸び切る前後に窓。レベルで 5 → 7 → 9 連（9 連はとどめの突きが深く長い）
+const FLURRY_BOX: HitboxDef = { kind: 'line', length: 3.1, radius: 0.32 };
+const FLURRY_FINAL_BOX: HitboxDef = { kind: 'line', length: 3.8, radius: 0.4 };
+function flurryAttack(id: string, spec: FlurrySpec, clip: AuthoredAttack, damage: number): AttackDef {
+  const times = flurryTimes(spec);
+  const ws = windows(times, 0.015, 0.04, (i) =>
+    spec.finisher && i === times.length - 1 ? { hitbox: FLURRY_FINAL_BOX, damageScale: 2.2, knockbackScale: 4, hitStopScale: 2.4 } : { hitbox: FLURRY_BOX },
+  );
+  return {
+    id,
+    segment: spec.id,
+    authored: clip,
+    segmentDuration: clip.duration,
+    activeStart: ws[0]!.start,
+    activeEnd: ws[ws.length - 1]!.end,
+    cancelAt: 999,
+    trail: [0.08, times[times.length - 1]! + 0.1],
+    rate: 1,
+    lunge: 0,
+    hitbox: FLURRY_BOX,
+    windows: ws,
+    // 最初の突きのあとから、回避・ガードで途中でやめられる
+    dodgeCancelAt: ws[0]!.end + 0.02,
+    damage,
+    hitStop: 3,
+    knockback: 0.3,
+    fade: 0.06,
+  };
+}
+SKILL_ATTACKS.skFlurry = flurryAttack('skFlurry', FLURRY5, FLURRY, 7);
+SKILL_ATTACKS.skFlurry7 = flurryAttack('skFlurry7', FLURRY7, FLURRY_7, 7);
+SKILL_ATTACKS.skFlurry9 = flurryAttack('skFlurry9', FLURRY9, FLURRY_9, 7);
+
+// 回転斬り（竜巻）: 前・後ろ・前・後ろ…の窓（2 周半で前の半円に 3 回・後ろに 2 回）。回っているあいだはスーパーアーマー。レベルで 2.5 → 3.5 → 4.5 周
 const WHIRL_HALF: HitboxDef = { kind: 'arc', range: 2.3, halfAngle: deg(80) };
-const WHIRL_WINDOWS = windows(
-  WHIRL_PASSES.map((p) => p.t),
-  0.05,
-  0.05,
-  (i) => (WHIRL_PASSES[i]!.rear ? { hitbox: WHIRL_HALF, yawOffset: Math.PI } : { hitbox: WHIRL_HALF }),
-);
-SKILL_ATTACKS.skWhirl = {
-  id: 'skWhirl',
-  segment: 'whirl',
-  authored: WHIRL,
-  segmentDuration: WHIRL.duration,
-  activeStart: WHIRL_WINDOWS[0]!.start,
-  activeEnd: WHIRL_WINDOWS[WHIRL_WINDOWS.length - 1]!.end,
-  cancelAt: 999,
-  trail: [0.2, WHIRL_STOP_T],
-  rate: 1,
-  lunge: 0,
-  hitbox: WHIRL_HALF,
-  windows: WHIRL_WINDOWS,
-  // 回り始めてからずっとスーパーアーマー（岩鬼・ボスの重い攻撃には割られる）
-  armor: { from: 0.12, to: WHIRL_STOP_T, breakDamage: 28 },
-  dodgeCancelAt: WHIRL_WINDOWS[0]!.end + 0.03,
-  damage: 9,
-  hitStop: 4,
-  knockback: 0.9,
-  fade: 0.08,
-};
+function whirlAttack(id: string, spec: WhirlSpec, clip: AuthoredAttack, damage: number): AttackDef {
+  const passes = whirlPasses(spec);
+  const ws = windows(
+    passes.map((p) => p.t),
+    0.05,
+    0.05,
+    (i) => (passes[i]!.rear ? { hitbox: WHIRL_HALF, yawOffset: Math.PI } : { hitbox: WHIRL_HALF }),
+  );
+  const stopT = whirlTimes(spec).stopT;
+  return {
+    id,
+    segment: spec.id,
+    authored: clip,
+    segmentDuration: clip.duration,
+    activeStart: ws[0]!.start,
+    activeEnd: ws[ws.length - 1]!.end,
+    cancelAt: 999,
+    trail: [0.2, stopT],
+    rate: 1,
+    lunge: 0,
+    hitbox: WHIRL_HALF,
+    windows: ws,
+    // 回り始めてからずっとスーパーアーマー（岩鬼・ボスの重い攻撃には割られる）
+    armor: { from: 0.12, to: stopT, breakDamage: 28 },
+    dodgeCancelAt: ws[0]!.end + 0.03,
+    damage,
+    hitStop: 4,
+    knockback: 0.9,
+    fade: 0.08,
+  };
+}
+SKILL_ATTACKS.skWhirl = whirlAttack('skWhirl', WHIRL25, WHIRL, 9);
+SKILL_ATTACKS.skWhirl35 = whirlAttack('skWhirl35', WHIRL35, WHIRL_35, 8);
+SKILL_ATTACKS.skWhirl45 = whirlAttack('skWhirl45', WHIRL45, WHIRL_45, 7);
 
 // ---------------------------------------------------------------- 大剣
 // 崩山: 右からの払い → 左からの払い → 叩きつけ（衝撃波）。払いは途中で敵の攻撃に割られる（スーパーアーマーなし）。叩きつけは振りかぶりから地面を叩くまでスーパーアーマー
@@ -188,7 +295,8 @@ SKILL_ATTACKS.skGsIssen = {
   segmentDuration: GSK_ISSEN.duration,
   activeStart: ISSEN_PASS_T - 0.05,
   activeEnd: ISSEN_PASS_T + 0.07,
-  cancelAt: 999,
+  // 振り抜いた姿勢を保つあいだ、次段（返し斬り。Lv4 から）が続く
+  cancelAt: ISSEN_HOLD_T,
   trail: [ISSEN_DASH_FROM + 0.03, 0.8],
   rate: 1,
   lunge: 0,
@@ -199,6 +307,100 @@ SKILL_ATTACKS.skGsIssen = {
   hitStop: 14,
   knockback: 3.6,
   fade: 0.06,
+};
+
+// ---- 進化（ADR-034）----
+// 飛翔崩山（崩山 Lv4 から。叩きつけがこれに替わる）: 跳び込んで叩きつけ、衝撃波が 2 重（内側の輪 → 遅れて外側の大きな輪。外側は別の組 = もう一度当たる）。地面の演出も 2 回
+const LEAP_IMPACT_T = GSK_SLAM_LEAP_IMPACT_T;
+const LEAP_STRIKE: HitboxDef = { kind: 'arc', range: 3.6, halfAngle: deg(110) };
+const LEAP_SHOCK1: HitboxDef = { kind: 'circle', offset: 2.0, radius: 3.4 };
+const LEAP_SHOCK2: HitboxDef = { kind: 'circle', offset: 2.0, radius: 5.4 };
+SKILL_ATTACKS.skGsSlamLeap = {
+  id: 'skGsSlamLeap',
+  segment: 'gskSlamLeap',
+  authored: GSK_SLAM_LEAP,
+  segmentDuration: GSK_SLAM_LEAP.duration,
+  activeStart: LEAP_IMPACT_T - 0.07,
+  activeEnd: LEAP_IMPACT_T + 0.3,
+  // 保つ姿勢のあいだ、次段（地裂。Lv7 から）が続く
+  cancelAt: GSK_SLAM_LEAP_HOLD_T,
+  trail: [0.2, LEAP_IMPACT_T + 0.08],
+  rate: 1,
+  lunge: 0,
+  impact: { t: LEAP_IMPACT_T, dist: 2.0, power: 1.5 },
+  echoes: [{ t: LEAP_IMPACT_T + 0.18, dist: 2.0, power: 1.7 }],
+  hitbox: LEAP_STRIKE,
+  windows: [
+    { start: LEAP_IMPACT_T - 0.07, end: LEAP_IMPACT_T + 0.03, hitbox: LEAP_STRIKE, group: 0 },
+    { start: LEAP_IMPACT_T + 0.03, end: LEAP_IMPACT_T + 0.15, hitbox: LEAP_SHOCK1, damageScale: 0.6, knockbackScale: 1.3, hitStopScale: 0.7, group: 0 },
+    { start: LEAP_IMPACT_T + 0.15, end: LEAP_IMPACT_T + 0.3, hitbox: LEAP_SHOCK2, damageScale: 0.45, knockbackScale: 1.6, hitStopScale: 0.6, group: 1 },
+  ],
+  // 跳び上がってから、地面を叩く少しあとまでスーパーアーマー（飛翔崩山のほうが強い）
+  armor: { from: 0.12, to: LEAP_IMPACT_T + 0.15, breakDamage: 34 },
+  dodgeCancelAt: LEAP_IMPACT_T + 0.3,
+  damage: 50,
+  hitStop: 14,
+  knockback: 3.2,
+  fade: 0.05,
+};
+// 地裂（崩山 Lv7 から）: 叩きつけた剣で地面をえぐって斬り上げ、前方へ長い衝撃を走らせる（長い線の当たり）
+SKILL_ATTACKS.skGsRip = {
+  id: 'skGsRip',
+  segment: 'gskRip',
+  authored: GSK_RIP,
+  segmentDuration: GSK_RIP.duration,
+  activeStart: 0.16,
+  activeEnd: 0.3,
+  cancelAt: 999,
+  trail: [0.1, 0.38],
+  rate: 1.05,
+  lunge: 0,
+  impact: { t: 0.2, dist: 2.6, power: 0.8 },
+  hitbox: { kind: 'line', length: 4.8, radius: 0.75 },
+  dodgeCancelAt: 0.3,
+  damage: 36,
+  hitStop: 10,
+  knockback: 3.0,
+  fade: 0.05,
+};
+// 返し斬り（一閃 Lv4 から）: 斬り抜けた剣を引き込み、振り返りざまに右へ薙ぎ戻す
+SKILL_ATTACKS.skGsIssen2 = {
+  id: 'skGsIssen2',
+  segment: 'gskIssenBack',
+  authored: GSK_ISSEN_BACK,
+  segmentDuration: GSK_ISSEN_BACK.duration,
+  activeStart: 0.2,
+  activeEnd: 0.3,
+  cancelAt: GSK_ISSEN_BACK_HOLD_T,
+  trail: [0.13, 0.38],
+  rate: 1.1,
+  lunge: 0,
+  hitbox: { kind: 'arc', range: 3.2, halfAngle: deg(100) },
+  armor: { from: 0.04, to: 0.32, breakDamage: 22 },
+  dodgeCancelAt: 0.3,
+  damage: 30,
+  hitStop: 10,
+  knockback: 2.4,
+  fade: 0.05,
+};
+// 突き抜け（一閃 Lv7 から）: 牛の構えから体ごと飛び込んで貫く。長く重い締めの 1 撃（長い線の当たり）
+SKILL_ATTACKS.skGsIssenLunge = {
+  id: 'skGsIssenLunge',
+  segment: 'gskIssenLunge',
+  authored: GSK_ISSEN_LUNGE,
+  segmentDuration: GSK_ISSEN_LUNGE.duration,
+  activeStart: 0.23,
+  activeEnd: 0.31,
+  cancelAt: 999,
+  trail: [0.18, 0.42],
+  rate: 1,
+  lunge: 0,
+  hitbox: { kind: 'line', length: 4.0, radius: 0.5 },
+  dodgeCancelAt: 0.31,
+  damage: 40,
+  hitStop: 12,
+  knockback: 3.4,
+  fade: 0.05,
 };
 
 /** 攻撃 id から定義を探す（ふつうの攻撃 → 剣技専用の攻撃の順） */

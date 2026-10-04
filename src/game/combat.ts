@@ -22,6 +22,9 @@ export interface AttackerView {
   readonly hitWindow?: ResolvedWindow | null;
   /** いまの攻撃の威力の倍率（溜めの段階。1 = 等倍）。ダメージ・ノックバック・ヒットストップに掛かる */
   readonly attackPower: number;
+  /** ダメージ・ノックバックの倍率（STR。Modifiers。省略 = 等倍） */
+  readonly damageMul?: number;
+  readonly knockbackMul?: number;
   readonly body: Circle;
   readonly yaw: number;
   readonly hitTracker: HitTracker;
@@ -81,9 +84,9 @@ export function resolvePlayerAttack<T extends CombatTarget>(
     // 弾かれて動けない敵への攻撃は反撃: ダメージが大きく、ノックバックは小さい（遠くへ飛ばさず、続けて当てられる）
     const riposte = target.riposte ?? null;
     const ev = makeHitEvent(PLAYER_ID, _origin, box, {
-      damage: Math.round(atk.damage * (win?.damageScale ?? 1) * p * (riposte ? riposte.riposteDamageScale : 1)),
+      damage: Math.round(atk.damage * (win?.damageScale ?? 1) * p * (attacker.damageMul ?? 1) * (riposte ? riposte.riposteDamageScale : 1)),
       // ノックバックは威力の半分だけ倍率を掛ける（吹き飛びすぎない）。ヒットストップは威力に比例して伸びる
-      knockback: atk.knockback * (win?.knockbackScale ?? 1) * (1 + (p - 1) * 0.5) * (riposte ? riposte.riposteKnockbackScale : 1),
+      knockback: atk.knockback * (win?.knockbackScale ?? 1) * (1 + (p - 1) * 0.5) * (attacker.knockbackMul ?? 1) * (riposte ? riposte.riposteKnockbackScale : 1),
       hitStop: Math.min(Math.round(atk.hitStop * (win?.hitStopScale ?? 1) * p), HIT_FEEDBACK.maxHitStop),
     });
     const result = target.takeHit(ev);
