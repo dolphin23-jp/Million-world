@@ -19,7 +19,7 @@ const WINDUP = {
  * 振り抜きの終わりのポーズ（前足の上に腰が乗り、膝を曲げたまま前傾）。次段（2 段目）はこの姿勢（0.37s）から続けて始まる（combo2 の continueFrom）。
  * 受付はここから戻りの手前まで続くので、そのあいだは姿勢を保つ（遅めに押しても同じ姿勢からつながる）
  */
-const FOLLOW = {
+export const FOLLOW = {
   hips: { yaw: -16, pitch: 9, z: 0.05, y: -0.1 },
   chest: { yaw: -30, pitch: 14 },
   head: { yaw: -10 },

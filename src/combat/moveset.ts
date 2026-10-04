@@ -47,6 +47,20 @@ export function pickAttack(m: Moveset, ctx: AttackContext): string {
   }
 }
 
+/**
+ * コンボの次段の受付で、どの技へ続けるか（ADR-023）。AttackDef.branches がスティックの向きごとの技を持つ。
+ * スティックを倒していない、またはその向きの技が無ければ next（コンボの普通の続き）。続きが無ければ undefined（コンボの終わり）。
+ */
+export function pickFollowUp(next: string | undefined, branches: Partial<Record<'forward' | 'back' | 'side', string>> | undefined, stick: StickDir): string | undefined {
+  if (stick === 'none') return next;
+  return branches?.[stick] ?? next;
+}
+
+/** 溜め（長押し）を放つとき、段階に応じてどの技を出すか（ChargeDef.levelNext。無ければ next） */
+export function pickChargeRelease(next: string, levelNext: readonly (string | undefined)[] | undefined, level: number): string {
+  return levelNext?.[level] ?? next;
+}
+
 /** 回避が終わってからの経過フレームから、回避直後かを判定する（dodgeKind は直近の回避の種類） */
 export function afterDodgeOf(framesSinceDodge: number, kind: 'roll' | 'back'): AfterDodge {
   return framesSinceDodge <= DASH_WINDOW_FRAMES ? kind : null;

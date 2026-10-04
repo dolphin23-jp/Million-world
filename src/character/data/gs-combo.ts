@@ -14,7 +14,7 @@ type V3 = [number, number, number];
 const TILT = 46;
 
 /** 予備動作の頂点: 右へひねって剣を右肩の後ろへ大きく振りかぶる。腰を沈めて後ろ足に体重を乗せる。頂点で一拍止める */
-const WINDUP = {
+export const WINDUP = {
   hips: { yaw: 20, pitch: -4, z: -0.05, y: -0.12 },
   chest: { yaw: 42, pitch: -8 },
   head: { yaw: 10 },
@@ -25,7 +25,7 @@ const WINDUP = {
 };
 
 /** 斬りの途中（体の前を通る最高速）: 腰・胸は正面を向き、腕が前へ伸びる。踏み込んだ前足の上に腰が沈む */
-const PASS = {
+export const PASS = {
   hips: { yaw: 0, pitch: 8, z: 0.06, y: -0.2 },
   chest: { yaw: 0, pitch: 12 },
   head: { yaw: 0 },
@@ -39,7 +39,7 @@ const PASS = {
  * 振り抜きの終わり: 剣は左の前下に流れ、体は左へひねり切る。切っ先は床の上 0.2m 付近で止まる（刃は長いので、下へ向けすぎると床に刺さる）。
  * 2 段目はこの姿勢（0.56s）から続けて始まる（受付はここから戻りの手前まで続くので、姿勢を保つ）
  */
-const FOLLOW = {
+export const FOLLOW = {
   hips: { yaw: -14, pitch: 10, z: 0.06, y: -0.22 },
   chest: { yaw: -30, pitch: 15 },
   head: { yaw: -10 },
@@ -107,7 +107,7 @@ const PASS2 = {
 };
 
 /** 振り上げの終わり: 剣は右上へ抜け、体は右へひねり切って反る */
-const FINISH2 = {
+export const FINISH2 = {
   hips: { yaw: 14, pitch: 2, z: 0.04, y: -0.14 },
   chest: { yaw: 30, pitch: 0 },
   head: { yaw: 10 },

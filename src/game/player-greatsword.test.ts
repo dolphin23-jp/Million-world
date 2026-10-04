@@ -167,7 +167,7 @@ describe('大剣: 溜め斬り', () => {
     expect(p.attackActive).toBe(false);
   });
 
-  it('離すと溜め斬り（gsHeavy）を放つ。威力は離した時点の段階の倍率で、最高段階は片手剣より大きい', () => {
+  it('離すと溜め斬り（gsHeavy）を放つ。最大の段階まで溜めたときだけ地割り（gsSmash）。威力は離した時点の段階の倍率で、最高段階は片手剣より大きい', () => {
     for (let level = 0; level <= c.levels.length; level++) {
       const p = greatsword();
       enterCharge(p);
@@ -175,7 +175,7 @@ describe('大剣: 溜め斬り', () => {
       while (p.chargeLevel < level) step(p, { attackHeld: true });
       step(p); // 離す
       expect(p.state, `段階 ${level}`).toBe('attack');
-      expect(p.attack!.id).toBe('gsHeavy');
+      expect(p.attack!.id, `段階 ${level}`).toBe(level === c.levels.length ? 'gsSmash' : 'gsHeavy');
       expect(p.attackPower).toBe(c.levelPower[level]);
     }
     expect(c.levelPower[c.levelPower.length - 1]).toBeGreaterThan(CHARGES.sword!.levelPower[CHARGES.sword!.levelPower.length - 1]!);

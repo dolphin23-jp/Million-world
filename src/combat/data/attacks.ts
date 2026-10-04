@@ -17,6 +17,10 @@ import { SWEEP } from '../../character/data/sweep';
 import { GS1, GS2 } from '../../character/data/gs-combo';
 import { GS_DASH, GS_LUNGE, GS_RETREAT, GS_RISE, GS_SPIN } from '../../character/data/gs-moves';
 import { GS_CHARGE, GS_HEAVY } from '../../character/data/gs-heavy';
+import { GS_SMASH } from '../../character/data/gs-smash';
+import { GS_DROP } from '../../character/data/gs-drop';
+import { GS_SPIN2 } from '../../character/data/gs-chain';
+import { COMBO_HOP, COMBO_SPIN, COMBO_UPPER } from '../../character/data/combo-chain';
 import type { HitboxDef } from '../hit';
 
 const deg = (d: number) => (d * Math.PI) / 180;
@@ -39,8 +43,19 @@ export interface AttackDef {
   rate: number;
   /** 持続中に前進する距離（m）。手付け（authored）の攻撃では使わない */
   lunge: number;
-  /** 次段の攻撃 id。なければコンボ終端 */
+  /** 次段の攻撃 id。なければコンボ終端（branches があれば、スティックを倒して押したときだけ続きがある） */
   next?: string;
+  /**
+   * 次段の受付で、押した瞬間のスティックの向き（ロック中は対象に対して。classifyStick）で技を変える（ADR-023）。
+   * 向きが無いとき（スティックを倒していない）は next。next が無い技では、ここに書いた向きで押したときだけ続きがある（コンボの延長）。
+   * 前へ倒したままボタンを連打する人が多いので、next のある技の 'forward' は、普通の続き（next）を奪わない向き（横・後ろ）を使うこと
+   */
+  branches?: Partial<Record<'forward' | 'back' | 'side', string>>;
+  /**
+   * 地面を叩く技（ADR-023）: 剣が床に当たる時刻（区間先頭からの秒）と、そのとき剣先が床に触れる位置（攻撃者の正面へ m）、強さ（0.3〜1.5。砂ぼこり・揺れ・ヒットストップ）。
+   * その時刻に砂ぼこりの輪・画面の揺れ・ヒットストップ・音を出す（敵に当たらなくても出る）
+   */
+  impact?: { t: number; dist: number; power: number };
   /** この攻撃へ入るときのクロスフェード秒（省略時 0.08）。前の技との姿勢差が大きいほど長くする */
   fade?: number;
   /**
@@ -101,6 +116,8 @@ export const ATTACKS: Record<string, AttackDef> = {
     rate: 1,
     lunge: 0,
     next: 'combo2',
+    // 受付でロック中にスティックを後ろへ倒して押すと、跳び退き斬り上げ（comboHop。ADR-023）。そのまま押せば 2 段目
+    branches: { back: 'comboHop' },
     hitbox: { kind: 'arc', range: 2.0, halfAngle: deg(65) },
     damage: 10,
     hitStop: 4,
@@ -121,6 +138,8 @@ export const ATTACKS: Record<string, AttackDef> = {
     rate: 1,
     lunge: 0,
     next: 'combo3',
+    // 受付でロック中にスティックを横へ倒して押すと、回転斬り（comboSpin）。そのまま押せば 3 段目
+    branches: { side: 'comboSpin' },
     hitbox: { kind: 'arc', range: 2.0, halfAngle: deg(65) },
     damage: 12,
     hitStop: 5,
@@ -137,15 +156,74 @@ export const ATTACKS: Record<string, AttackDef> = {
     segmentDuration: COMBO3.duration,
     activeStart: 0.15,
     activeEnd: 0.24,
-    cancelAt: 999,
+    // 受付は突き切った姿勢を保つ 0.34s から。前へ倒して押したときだけ打ち上げ（comboUpper）に続く（そのまま押すだけでは続かない。3 連で終わる。ADR-023）
+    cancelAt: 0.34,
     trail: [0.1, 0.34],
     rate: 1,
     lunge: 0,
+    branches: { forward: 'comboUpper' },
     hitbox: { kind: 'line', length: 2.2, radius: 0.3 },
     damage: 18,
     hitStop: 8,
     knockback: 1.2,
     fade: 0.05,
+  },
+  // 跳び退き斬り上げ（1 段目の受付でロック中に後ろへ倒して攻撃。ADR-023）: 左前下へ振り抜いた剣を引き込み、後ろへ 1.0 m 跳びながら左下から右上へ斬り上げる。0.17 に前を通る最高速。当たりは跳び始めの 0.13〜0.22s。
+  // 間合いを取り直しながら敵を押し返す安全な逆襲（下がりながらの払いより威力が高い）。1 段目の受付時点（0.37s）の姿勢から続ける（continueFrom）。
+  comboHop: {
+    id: 'comboHop',
+    segment: 'comboHop',
+    authored: COMBO_HOP,
+    segmentDuration: COMBO_HOP.duration,
+    activeStart: 0.13,
+    activeEnd: 0.22,
+    cancelAt: 999,
+    trail: [0.08, 0.28],
+    rate: 1,
+    lunge: 0,
+    hitbox: { kind: 'arc', range: 2.1, halfAngle: deg(75) },
+    damage: 12,
+    hitStop: 6,
+    knockback: 1.8,
+    fade: 0.05,
+  },
+  // 回転斬り（2 段目の受付でロック中に横へ倒して攻撃。ADR-023）: 右上へ振り抜いた体を右へ巻き込んで沈み、跳び上がって体ごと左へ 1 回転しながら水平の円を描く。回転は 0.12〜0.34s、剣が全周を通るのは 0.16〜0.32s（当たりもこの間）。
+  // 全方位を薙ぐ。2 段目の受付時点（0.34s）の姿勢から続ける（continueFrom）。
+  comboSpin: {
+    id: 'comboSpin',
+    segment: 'comboSpin',
+    authored: COMBO_SPIN,
+    segmentDuration: COMBO_SPIN.duration,
+    activeStart: 0.16,
+    activeEnd: 0.32,
+    cancelAt: 999,
+    trail: [0.12, 0.34],
+    rate: 1,
+    lunge: 0,
+    hitbox: { kind: 'arc', range: 2.1, halfAngle: deg(180) },
+    damage: 15,
+    hitStop: 7,
+    knockback: 1.6,
+    fade: 0.05,
+  },
+  // 打ち上げ（3 段目の突きの受付で前へ倒して攻撃。ADR-023）: 突き切った剣を右腰へ引き戻して沈み、跳び上がりながら下から縦に斬り上げる。0.2 に前を通る最高速。当たりは 0.16〜0.27s。
+  // 敵を打ち上げるような強い一撃（片手剣の 4 段目に当たる。ダメージは 3 段目より大きく、ノックバックも大きい）。3 段目の受付時点（0.34s）の姿勢から続ける（continueFrom）。
+  comboUpper: {
+    id: 'comboUpper',
+    segment: 'comboUpper',
+    authored: COMBO_UPPER,
+    segmentDuration: COMBO_UPPER.duration,
+    activeStart: 0.16,
+    activeEnd: 0.27,
+    cancelAt: 999,
+    trail: [0.1, 0.32],
+    rate: 1,
+    lunge: 0,
+    hitbox: { kind: 'arc', range: 2.3, halfAngle: deg(60) },
+    damage: 22,
+    hitStop: 10,
+    knockback: 2.6,
+    fade: 0.06,
   },
   // 重撃（溜めを放つ）: 手付けの縦斬り（src/character/data/heavy.ts、0.62s）。溜め（CHARGES.sword の構え = 頭上）から始まり、右足を踏み込んで 0.18s に剣が体の前を水平に通る最高速（約 84m/s）、
   // 0.25s で前下に叩きつけて止まる。当たりは最高速の前後 0.15〜0.23s（5 フレーム）。右足が 0.18s に腰の 0.4 m 前へ飛び込んで着地し、ルートは 0.81m 進む（単発なので戻りの途中まで進んでよい）。
@@ -256,6 +334,8 @@ export const ATTACKS: Record<string, AttackDef> = {
     rate: 1,
     lunge: 0,
     next: 'gs2',
+    // 受付でスティックを横へ倒して押すと、連携回転斬り（gsSpin2）。そのまま押せば 2 段目（ADR-023）
+    branches: { side: 'gsSpin2' },
     hitbox: { kind: 'arc', range: 2.7, halfAngle: deg(85) },
     damage: 22,
     hitStop: 8,
@@ -270,10 +350,12 @@ export const ATTACKS: Record<string, AttackDef> = {
     segmentDuration: GS2.duration,
     activeStart: 0.17,
     activeEnd: 0.27,
-    cancelAt: 999,
+    // 受付は振り抜きの姿勢を保つ 0.46s から。前へ倒して押したときだけ叩き落とし（gsDrop）に続く（そのまま押すだけでは続かない。2 連で終わる）
+    cancelAt: 0.46,
     trail: [0.1, 0.34],
     rate: 1,
     lunge: 0,
+    branches: { forward: 'gsDrop' },
     hitbox: { kind: 'arc', range: 2.8, halfAngle: deg(90) },
     damage: 30,
     hitStop: 10,
@@ -389,6 +471,65 @@ export const ATTACKS: Record<string, AttackDef> = {
     knockback: 3.4,
     fade: 0.04,
   },
+  // 連携回転斬り（1 段目の受付で横へ倒して攻撃。ADR-023）: 左前下へ振り抜いた剣を引き込んで沈み、跳び上がって体ごと右へ 1 回転しながら水平の円を描く。全方位を薙ぐ（円）。
+  // 回転は 0.14〜0.42s、剣が全周を通るのは 0.2〜0.38s（当たりもこの間）。1 段目の受付時点（0.56s）の姿勢から続ける（continueFrom）。
+  gsSpin2: {
+    id: 'gsSpin2',
+    segment: 'gsSpin2',
+    authored: GS_SPIN2,
+    segmentDuration: GS_SPIN2.duration,
+    activeStart: 0.2,
+    activeEnd: 0.4,
+    cancelAt: 999,
+    trail: [0.16, 0.44],
+    rate: 1,
+    lunge: 0,
+    hitbox: { kind: 'arc', range: 2.7, halfAngle: deg(180) },
+    damage: 28,
+    hitStop: 9,
+    knockback: 2.0,
+    fade: 0.06,
+  },
+  // 叩き落とし（2 段目の受付で前へ倒して攻撃。ADR-023）: 2 段目の斬り上げで右上へ抜けた剣を、右肩の後ろへ振りかぶり直して、左前の床へ斜めに叩き落とす。0.24 に最高速、0.29 に切っ先が床を叩いて止まり（小さな衝撃の輪）、少し跳ね返る。
+  // 当たりは 0.22〜0.35s（床に着く手前から跳ね返りまで）。2 連の締めの重い一撃（地割りの 6 割）。2 段目の受付時点（0.46s）の姿勢から続ける（continueFrom）。
+  gsDrop: {
+    id: 'gsDrop',
+    segment: 'gsDrop',
+    authored: GS_DROP,
+    segmentDuration: GS_DROP.duration,
+    activeStart: 0.22,
+    activeEnd: 0.35,
+    cancelAt: 999,
+    trail: [0.14, 0.37],
+    rate: 1,
+    lunge: 0,
+    impact: { t: 0.29, dist: 1.7, power: 0.7 },
+    hitbox: { kind: 'arc', range: 3.0, halfAngle: deg(95) },
+    damage: 38,
+    hitStop: 11,
+    knockback: 2.8,
+    fade: 0.06,
+  },
+  // 地割り（溜めを最大まで溜めて放つ。CHARGES.greatsword.levelNext。ADR-023）: さらに高く振りかぶって沈み、左足を踏み込んで真上から床へ叩きつける。0.24 に体の前を通る最高速、0.3 に切っ先が床を叩いて止まり（衝撃の輪・ひび割れ・砂ぼこり）、
+  // 剣が少し跳ね返って（0.4 に最高、切っ先の高さ 0.5m）沈んで落ち着く。当たりは床に着く手前から跳ね返りまで 0.26〜0.4s（9 フレーム）で、衝撃が周りへ広がる分、範囲は広い（3.3m、220°）。威力は溜めの段階（最大 1.8 倍）。硬直は長い（1.1s）。
+  gsSmash: {
+    id: 'gsSmash',
+    segment: 'gsSmash',
+    authored: GS_SMASH,
+    segmentDuration: GS_SMASH.duration,
+    activeStart: 0.26,
+    activeEnd: 0.4,
+    cancelAt: 999,
+    trail: [0.14, 0.42],
+    rate: 1,
+    lunge: 0,
+    impact: { t: 0.3, dist: 1.9, power: 1 },
+    hitbox: { kind: 'arc', range: 3.3, halfAngle: deg(110) },
+    damage: 60,
+    hitStop: 14,
+    knockback: 3.8,
+    fade: 0.04,
+  },
 };
 
 /**
@@ -411,6 +552,11 @@ export interface ChargeDef {
   maxHoldFrames: number;
   /** 放つ攻撃の id（ATTACKS のキー） */
   next: string;
+  /**
+   * 段階ごとに放つ攻撃を変える（長さ = levels.length + 1。undefined は next）。最大の段階まで溜めたときだけ出る技など（ADR-023）。
+   * 威力の倍率（levelPower）はどの技にも掛かる
+   */
+  levelNext?: readonly (string | undefined)[];
   /** 構えに入ってからこのフレーム以降は、回避でキャンセルできる */
   dodgeCancelFrame: number;
 }
@@ -437,6 +583,8 @@ export const CHARGES: Record<string, ChargeDef> = {
     levelPower: [1, 1.3, 1.8],
     maxHoldFrames: 120,
     next: 'gsHeavy',
+    // 最大まで溜めたときだけ地割り（床へ叩きつけて衝撃が広がる）。途中で離せば溜め斬り（ADR-023）
+    levelNext: [undefined, undefined, 'gsSmash'],
     dodgeCancelFrame: 8,
   },
 };

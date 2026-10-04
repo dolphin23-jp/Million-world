@@ -202,20 +202,22 @@ describe('攻撃データのヒットボックス（実データ）', () => {
     }
   });
 
-  /** 全方位（扇の半角が 180° 以上）の技。体ごと 1 回転する大剣の大回転だけ */
+  /** 全方位（扇の半角が 180° 以上）の技。体ごと 1 回転する技（大剣の大回転・連携回転斬り、片手剣の回転斬り） */
   const omni = (a: (typeof ATTACKS)[string]) => a.hitbox.kind === 'arc' && a.hitbox.halfAngle >= Math.PI;
 
-  it('すべての攻撃が、真後ろの敵には当たらず（全方位の大回転だけは当たる）、遠すぎる敵にも当たらない', () => {
+  it('すべての攻撃が、真後ろの敵には当たらず（全方位の回転の技だけは当たる）、遠すぎる敵にも当たらない', () => {
     for (const a of Object.values(ATTACKS)) {
       expect(hitboxHits(O, a.hitbox, at(0, -1.5)), a.id).toBe(omni(a));
       expect(hitboxHits(O, a.hitbox, target(4)), a.id).toBe(false);
     }
   });
 
-  it('全方位の技は大回転（gsSpin）だけ。真後ろでも真横でも当たる', () => {
-    expect(Object.values(ATTACKS).filter(omni).map((a) => a.id)).toEqual(['gsSpin']);
-    const h = ATTACKS.gsSpin!.hitbox;
-    for (const [x, z] of [[1.4, 0], [-1.4, 0], [0, -1.4], [0, 1.4]] as const) expect(hitboxHits(O, h, at(x, z, 0.5)), `${x},${z}`).toBe(true);
+  it('全方位の技は回転の技（片手剣の回転斬り・大剣の大回転・連携回転斬り）だけ。真後ろでも真横でも当たる', () => {
+    expect(Object.values(ATTACKS).filter(omni).map((a) => a.id).sort()).toEqual(['comboSpin', 'gsSpin', 'gsSpin2']);
+    for (const id of ['comboSpin', 'gsSpin', 'gsSpin2']) {
+      const h = ATTACKS[id]!.hitbox;
+      for (const [x, z] of [[1.4, 0], [-1.4, 0], [0, -1.4], [0, 1.4]] as const) expect(hitboxHits(O, h, at(x, z, 0.5)), `${id} ${x},${z}`).toBe(true);
+    }
   });
 
   it('斬り（扇形）は真横の少し前の敵にも当たり、突き（線）は当たらない', () => {

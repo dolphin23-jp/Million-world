@@ -4,7 +4,7 @@ import { ATTACKS, CHARGES, DODGES, DODGE_RULES, HIT_STUN, MOVE, PLAYER_STATS, re
 import { DEFAULT_LOADOUT, LOADOUTS, type LoadoutDef, type LoadoutId } from '../combat/data/loadouts';
 import { PARRY_EFFECTS, type GuardDef, type ParryEffectDef } from '../combat/data/guard';
 import { guardOutcome as resolveGuardOutcome, guardedDamage, type GuardOutcome } from '../combat/guard';
-import { afterDodgeOf, classifyStick, pickAttack } from '../combat/moveset';
+import { afterDodgeOf, classifyStick, pickAttack, pickChargeRelease, pickFollowUp } from '../combat/moveset';
 import { applyDamage, createHealth, type DamageResult } from '../combat/health';
 import { HitTracker, isActiveFrame, type HitEvent, type Hurtbox } from '../combat/hit';
 import { Knockback } from '../combat/knockback';
@@ -87,6 +87,9 @@ export class Player {
   private hasAim = false;
   /** 状態が切り替わるたびに増える（見た目側が遷移を検出するため） */
   stateSerial = 0;
+  /** 剣が地面を叩いた瞬間（AttackDef.impact）のたびに増える。位置（XZ）と強さは lastImpact（Game が演出を出すのに読む） */
+  impactSerial = 0;
+  readonly lastImpact = { x: 0, z: 0, power: 0 };
 
   // 補間用の前ステップ
   private prevX = 0;
@@ -330,6 +333,13 @@ export class Player {
       this.velZ = approach(this.velZ, 0, MOVE.decel * 2 * dt);
     }
 
+    // 地面を叩く技: 剣が床に当たる時刻に演出の合図を出す（描画されている姿勢の時刻 = stateFrame / 60 が impact.t になる step）
+    if (a.impact && f + 1 === Math.round((a.impact.t * 60) / a.rate)) {
+      this.impactSerial++;
+      this.lastImpact.x = this.body.x + Math.sin(this.yaw) * a.impact.dist;
+      this.lastImpact.z = this.body.z + Math.cos(this.yaw) * a.impact.dist;
+      this.lastImpact.power = a.impact.power * this.attackPower;
+    }
     // 長押し: 1 段目を押し続けていたら、予備動作の途中で溜めへ移る（離したら通常の 1 段目のまま）
     if (!intent.attackHeld) this.heldSinceBegin = false;
     if (a.id === this.loadout.moveset.light && this.heldSinceBegin && f >= CHARGES[this.loadout.charge]!.holdFrames && f < fr.startup) {
@@ -346,10 +356,14 @@ export class Player {
       this.beginGuard();
       return;
     }
-    // 次段キャンセル
-    if (this.attackBuffered && f >= fr.cancelFrame && a.next) {
-      this.beginAttack(ATTACKS[a.next]!, mx, mz, mLen);
-      return;
+    // 次段キャンセル（押した瞬間のスティックの向きで続く技が変わる。AttackDef.branches）
+    if (this.attackBuffered && f >= fr.cancelFrame && (a.next || a.branches)) {
+      const ref = this.aimYaw() ?? this.yaw;
+      const follow = pickFollowUp(a.next, a.branches, classifyStick(mLen, Math.atan2(mx, mz), ref, this.hasAim));
+      if (follow) {
+        this.beginAttack(ATTACKS[follow]!, mx, mz, mLen);
+        return;
+      }
     }
     if (f >= fr.total) {
       this.attack = null;
@@ -408,7 +422,7 @@ export class Player {
       const power = c.levelPower[level] ?? 1;
       this.charge = null;
       this.chargeReleased = false;
-      this.beginAttack(ATTACKS[c.next]!, mx, mz, mLen, power);
+      this.beginAttack(ATTACKS[pickChargeRelease(c.next, c.levelNext, level)]!, mx, mz, mLen, power);
     }
   }
 

@@ -125,6 +125,7 @@ try {
       }
       vis.getBladePoints(base, tip);
       row.tip = tip.y;
+      row.tipZ = tip.z; // 剣先の前方（キャラは +Z を向き、クリップの再生では根は動かさないので、そのときの根からの前方距離）
       if (prevTip) maxTip = Math.max(maxTip, tip.distanceTo(prevTip) * 60);
       prevTip = tip.clone();
       row.min = Math.min(...['hipsY', 'headY', 'handR', 'handL', 'footL', 'footR', 'tip'].map((k) => row[k] ?? 9));
@@ -135,11 +136,11 @@ try {
   if (result.error) throw new Error(result.error);
   const fmt = (v) => (v === undefined ? '    -' : v.toFixed(2).padStart(5));
   console.log(`クリップ ${name}（${result.dur.toFixed(2)}s）`);
-  console.log('  f   t  hipsY headY handR handL footL footR   tip   min');
+  console.log('  f   t  hipsY headY handR handL footL footR   tip   min  tipZ');
   let lowest = { v: 9, k: '', f: 0 };
   for (const r of result.rows) {
     for (const k of ['headY', 'handR', 'handL', 'footL', 'footR', 'tip']) if (r[k] !== undefined && r[k] < lowest.v) lowest = { v: r[k], k, f: r.f };
-    if (r.f % step === 0) console.log(String(r.f).padStart(3), (r.f / 60).toFixed(2), fmt(r.hipsY), fmt(r.headY), fmt(r.handR), fmt(r.handL), fmt(r.footL), fmt(r.footR), fmt(r.tip), fmt(r.min));
+    if (r.f % step === 0) console.log(String(r.f).padStart(3), (r.f / 60).toFixed(2), fmt(r.hipsY), fmt(r.headY), fmt(r.handR), fmt(r.handL), fmt(r.footL), fmt(r.footR), fmt(r.tip), fmt(r.min), fmt(r.tipZ));
   }
   console.log(`\n最低の高さ: ${lowest.v.toFixed(3)}m（${lowest.k}、f${lowest.f}）${lowest.v < 0 ? ' ← 床にめり込んでいる' : ''}`);
   console.log(`剣先の最高速: ${result.maxTipSpeed.toFixed(1)} m/s`);
