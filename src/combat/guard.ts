@@ -11,13 +11,13 @@ export type GuardOutcome = 'none' | 'guard' | 'parry';
 /**
  * 構えている（def）プレイヤーが、攻撃者から来る攻撃（dirX, dirZ = 攻撃者 → 自分の単位ベクトル）をどう受けるか。
  *  - 構えの正面から coneDeg 以内（攻撃者のいる向きが yaw の前方）でなければ防げない（横・背後からは被弾）
- *  - 構えに入ってから parryFrames 以内（frame は 1 から数える。構えに入った step が 1）ならパリィ（parryFrames = 0 はパリィなし）
+ *  - 構えに入ってから parryFrames（+ parryBonus = DEX による加算）以内（frame は 1 から数える。構えに入った step が 1）ならパリィ（parryFrames = 0 はパリィなし）
  *  - それ以外は受け止める
  */
-export function guardOutcome(def: GuardDef, frame: number, yaw: number, dirX: number, dirZ: number): GuardOutcome {
+export function guardOutcome(def: GuardDef, frame: number, yaw: number, dirX: number, dirZ: number, parryBonus = 0): GuardOutcome {
   const toAttacker = Math.atan2(-dirX, -dirZ);
   if (Math.abs(angleDelta(yaw, toAttacker)) > (def.coneDeg * Math.PI) / 180) return 'none';
-  if (def.parryFrames > 0 && frame >= 1 && frame <= def.parryFrames) return 'parry';
+  if (def.parryFrames > 0 && frame >= 1 && frame <= def.parryFrames + parryBonus) return 'parry';
   return 'guard';
 }
 

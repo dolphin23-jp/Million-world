@@ -14,6 +14,8 @@ const EPS = 1e-9;
 export class Mystical {
   /** 続きの残り（sim フレーム。0 = 発動していない） */
   remaining = 0;
+  /** いまの発動の長さ（sim フレーム。durationFrames + AGI による加算） */
+  private total: number = MYSTICAL.durationFrames;
   /** 次に成功できるまでの残り（sim フレーム） */
   cooldown = 0;
   /** 敵の時間の端数（0 以上 1 未満）。毎ステップ enemyScale ずつ溜まり、1 に届いたら敵を進める */
@@ -30,7 +32,7 @@ export class Mystical {
 
   /** 残りの割合（1 → 0。HUD・画面の色に使う）。発動していなければ 0 */
   get ratio(): number {
-    return this.remaining / MYSTICAL.durationFrames;
+    return this.remaining / this.total;
   }
 
   /** 終わりの手前の合図の区間か */
@@ -48,10 +50,11 @@ export class Mystical {
     return this.remaining <= 0 && this.cooldown <= 0;
   }
 
-  /** 発動する。できたら true（発動中・クールダウン中は何もしないで false） */
-  trigger(): boolean {
+  /** 発動する。できたら true（発動中・クールダウン中は何もしないで false）。bonusFrames は続く長さの加算（AGI。Modifiers.mysticalFrames） */
+  trigger(bonusFrames = 0): boolean {
     if (!this.ready) return false;
-    this.remaining = MYSTICAL.durationFrames;
+    this.total = MYSTICAL.durationFrames + Math.max(0, Math.round(bonusFrames));
+    this.remaining = this.total;
     this.cooldown = MYSTICAL.cooldownFrames;
     this.acc = 0;
     return true;

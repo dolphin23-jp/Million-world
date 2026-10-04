@@ -125,13 +125,14 @@ export class SkillBook {
   }
 
   /**
-   * その系統の、選んでいるスキルの連なり（実行用）。選んでいない・クールダウン中なら null。ここではクールダウンに入らない
+   * その系統の、選んでいるスキルの連なり（実行用。powerScale は INT による威力の倍率）。選んでいない・クールダウン中なら null。ここではクールダウンに入らない
    * （Player が実際に始められたときだけ start する。始められない状態で押してもクールダウンを消費しない）
    */
-  prepare(family: WeaponId): SkillRun | null {
+  prepare(family: WeaponId, powerScale = 1): SkillRun | null {
     const def = this.selectedFor(family);
     if (!def || !this.ready(def.id)) return null;
     const steps = skillSteps(def, this.levels[def.id]);
+    if (powerScale !== 1) for (const st of steps) st.power *= powerScale;
     return steps.length > 0 ? { skill: def.id, steps } : null;
   }
 

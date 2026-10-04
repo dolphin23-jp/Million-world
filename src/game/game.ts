@@ -20,7 +20,10 @@ import type { Circle } from '../world/collision';
 import { Mystical } from '../combat/mystical';
 import { Inventory } from '../combat/inventory';
 import { SkillBook } from '../combat/skills';
-import { SKILLS, isSkillId, type SkillDef } from '../combat/data/skills';
+import { SKILLS, SKILL_ORDER, isSkillId, type SkillDef } from '../combat/data/skills';
+import { Growth } from '../combat/growth';
+import { makeSave, parseSave } from '../combat/save';
+import { readSave, writeSave } from '../platform/storage';
 import { ITEMS, ITEM_ORDER, ITEM_RULES, type ItemId } from '../combat/data/items';
 import { MYSTICAL } from '../combat/data/mystical';
 import { Enemy } from '../ai/enemy';
@@ -200,6 +203,14 @@ export class Game {
   private skillUiKey = '';
   /** ボスが呼んだ手下の id（倒してもアイテムを落とさない = 呼ばせて稼げないように） */
   private readonly summonedIds = new Set<number>();
+  /** 成長（経験値・レベル・ポイント・ステータス。ADR-033）。セーブから読み、変わるたびに保存する。ステージ・闘技場に依存しない（経験値は撃破の合図から受け取る） */
+  readonly growth: Growth;
+  /** 成長の表示（HUD）を合わせ終えた Growth.serial と、この挑戦で得た経験値・始めたときのレベル（リザルトに出す） */
+  private seenGrowth = -1;
+  private xpRun = 0;
+  private levelAtRunStart = 1;
+  /** false = 保存しない（サンドボックス。モーションの確認が成長を書き換えないように） */
+  private readonly persistEnabled: boolean;
   /** 地面を叩いた合図（Player.impactSerial）を処理し終えた値 */
   private seenImpact = 0;
   /** スーパーアーマーで受けた合図（Player.armorSerial）を処理し終えた値 */
@@ -277,6 +288,13 @@ export class Game {
 
     this.player = new Player();
     this.scene.add(this.player.root);
+    // 成長: セーブから戻して、スキルのレベル・選択と、戦闘の数値（Modifiers）に反映する。サンドボックスは読み書きしない
+    this.persistEnabled = !this.sandbox;
+    const save = this.persistEnabled ? parseSave(readSave()) : null;
+    this.growth = new Growth(save ?? undefined);
+    if (save) this.skills.restoreSelection(save.selected);
+    this.levelAtRunStart = this.growth.level;
+    this.applyGrowth();
     this.scene.add(this.hitFx.group);
     this.scene.add(this.groundFx.group);
     this.scene.add(this.lanes.group);
@@ -296,7 +314,10 @@ export class Game {
       this.sfx.play('ui');
     };
     this.touch.onSkillChoose = (id) => {
-      if (isSkillId(id) && this.skills.select(id)) this.sfx.play('ui');
+      if (isSkillId(id) && this.skills.select(id)) {
+        this.sfx.play('ui');
+        this.persist();
+      }
     };
     this.touch.setEquipLabel(this.player.loadout.name);
     this.refreshMoveList();
@@ -335,6 +356,7 @@ export class Game {
         if (!this.loop.isRunning) this.loop.start();
       } else {
         this.loop.stop();
+        this.persist();
       }
     });
   }
@@ -417,7 +439,8 @@ export class Game {
       this.sfx.play('wave');
     } else {
       const r = this.encounter.result();
-      if (r) this.hud.showResult(r);
+      if (r) this.hud.showResult(r, { gained: this.xpRun, from: this.levelAtRunStart, to: this.growth.level });
+      this.persist();
       this.sfx.play(ev.phase === 'victory' ? 'victory' : 'defeat');
     }
   }
@@ -435,12 +458,60 @@ export class Game {
     if (result.killed) this.sfx.play('kill');
     if (result.killed) {
       this.encounter.onKill();
+      this.awardXp(enemy);
       this.dropItems(enemy);
       // ボスを倒すと手下（呼ばれた小蝙蝠など）は消える（倒した数には入らない）
       if (enemy.def.boss) for (const e of this.enemySims) if (e !== enemy) e.vanish();
       // 最後のウェーブの最後の 1 体: スローモーション
       if (this.encounter.onLastWave && !this.enemySims.some((e) => !e.dead)) this.hitStop.slow(FINISH_SLOW.scale, FINISH_SLOW.seconds);
     }
+  }
+
+  // ---------------------------------------------------------------- 成長（ADR-033）
+
+  /**
+   * 成長の状態を、スキルのレベル・戦闘の数値（Modifiers）・HUD に反映する（起動時・振り分けが変わったとき・「最初から」）。
+   * 戦闘中（一時停止メニューからの振り分け）でも呼べる
+   */
+  private applyGrowth(): void {
+    for (const id of SKILL_ORDER) this.skills.setLevel(id, this.growth.skillLevel(id));
+    this.player.setModifiers(this.growth.modifiers);
+    this.hud.setPlayerHp(this.player.health.hp, this.player.health.max);
+    this.syncGrowthUi();
+  }
+
+  /** HUD のレベル・経験値を合わせる。毎ステップ呼んでよい（変わったときだけ触る） */
+  private syncGrowthUi(): void {
+    if (this.seenGrowth === this.growth.serial) return;
+    this.seenGrowth = this.growth.serial;
+    this.hud.setGrowth(this.growth.level, this.growth.xp, this.growth.xpNeed);
+  }
+
+  /**
+   * 敵を倒したときの経験値。**呼ばれた手下（ボスの召喚）は 0**（呼ばせて稼げないように。ドロップと同じ）。
+   * レベルが上がったら「LEVEL UP」の文字・音・HUD の光を出して保存する
+   */
+  private awardXp(enemy: Enemy): void {
+    if (this.summonedIds.has(enemy.id)) return;
+    const xp = (enemy.def as EnemyDef).xp ?? 0;
+    if (xp <= 0) return;
+    this.xpRun += xp;
+    const gained = this.growth.addXp(xp);
+    this.syncGrowthUi();
+    if (gained > 0) {
+      const p = this.player;
+      this.damageNumbers.spawnText(p.body.x, 2.15, p.body.z, `LEVEL UP  Lv ${this.growth.level}`, 'level', 1.25);
+      this.hitFx.burst(p.body.x, HIT_FEEDBACK.playerImpactHeight, p.body.z, 0, 0, 0.9, FX_TINT.poise);
+      this.sfx.play('levelUp');
+      this.hud.flashLevelUp();
+      this.persist();
+    }
+  }
+
+  /** 成長とスキル欄の選択を保存する（レベルアップ・振り分け・スキルの選択・戦闘の終わり・タブを離れるとき）。できなくても続ける */
+  persist(): void {
+    if (!this.persistEnabled) return;
+    writeSave(makeSave(this.growth, this.skills.selection()));
   }
 
   /** 剣が地面を叩いた（AttackDef.impact。地割り・叩き落とし）。敵に当たらなくても、砂ぼこりの輪・ひび割れ・揺れ・ヒットストップ・音を出す */
@@ -511,7 +582,7 @@ export class Game {
    * 発動の演出: 強いヒットストップ・画面の揺れ・青紫の閃光・「MYSTICAL」の文字・音
    */
   private onJustDodge(): boolean {
-    if (this.mystical.trigger()) {
+    if (this.mystical.trigger(this.growth.modifiers.mysticalFrames)) {
       const p = this.player;
       p.setMystical(true);
       this.mysticalWas = true;
@@ -557,7 +628,7 @@ export class Game {
       if (r.reason !== 'wait' && ITEM_RULES.denySound) this.sfx.play('itemDeny');
       return;
     }
-    const healed = p.heal(ITEMS[r.item].heal);
+    const healed = p.heal(ITEMS[r.item].heal * this.growth.modifiers.heal);
     this.hud.setPlayerHp(p.health.hp, p.health.max);
     this.hitFx.burst(p.body.x, HIT_FEEDBACK.playerImpactHeight, p.body.z, 0, 0, 0.8, FX_TINT.heal);
     this.damageNumbers.spawn(p.body.x, HIT_FEEDBACK.playerImpactHeight + 0.7, p.body.z, healed, 'heal');
@@ -571,7 +642,7 @@ export class Game {
   private useSkill(): void {
     const p = this.player;
     if (p.dead) return;
-    const run = this.skills.prepare(p.loadout.weapon);
+    const run = this.skills.prepare(p.loadout.weapon, this.growth.modifiers.skillPower);
     if (!run) {
       this.sfx.play('itemDeny');
       return;
@@ -585,7 +656,7 @@ export class Game {
     this.seenSkillSerial = p.skillSerial;
     const id = p.lastSkill;
     if (!id) return;
-    this.skills.start(id);
+    this.skills.start(id, this.growth.modifiers.skillCooldown);
     this.damageNumbers.spawnText(p.body.x, 1.95, p.body.z, SKILLS[id].name, 'skill', 1.2);
     this.sfx.play('skillStart');
   }
@@ -969,6 +1040,8 @@ export class Game {
     this.seenSkillSerial = this.player.skillSerial;
     this.seenArmor = this.player.armorSerial;
     this.seenSwing = this.player.swingSerial;
+    this.xpRun = 0;
+    this.levelAtRunStart = this.growth.level;
     this.inventory.reset();
     this.summonedIds.clear();
     this.lockOn.release();

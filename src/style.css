@@ -405,6 +405,43 @@ body {
   width: min(44vw, 420px);
   transform: translateX(-50%);
 }
+/* レベルと経験値（HP バーの左。ADR-033）。レベルが上がった瞬間は光る（.up） */
+#lv-box {
+  position: absolute;
+  top: calc(8px + var(--safe-top));
+  right: calc(50% + min(22vw, 210px) + 12px);
+  text-align: right;
+  pointer-events: none;
+}
+#lv-box .lv-num {
+  display: block;
+  font: 800 15px var(--ui-font);
+  letter-spacing: 0.06em;
+  color: var(--accent);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7);
+}
+#lv-box .lv-bar {
+  width: 84px;
+  height: 5px;
+  margin: 3px 0 0 auto;
+  border-radius: 3px;
+  background: rgba(14, 12, 30, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  overflow: hidden;
+}
+#lv-box .lv-fill {
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, #ffe38a, #ffb347);
+  transition: width 220ms ease-out;
+}
+#lv-box.up .lv-num {
+  animation: lv-up 900ms ease-out;
+}
+@keyframes lv-up {
+  0% { transform: scale(1.7); color: #fff; text-shadow: 0 0 14px #ffe38a; }
+  100% { transform: scale(1); }
+}
 /* ロック対象の HP（プレイヤーの HP の下）。名前は左上に小さく */
 #hp-target {
   position: absolute;
@@ -712,6 +749,14 @@ body {
     -3px 0 #4a2f0a, 3px 0 #4a2f0a, 0 -3px #4a2f0a, 0 3px #4a2f0a,
     -2px -2px #4a2f0a, 2px -2px #4a2f0a, -2px 2px #4a2f0a, 2px 2px #4a2f0a,
     0 0 12px rgba(255, 190, 90, 0.8);
+}
+.dmg-level {
+  color: #fff3b0;
+  letter-spacing: 0.2em;
+  text-shadow:
+    -3px 0 #5a3a00, 3px 0 #5a3a00, 0 -3px #5a3a00, 0 3px #5a3a00,
+    -2px -2px #5a3a00, 2px -2px #5a3a00, -2px 2px #5a3a00, 2px 2px #5a3a00,
+    0 0 16px rgba(255, 210, 90, 0.95);
 }
 .dmg-item {
   color: #ffe9a8;
