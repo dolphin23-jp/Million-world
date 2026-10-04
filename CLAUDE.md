@@ -50,11 +50,11 @@ src/core/       ゲームループ（固定タイムステップ）、時間（�
 src/input/      タッチ（仮想スティック・ボタン・カメラドラッグ）→ 入力意図への変換
 src/render/     レンダラ初期化、トゥーンマテリアル、輪郭線、ポストプロセス、VFX（トレイル・パーティクル）
 src/world/      アリーナ、衝突、環境オブジェクト
-src/character/  キャラクター読込、アニメーション状態機械、リターゲット、手付け攻撃アニメ（ik / rig / pose-solver / authoring。ADR-012）
-src/combat/     攻撃データ（フレームデータ）、ヒット判定、ダメージ、ロックオン、演出の数値
+src/character/  キャラクター読込、アニメーション状態機械、リターゲット、手付け攻撃アニメ（ik / rig / pose-solver / authoring。ADR-012）、立ち姿の前傾補正（posture。ADR-024）
+src/combat/     攻撃データ（フレームデータ）、ヒット判定、ダメージ、ロックオン、演出の数値、操作ガイド・技表の表示内容（move-guide / move-tree。純粋関数）
 src/ai/         敵の行動（FSM・攻撃権）、敵とウェーブの数値（data/）
 src/audio/      効果音（WebAudio 合成のレシピと再生。ADR-017）
-src/ui/         HUD（DOM）: HP バー・ダメージ数字・ロックの枠・リザルト
+src/ui/         HUD（DOM）: HP バー・ダメージ数字・ロックの枠・リザルト・操作ガイド（下の中央）・技表
 src/game/       上記を束ねるシーン・エンティティ管理
 src/debug/      開発用フック（?sfxlab=1 / ?perf=1 / ?motionlab=1。通常起動では読み込まない）
 public/assets/  実行時に読む資産（GLB, テクスチャ, 音）
