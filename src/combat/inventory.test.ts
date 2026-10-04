@@ -85,6 +85,17 @@ describe('Inventory: ドロップの抽選', () => {
     expect(inv.rollDrops(undefined, seq(0))).toEqual([]);
   });
 
+  it('ドロップ率の倍率（パッシブの薬師。ADR-037）: 確率に掛かる。1 を超えない。省略は等倍', () => {
+    const inv = new Inventory();
+    // 0.2 × 1.25 = 0.25: 0.24 は落ち、0.25 は落ちない（等倍なら 0.24 は落ちない）
+    expect(inv.rollDrops(drops, seq(0.24), 1.25)).toEqual(['potionS']);
+    expect(inv.rollDrops(drops, seq(0.25), 1.25)).toEqual([]);
+    expect(inv.rollDrops(drops, seq(0.24))).toEqual([]);
+    // 確率の上限（1 を超えても、乱数 < 1 なら必ず落ちる = 確率 100% 止まり）
+    expect(inv.rollDrops(drops, seq(0.999), 100)).toEqual(['potionS']);
+    expect(inv.rollDrops(drops, seq(0.5), 0)).toEqual([]);
+  });
+
   it('種類ごとに別々に抽選する（両方落ちることもある）', () => {
     const inv = new Inventory();
     const both: DropDef[] = [

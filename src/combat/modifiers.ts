@@ -1,4 +1,6 @@
 import { CRIT } from './data/crit';
+import type { WeaponId } from './data/loadouts';
+import { PASSIVES, PASSIVE_ORDER, type PassiveId, type PassiveKey } from './data/passives';
 import { STAT_BASE, STAT_EFFECTS, STAT_IDS, effectivePoints, type StatId } from './data/stats';
 
 /**
@@ -30,8 +32,18 @@ export interface Modifiers {
   heal: number;
   /** 最大体力の加算（VIT） */
   maxHp: number;
-  /** 受けるダメージの倍率（小さいほど軽い。VIT） */
+  /** 受けるダメージの倍率（小さいほど軽い。VIT・パッシブ） */
   damageTaken: number;
+  /** 連携・剣技の 3 発目以降のダメージの倍率（パッシブ。M6-5。ADR-037） */
+  comboDamage: number;
+  /** 弾かれた敵・体勢を崩した敵への攻撃（反撃）のダメージの倍率（パッシブ） */
+  riposteDamage: number;
+  /** パリィに成功したときに回復する体力（パッシブ） */
+  parryHeal: number;
+  /** 敵のアイテムのドロップ率の倍率（パッシブ） */
+  dropRate: number;
+  /** 闘気: 敵を倒すと一定時間、1 回重なるごとに攻撃力に足される割合（0 = 闘気なし。パッシブ。続く長さ・重なる数は KILL_BUFF） */
+  killBuff: number;
 }
 
 /** 何も効いていない状態（レベル 1・振っていない） */
@@ -50,7 +62,31 @@ export const BASE_MODIFIERS: Readonly<Modifiers> = {
   heal: 1,
   maxHp: 0,
   damageTaken: 1,
+  comboDamage: 1,
+  riposteDamage: 1,
+  parryHeal: 0,
+  dropRate: 1,
+  killBuff: 0,
 };
+
+/** パッシブのレベル（ない・0 は未習得） */
+export type PassiveLevels = Readonly<Partial<Record<PassiveId, number>>>;
+
+/**
+ * パッシブの効果をキーごとに合計する（レベル × 1 レベルあたり）。family が合わない（別の系統の武器を装備している）ものは数えない。
+ * 戻り値は使い回さず毎回作る（呼ぶのは振り分け・装備の切替のときだけ）
+ */
+export function passiveTotals(passives: PassiveLevels, family?: WeaponId): Partial<Record<PassiveKey, number>> {
+  const out: Partial<Record<PassiveKey, number>> = {};
+  for (const id of PASSIVE_ORDER) {
+    const lv = passives[id] ?? 0;
+    if (lv <= 0) continue;
+    const def = PASSIVES[id];
+    if (def.family !== undefined && def.family !== family) continue;
+    for (const e of def.effects) out[e.key] = (out[e.key] ?? 0) + e.perLevel * Math.min(lv, def.levelMax);
+  }
+  return out;
+}
 
 export type StatBlock = Readonly<Record<StatId, number>>;
 
@@ -59,8 +95,11 @@ export function baseStats(): Record<StatId, number> {
   return { str: STAT_BASE, dex: STAT_BASE, agi: STAT_BASE, int: STAT_BASE, vit: STAT_BASE };
 }
 
-/** ステータスから Modifiers を作る（純粋。パッシブ・装備が入ったら引数を足す） */
-export function computeModifiers(stats: StatBlock): Modifiers {
+/**
+ * ステータスとパッシブから Modifiers を作る（純粋）。パッシブは、レベル × 1 レベルあたりを Modifiers のキーに足す（passiveTotals）。
+ * family = いま装備している武器の系統（剣術習熟のような系統つきのパッシブが効くか。省略 = 系統つきは効かない）。装備・状態異常が入るときは引数を足す
+ */
+export function computeModifiers(stats: StatBlock, passives: PassiveLevels = {}, family?: WeaponId): Modifiers {
   const p = (id: StatId): number => effectivePoints((stats[id] ?? STAT_BASE) - STAT_BASE);
   const E = STAT_EFFECTS;
   const str = p('str');
@@ -68,21 +107,29 @@ export function computeModifiers(stats: StatBlock): Modifiers {
   const agi = p('agi');
   const int = p('int');
   const vit = p('vit');
+  const P = passiveTotals(passives, family);
+  const pk = (k: PassiveKey): number => P[k] ?? 0;
   return {
-    damage: 1 + E.str.damage * str,
-    knockback: 1 + E.str.knockback * str,
+    damage: 1 + E.str.damage * str + pk('damage'),
+    knockback: 1 + E.str.knockback * str + pk('knockback'),
     attackSpeed: 1 + E.dex.attackSpeed * dex,
-    parryFrames: Math.floor(E.dex.parryFramesPer * dex),
-    critRate: Math.min(CRIT.maxRate, Math.max(0, CRIT.baseRate + E.dex.critRate * dex)),
-    critDamage: Math.max(CRIT.minDamage, CRIT.baseDamage + E.dex.critDamage * dex),
-    moveSpeed: 1 + E.agi.moveSpeed * agi,
-    dodgeInvuln: Math.floor(E.agi.dodgeInvulnFramesPer * agi),
-    mysticalFrames: Math.round(E.agi.mysticalFramesPer * agi),
+    parryFrames: Math.floor(E.dex.parryFramesPer * dex) + Math.round(pk('parryFrames')),
+    critRate: Math.min(CRIT.maxRate, Math.max(0, CRIT.baseRate + E.dex.critRate * dex + pk('critRate'))),
+    critDamage: Math.max(CRIT.minDamage, CRIT.baseDamage + E.dex.critDamage * dex + pk('critDamage')),
+    moveSpeed: 1 + E.agi.moveSpeed * agi + pk('moveSpeed'),
+    dodgeInvuln: Math.floor(E.agi.dodgeInvulnFramesPer * agi) + Math.round(pk('dodgeInvuln')),
+    mysticalFrames: Math.round(E.agi.mysticalFramesPer * agi) + Math.round(pk('mysticalFrames')),
     skillCooldown: Math.max(E.int.skillCooldownFloor, 1 - E.int.skillCooldown * int),
     skillPower: 1 + E.int.skillPower * int,
-    heal: 1 + E.int.heal * int,
+    heal: 1 + E.int.heal * int + pk('heal'),
     maxHp: Math.round(E.vit.maxHp * vit),
-    damageTaken: Math.max(E.vit.damageTakenFloor, 1 - E.vit.damageTaken * vit),
+    // VIT だけでは下限 damageTakenFloor。パッシブ（鉄壁）を引いたあとは、全体の下限 damageTakenTotalFloor
+    damageTaken: Math.max(E.vit.damageTakenTotalFloor, Math.max(E.vit.damageTakenFloor, 1 - E.vit.damageTaken * vit) - pk('damageTaken')),
+    comboDamage: 1 + pk('comboDamage'),
+    riposteDamage: 1 + pk('riposteDamage'),
+    parryHeal: Math.round(pk('parryHeal')),
+    dropRate: 1 + pk('dropRate'),
+    killBuff: pk('killBuff'),
   };
 }
 

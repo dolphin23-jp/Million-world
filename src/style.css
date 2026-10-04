@@ -474,6 +474,37 @@ body {
 .tier-badge[data-tier='4'], .tier-chip[data-tier='4'] { --tier-color: #c9a6ff; }
 .tier-badge[data-tier='1'], .tier-chip[data-tier='1'] { --tier-color: #e8e8f0; }
 .tier-badge { border-color: var(--tier-color); color: var(--tier-color); }
+/* 闘気（パッシブ。敵を倒すと重なる攻撃力の上昇。ADR-037）: 段階の印の下。重なりがあるあいだだけ出る。細い帯は残り時間 */
+.buff-badge {
+  display: none;
+  margin-top: 4px;
+  padding: 1px 8px 3px;
+  border-radius: 8px;
+  font: 800 11px var(--ui-font);
+  letter-spacing: 0.06em;
+  color: #ffe9a8;
+  background: rgba(60, 28, 6, 0.75);
+  border: 1px solid rgba(255, 196, 90, 0.8);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+  box-shadow: 0 0 10px rgba(255, 170, 60, 0.45);
+}
+.buff-badge.on {
+  display: block;
+}
+.buff-bar {
+  display: block;
+  height: 3px;
+  margin-top: 2px;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+.buff-fill {
+  display: block;
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, #ffd27a, #ff9a3c);
+}
 @keyframes lv-up {
   0% { transform: scale(1.7); color: #fff; text-shadow: 0 0 14px #ffe38a; }
   100% { transform: scale(1); }
@@ -1691,6 +1722,58 @@ body {
   font-size: 13px;
   color: var(--accent);
   font-weight: 700;
+}
+/* パッシブ（ADR-037）: 未習得で前提が満たされないものは暗く。効果の文章・前提・「いまは効かない」 */
+.sk-passive-title {
+  margin-top: 18px;
+}
+.pa-hint {
+  margin: 4px 0 8px;
+}
+.pa-cat {
+  margin: 12px 0 6px;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  color: rgba(255, 255, 255, 0.7);
+}
+.pa-card.locked {
+  opacity: 0.55;
+}
+.pa-card.learned {
+  border-color: rgba(255, 211, 106, 0.45);
+}
+.pa-tag {
+  margin-left: 8px;
+  padding: 0 7px 1px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #cfe8ff;
+  border: 1px solid rgba(160, 200, 255, 0.55);
+}
+.pa-now {
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+}
+.pa-next {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+}
+.pa-prereq {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #9fffc0;
+}
+.pa-prereq.unmet {
+  color: #ff9a9a;
+}
+.pa-inactive {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #ffd27a;
 }
 .sk-top .st-ctrl .st-btn {
   width: 42px;

@@ -84,13 +84,14 @@ export class Inventory {
 
   /**
    * 倒した敵のドロップを抽選して、落ちたアイテムを返す（持てる数がいっぱいの分は除く）。rand は 0 以上 1 未満の乱数。
-   * 救済: 何も落ちない撃破が pityKills 続いたら、次は必ず pityItem が落ちる。落ちたものはこの場で add しない（呼ぶ側が拾う演出のあと add する）
+   * 救済: 何も落ちない撃破が pityKills 続いたら、次は必ず pityItem が落ちる。落ちたものはこの場で add しない（呼ぶ側が拾う演出のあと add する）。
+   * chanceScale = ドロップ率の倍率（パッシブの薬師。Modifiers.dropRate。省略 = 等倍。ADR-037）
    */
-  rollDrops(drops: readonly DropDef[] | undefined, rand: () => number): ItemId[] {
+  rollDrops(drops: readonly DropDef[] | undefined, rand: () => number, chanceScale = 1): ItemId[] {
     const out: ItemId[] = [];
     for (const d of drops ?? []) {
       if (this.counts[d.item] + out.filter((x) => x === d.item).length >= ITEMS[d.item].max) continue;
-      if (rand() < d.chance) out.push(d.item);
+      if (rand() < Math.min(1, d.chance * chanceScale)) out.push(d.item);
     }
     if (out.length === 0) {
       this.dry++;

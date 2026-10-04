@@ -5,6 +5,7 @@ import { totalXpTo } from './data/growth';
 import { SkillBook } from './skills';
 import { SKILL_ORDER } from './data/skills';
 import { Progress } from './progress';
+import { PASSIVE_ORDER } from './data/passives';
 
 function sample(): Growth {
   const g = new Growth();
@@ -71,8 +72,8 @@ describe('セーブデータ', () => {
 });
 
 describe('挑戦の進み具合（版 2。ADR-036）', () => {
-  it('版は 2。進み具合（クリアした段階・選んでいる段階）が往復する', () => {
-    expect(SAVE_VERSION).toBe(2);
+  it('進み具合（クリアした段階・選んでいる段階）が往復する（版 2 から）', () => {
+    expect(SAVE_VERSION).toBeGreaterThanOrEqual(2);
     const prog = new Progress({ cleared: 2, tier: 3 });
     const data = parseSave(JSON.parse(JSON.stringify(makeSave(new Growth(), {}, prog))))!;
     expect(data.progress).toEqual({ cleared: 2, tier: 3 });
@@ -96,5 +97,50 @@ describe('挑戦の進み具合（版 2。ADR-036）', () => {
     expect(parseSave({ version: 2, progress: { cleared: 1, tier: 4 } })!.progress).toEqual({ cleared: 1, tier: 2 });
     expect(parseSave({ version: 2, progress: { cleared: 'a', tier: null } })!.progress).toEqual({ cleared: 0, tier: 1 });
     expect(parseSave({ version: 2 })!.progress).toEqual({ cleared: 0, tier: 1 });
+  });
+});
+
+describe('パッシブ（版 3。ADR-037）', () => {
+  it('版は 3。パッシブのレベルが往復する', () => {
+    expect(SAVE_VERSION).toBe(3);
+    const g = new Growth();
+    g.addXp(totalXpTo(8));
+    g.addPassive('critChance');
+    g.addPassive('critChance');
+    g.addPassive('critPower');
+    g.addPassive('agile');
+    const data = parseSave(JSON.parse(JSON.stringify(makeSave(g, {}))))!;
+    expect(data.passives.critChance).toBe(2);
+    expect(data.passives.critPower).toBe(1);
+    expect(data.passives.agile).toBe(1);
+    expect(data.passives.evasion).toBe(0);
+    expect(new Growth(data).toSnapshot()).toEqual(g.toSnapshot());
+  });
+  it('版 2 のセーブは、成長・進み具合をそのまま引き継ぎ、パッシブは全部未習得に移行する（スキルポイントは変えない）', () => {
+    const v2 = { version: 2, level: 6, xp: 3, statPoints: 4, skillPoints: 5, stats: { str: 6, dex: 5, agi: 5, int: 5, vit: 5 }, skills: { yotsuba: 1 }, selected: { sword: 'samidare' }, progress: { cleared: 1, tier: 2 } };
+    const d = parseSave(v2)!;
+    expect(d.version).toBe(SAVE_VERSION);
+    expect(d.level).toBe(6);
+    expect(d.skillPoints).toBe(5);
+    expect(d.progress).toEqual({ cleared: 1, tier: 2 });
+    for (const id of PASSIVE_ORDER) expect(d.passives[id]).toBe(0);
+    expect(new Growth(d).skillPoints).toBe(5);
+  });
+  it('版 1 のセーブも、版 2・3 へ順に移行される', () => {
+    const d = parseSave({ version: 1, level: 3, stats: {}, skills: {}, selected: {} })!;
+    expect(d.version).toBe(3);
+    expect(d.progress).toEqual({ cleared: 0, tier: 1 });
+    for (const id of PASSIVE_ORDER) expect(d.passives[id]).toBe(0);
+  });
+  it('passives が壊れていても読める（型の違うものは 0）。範囲の丸め・前提の食い違いは Growth が直す', () => {
+    const d = parseSave({ version: 3, level: 5, skillPoints: 4, passives: { agile: 'x', critPower: 2, unknown: 9 } })!;
+    expect(d.passives.agile).toBe(0);
+    expect(d.passives.critPower).toBe(2);
+    expect((d.passives as Record<string, number>).unknown).toBeUndefined();
+    // 前提（会心の心得 Lv2）を割っているので、Growth が振り分けを初期に戻してポイントを返す
+    const g = new Growth(d);
+    expect(g.passiveLevel('critPower')).toBe(0);
+    expect(g.skillPoints).toBe(4);
+    expect(parseSave({ version: 3, passives: 'x' })!.passives.agile).toBe(0);
   });
 });

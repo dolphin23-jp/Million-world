@@ -4,12 +4,15 @@ import type { Growth } from '../../combat/growth';
 import type { SkillBook } from '../../combat/skills';
 import { skillInfo } from '../../combat/skills';
 import { SKILLS, SKILL_LEVEL_MAX, SKILL_ORDER, type SkillId } from '../../combat/data/skills';
+import { PASSIVES, PASSIVE_CATEGORY_NAME, PASSIVE_CATEGORY_ORDER, PASSIVE_ORDER, describePassive, unmetPrereqs, type PassiveId } from '../../combat/data/passives';
 import type { WeaponId } from '../../combat/data/loadouts';
 
 /**
  * メニューのタブ「スキル」（ADR-033）: スキルポイントでスキルのレベルを上げる（Lv1〜10。数値はなめらかに伸び、Lv4 と Lv7 でモーションが進化する）。
  * ＋ で 1 つ上げる（押し続けると連打）、− は **メニューを開いてから上げた分だけ** 戻せる。「全部振り直す」はいつでも無料（二度押しで実行）。
  * 武器の系統（片手剣 / 大剣）ごとに並べる。いま装備している系統には「装備中」と出る。進化の説明は SkillDef.evolutions から読む。
+ * その下に**パッシブ**（M6-5。ADR-037）: 攻め・守り・補給に分けて並べる。最初は未習得（Lv 0）で、1 ポイントで習得する。前提のあるものは「前提: ○○ Lv n」が出て、
+ * 前提が満たされるまで暗く、上げられない。系統つきのもの（剣術習熟・剛力習熟）は、その武器を構えているあいだだけ効く（いまの装備と合わないときは「いまは効かない」）。
  */
 
 export interface SkillsTabDeps {
@@ -22,6 +25,19 @@ export interface SkillsTabDeps {
 
 const FAMILY_NAME: Record<WeaponId, string> = { sword: '片手剣', greatsword: '大剣' };
 const FAMILIES: readonly WeaponId[] = ['sword', 'greatsword'];
+
+interface PassiveCard {
+  id: PassiveId;
+  el: HTMLElement;
+  lv: HTMLElement;
+  pips: HTMLElement[];
+  minus: HTMLButtonElement;
+  plus: HTMLButtonElement;
+  now: HTMLElement;
+  next: HTMLElement;
+  prereq: HTMLElement | null;
+  inactive: HTMLElement | null;
+}
 
 interface Card {
   id: SkillId;
@@ -40,6 +56,7 @@ export class SkillsTab implements MenuTab {
   private resetBtn!: HTMLButtonElement;
   private resetTimer = 0;
   private readonly cards: Card[] = [];
+  private readonly passiveCards: PassiveCard[] = [];
   private readonly famTitle = new Map<WeaponId, HTMLElement>();
 
   constructor(private readonly d: SkillsTabDeps) {}
@@ -54,7 +71,7 @@ export class SkillsTab implements MenuTab {
     pt.append(h('span', undefined, 'スキルポイント'));
     this.skillPts = h('b');
     pt.appendChild(this.skillPts);
-    head.append(pt, h('div', 'sk-hint', 'ポイントを使うと威力が伸び、クールダウンが縮む。Lv4 と Lv7 で動きが変わる'));
+    head.append(pt, h('div', 'sk-hint', 'ポイントを使うと、剣技は威力が伸びてクールダウンが縮み（Lv4・Lv7 で動きが変わる）、パッシブは習得して強くなる'));
     root.appendChild(head);
 
     for (const fam of FAMILIES) {
@@ -112,6 +129,8 @@ export class SkillsTab implements MenuTab {
       }
     }
 
+    this.buildPassives(root);
+
     this.resetBtn = h('button', 'menu-btn danger', 'スキルを全部振り直す');
     this.resetBtn.type = 'button';
     onPress(
@@ -136,6 +155,62 @@ export class SkillsTab implements MenuTab {
     root.appendChild(foot);
   }
 
+  /** パッシブの一覧（攻め・守り・補給）。カードの作りは剣技と同じ（＋/−・目盛り）で、効果の文章・前提・「いまは効かない」の行が付く */
+  private buildPassives(root: HTMLElement): void {
+    const g = this.d.growth;
+    root.appendChild(h('div', 'sk-fam sk-passive-title', 'パッシブ'));
+    root.appendChild(h('div', 'sk-hint pa-hint', '常に効く。最初は未習得で、1 ポイントで習得する。前提のあるものは、前提を満たすと習得できる。'));
+    for (const cat of PASSIVE_CATEGORY_ORDER) {
+      const ids = PASSIVE_ORDER.filter((id) => PASSIVES[id].category === cat);
+      if (ids.length === 0) continue;
+      root.appendChild(h('div', 'pa-cat', PASSIVE_CATEGORY_NAME[cat]));
+      for (const id of ids) {
+        const def = PASSIVES[id];
+        const card = h('div', 'sk-card pa-card');
+        const top = h('div', 'sk-top');
+        const name = h('div', 'sk-name');
+        name.append(h('b', undefined, def.name));
+        if (def.family) name.append(h('span', 'pa-tag', def.family === 'sword' ? '片手剣' : '大剣'));
+        const lv = h('span', 'sk-lv');
+        name.appendChild(lv);
+        const ctrl = h('div', 'st-ctrl');
+        const minus = h('button', 'st-btn', '−');
+        minus.type = 'button';
+        const plus = h('button', 'st-btn plus', '＋');
+        plus.type = 'button';
+        ctrl.append(minus, plus);
+        top.append(name, ctrl);
+        const pipsEl = h('div', 'sk-pips');
+        const pips: HTMLElement[] = [];
+        for (let i = 1; i <= def.levelMax; i++) {
+          const p = h('span', 'sk-pip');
+          pips.push(p);
+          pipsEl.appendChild(p);
+        }
+        const detail = h('div', 'sk-detail', def.detail);
+        const now = h('div', 'pa-now');
+        const next = h('div', 'pa-next');
+        const prereq = def.prereq ? h('div', 'pa-prereq') : null;
+        const inactive = def.family ? h('div', 'pa-inactive', `いまは効かない（${def.family === 'sword' ? '片手剣' : '大剣'}を構えているあいだだけ効く）`) : null;
+        card.append(top, pipsEl, detail, now, next);
+        if (prereq) card.appendChild(prereq);
+        if (inactive) card.appendChild(inactive);
+        root.appendChild(card);
+        onPress(plus, () => {
+          const ok = g.addPassive(id);
+          if (ok) this.d.onChange();
+          return ok;
+        });
+        onPress(minus, () => {
+          const ok = g.removePassive(id);
+          if (ok) this.d.onChange();
+          return ok;
+        });
+        this.passiveCards.push({ id, el: card, lv, pips, minus, plus, now, next, prereq, inactive });
+      }
+    }
+  }
+
   private disarm(): void {
     window.clearTimeout(this.resetTimer);
     this.resetBtn.dataset.armed = '0';
@@ -158,6 +233,26 @@ export class SkillsTab implements MenuTab {
       c.minus.disabled = !g.canRemoveSkill(c.id);
       setText(c.stat, `威力 ×${info.power.toFixed(2)}　クールダウン ${info.cooldownSec.toFixed(1)} 秒　連なり ${info.steps} 段`);
       for (const e of c.evo) e.row.classList.toggle('on', lv >= e.level);
+    }
+    for (const c of this.passiveCards) {
+      const def = PASSIVES[c.id];
+      const lv = g.passiveLevel(c.id);
+      const unmet = unmetPrereqs(g.passiveLevels, c.id);
+      const locked = lv === 0 && unmet.length > 0;
+      c.el.classList.toggle('locked', locked);
+      c.el.classList.toggle('learned', lv > 0);
+      setText(c.lv, lv === 0 ? '未習得' : `Lv ${lv} / ${def.levelMax}`);
+      c.pips.forEach((p, i) => p.classList.toggle('on', i < lv));
+      c.plus.disabled = !g.canAddPassive(c.id);
+      c.minus.disabled = !g.canRemovePassive(c.id);
+      setText(c.now, lv === 0 ? '効果: 未習得' : `効果: ${describePassive(def, lv)}`);
+      setText(c.next, lv >= def.levelMax ? '最大' : `次のレベル: ${describePassive(def, lv + 1)}`);
+      if (c.prereq && def.prereq) {
+        setText(c.prereq, `前提: ${def.prereq.map((p) => `${PASSIVES[p.id].name} Lv${p.level}`).join('・')}${unmet.length === 0 ? '（満たしている）' : ''}`);
+        c.prereq.classList.toggle('unmet', unmet.length > 0);
+      }
+      // 系統つきのパッシブが、いま構えている武器と合わないとき
+      if (c.inactive) c.inactive.hidden = !(lv > 0 && def.family !== cur);
     }
   }
 }

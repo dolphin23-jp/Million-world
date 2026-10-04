@@ -1091,6 +1091,32 @@ try {
     console.error('[menu] スキルのレベル上げが SkillBook に届いていない');
     process.exitCode = 3;
   }
+  // パッシブ（ADR-037）: スキルタブの下に 12 本。未習得で前提が満たされないものは暗く、＋が押せない。剣術習熟に 1 ポイント振ると習得され、片手剣のダメージに +4% が足される
+  const pa0 = await page.evaluate(() => ({
+    cards: document.querySelectorAll('.pa-card').length,
+    locked: [...document.querySelectorAll('.pa-card.locked')].map((c) => c.querySelector('b')?.textContent),
+    plusDisabled: [...document.querySelectorAll('.pa-card')].filter((c) => c.querySelector('.st-btn.plus').disabled).length,
+    kp: window.__mw.game.growth.skillPoints,
+    dmg: window.__mw.game.player.mods.damage,
+  }));
+  console.log(`[passive-ui] 前 ${JSON.stringify(pa0)}`);
+  await page.locator('.pa-card').nth(0).locator('.st-btn.plus').click(); // 剣術習熟
+  await sleep(100);
+  const pa1 = await page.evaluate(() => ({
+    kp: window.__mw.game.growth.skillPoints,
+    lv: window.__mw.game.growth.passiveLevel('swordMastery'),
+    dmg: window.__mw.game.player.mods.damage,
+    learned: document.querySelectorAll('.pa-card.learned').length,
+    text: document.querySelector('.pa-card .pa-now')?.textContent ?? '',
+  }));
+  console.log(`[passive-ui] 後 ${JSON.stringify(pa1)}`);
+  if (pa0.cards !== 12 || pa0.locked.length !== 4 || pa0.kp !== 2 || pa1.kp !== 1 || pa1.lv !== 1 || Math.abs(pa1.dmg - 1.07) > 1e-9 || pa1.learned !== 1) {
+    console.error('[passive-ui] パッシブの一覧（12 本・前提で暗いものが 4 本）・習得（ポイント −1・ダメージ +4%）が想定どおりでない');
+    process.exitCode = 3;
+  }
+  await page.evaluate(() => document.querySelector('.sk-passive-title')?.scrollIntoView({ block: 'start' }));
+  await sleep(150);
+  await page.screenshot({ path: 'artifacts/shot-menu-passives.png' });
   await page.locator('.menu-tab').nth(2).click();
   await sleep(150);
   await page.screenshot({ path: 'artifacts/shot-moves.png' });
@@ -1160,6 +1186,83 @@ try {
     console.error('[tiers] 段階ごとの敵が出ていない（名前・段階）');
     process.exitCode = 3;
   }
+
+  // パッシブの発動（ADR-037）: 受け流し Lv2（パリィ成功で体力 +4）と、闘気（敵を倒すと攻撃力が重なる。連撃の心得 Lv2 が前提）
+  const passiveRun = await page.evaluate((solo) => {
+    const g = window.__mw.game;
+    g.growth.reset();
+    g.growth.addXp(660); // Lv7 = スキルポイント 6
+    g.growth.addPassive('evasion');
+    g.growth.addPassive('parryArt');
+    g.growth.addPassive('parryArt');
+    g.growth.addPassive('comboArt');
+    g.growth.addPassive('comboArt');
+    g.growth.addPassive('momentum');
+    g.applyGrowth(); // private だが実行時は呼べる
+
+    // (1) パリィに成功すると体力が回復する（盾。予備動作の途中で構える）
+    g.restart({ ...solo, maxAttackers: 2 });
+    g.setLoadout('sword-shield');
+    g.stepNow(1);
+    const e = g.enemies[0].enemy;
+    e.place(0, 2.4, Math.PI);
+    for (let i = 0; i < 400 && !(e.state === 'windup' && e.stateFrame >= 35); i++) g.stepNow(1);
+    g.player.health.hp = 60;
+    g.inject({ guardPressed: true, guardHeld: true });
+    g.stepNow(1);
+    const pr0 = g.player.parrySerial;
+    let parried = false;
+    for (let i = 0; i < 60 && !parried; i++) {
+      g.inject({ guardHeld: true });
+      g.stepNow(1);
+      parried = g.player.parrySerial !== pr0;
+    }
+    const heal = { parried, hp: g.player.health.hp, mods: g.player.mods.parryHeal, parryFrames: g.player.mods.parryFrames };
+
+    // (2) 敵を倒すと闘気が重なる（HP 1 の敵を 1 発で倒す）。倒したあと、攻撃力に闘気が足される
+    g.restart(solo);
+    g.setLoadout('sword');
+    g.stepNow(1);
+    g.player.body.x = 0;
+    g.player.body.z = 0;
+    g.player.yaw = 0;
+    const t = g.enemies[0].enemy;
+    t.place(0, 1.9, Math.PI);
+    t.health.hp = 1;
+    g.inject({ attackPressed: true });
+    g.stepNow(1);
+    for (let i = 0; i < 80 && !t.dead; i++) g.stepNow(1);
+    g.stepNow(2);
+    g.renderNow(4);
+    const buff = {
+      killed: t.dead,
+      stacks: g.killBuff.stacks,
+      perStack: g.player.mods.killBuff,
+      bonus: g.player.buffBonus,
+      dmg: g.player.damageMul,
+      base: g.player.mods.damage,
+      badge: document.querySelector('.buff-badge')?.classList.contains('on') ?? false,
+      text: document.querySelector('.buff-text')?.textContent ?? '',
+    };
+    return { heal, buff };
+  }, SOLO);
+  console.log(`[passive-run] ${JSON.stringify(passiveRun)}`);
+  const { heal: ph, buff: pb } = passiveRun;
+  if (!ph.parried || ph.hp !== 60 + 4 || ph.mods !== 4 || ph.parryFrames !== 2) {
+    console.error('[passive-run] 受け流し Lv2: パリィ成功で体力 +4（60 → 64）・パリィ受付 +2f になっていない');
+    process.exitCode = 3;
+  }
+  if (!pb.killed || pb.stacks !== 1 || Math.abs(pb.perStack - 0.02) > 1e-9 || Math.abs(pb.bonus - 0.02) > 1e-9 || Math.abs(pb.dmg - (pb.base + 0.02)) > 1e-9 || !pb.badge || !pb.text.includes('闘気 ×1')) {
+    console.error('[passive-run] 闘気: 倒すと 1 重なり、攻撃力 +2%・HUD の印が出ているはず');
+    process.exitCode = 3;
+  }
+  await sleep(120);
+  await page.screenshot({ path: 'artifacts/shot-passive-buff.png' });
+  await page.evaluate(() => {
+    const g = window.__mw.game;
+    g.growth.reset();
+    g.applyGrowth(); // 後の撮影シーンに振り分けを持ち越さない
+  });
 
   // 12〜13. リザルト: 勝ち（敵を倒しきる）と負け（プレイヤーを倒す）。CSS アニメはループを止めると進まないので、止めて撮る
   await page.addStyleTag({ content: '*, *::before, *::after { animation: none !important; }' });

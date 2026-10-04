@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Growth } from './growth';
 import { GROWTH, totalXpTo, xpToNext } from './data/growth';
 import { SKILL_LEVEL_MAX, SKILL_ORDER } from './data/skills';
+import { PASSIVES, PASSIVE_ORDER, unmetPrereqs } from './data/passives';
 import { STAT_BASE, STAT_IDS } from './data/stats';
 import { DEMO_ENCOUNTER } from '../ai/data/encounters';
 import { ENEMIES, type EnemyDef } from '../ai/data/enemies';
@@ -16,7 +17,7 @@ function rng(seed: number) {
 }
 
 const spentStat = (g: Growth) => STAT_IDS.reduce((a, id) => a + g.stat(id) - STAT_BASE, 0);
-const spentSkill = (g: Growth) => SKILL_ORDER.reduce((a, id) => a + g.skillLevel(id) - 1, 0);
+const spentSkill = (g: Growth) => SKILL_ORDER.reduce((a, id) => a + g.skillLevel(id) - 1, 0) + PASSIVE_ORDER.reduce((a, id) => a + g.passiveLevel(id), 0);
 
 /** 不変条件: 未使用 + 振った = もらった */
 function expectInvariant(g: Growth): void {
@@ -234,16 +235,25 @@ describe('どんな操作の順でも不変条件が崩れない', () => {
         const k = r();
         const stat = STAT_IDS[Math.floor(r() * 5)]!;
         const skill = SKILL_ORDER[Math.floor(r() * SKILL_ORDER.length)]!;
-        if (k < 0.1) g.addXp(Math.floor(r() * 200));
-        else if (k < 0.3) g.addStat(stat);
-        else if (k < 0.4) g.removeStat(stat);
-        else if (k < 0.55) g.addSkill(skill);
-        else if (k < 0.65) g.removeSkill(skill);
-        else if (k < 0.7) g.resetStats();
-        else if (k < 0.75) g.resetSkills();
-        else if (k < 0.85) g.beginEdit();
+        const passive = PASSIVE_ORDER[Math.floor(r() * PASSIVE_ORDER.length)]!;
+        if (k < 0.08) g.addXp(Math.floor(r() * 200));
+        else if (k < 0.22) g.addStat(stat);
+        else if (k < 0.3) g.removeStat(stat);
+        else if (k < 0.4) g.addSkill(skill);
+        else if (k < 0.46) g.removeSkill(skill);
+        else if (k < 0.6) g.addPassive(passive);
+        else if (k < 0.68) g.removePassive(passive);
+        else if (k < 0.72) g.resetStats();
+        else if (k < 0.76) g.resetSkills();
+        else if (k < 0.86) g.beginEdit();
         else if (k < 0.95) g.endEdit();
         expectInvariant(g);
+        // パッシブは、どの操作のあとでも、範囲の中で前提を満たしている
+        for (const id of PASSIVE_ORDER) {
+          expect(g.passiveLevel(id)).toBeGreaterThanOrEqual(0);
+          expect(g.passiveLevel(id)).toBeLessThanOrEqual(PASSIVES[id].levelMax);
+          if (g.passiveLevel(id) > 0) expect(unmetPrereqs(g.passiveLevels, id)).toEqual([]);
+        }
         for (const id of STAT_IDS) expect(g.stat(id)).toBeGreaterThanOrEqual(STAT_BASE);
         for (const id of SKILL_ORDER) {
           expect(g.skillLevel(id)).toBeGreaterThanOrEqual(1);
@@ -306,5 +316,151 @@ describe('最初から（reset）', () => {
     expectInvariant(g);
     // 編集の途中でも、戻せる起点は初期の状態になる（さらに戻せない）
     expect(g.canRemoveStat('dex')).toBe(false);
+  });
+});
+
+describe('パッシブ（習得・前提・取り下げ。ADR-037）', () => {
+  /** スキルポイントを n 持ったプレイヤー（レベル n + 1） */
+  const withSp = (n: number): Growth => {
+    const g = new Growth();
+    g.addXp(totalXpTo(n + 1));
+    expect(g.skillPoints).toBe(n);
+    return g;
+  };
+
+  it('パッシブは Lv0（未習得）から始まる。1 ポイントで習得し、以降 1 ポイントで 1 レベル。最大で止まる', () => {
+    const g = withSp(10);
+    for (const id of PASSIVE_ORDER) expect(g.passiveLevel(id)).toBe(0);
+    expect(g.addPassive('agile')).toBe(true);
+    expect(g.passiveLevel('agile')).toBe(1);
+    expect(g.skillPoints).toBe(9);
+    for (let i = 0; i < 4; i++) expect(g.addPassive('agile')).toBe(true);
+    expect(g.passiveLevel('agile')).toBe(PASSIVES.agile.levelMax);
+    expect(g.canAddPassive('agile')).toBe(false);
+    expect(g.addPassive('agile')).toBe(false);
+    expect(g.skillPoints).toBe(5);
+    expectInvariant(g);
+  });
+
+  it('ポイントが無ければ習得できない', () => {
+    const g = new Growth();
+    expect(g.canAddPassive('agile')).toBe(false);
+    expect(g.addPassive('agile')).toBe(false);
+  });
+
+  it('前提のあるパッシブは、前提を満たすまで習得できない（急所突きは会心の心得 Lv2 から）', () => {
+    const g = withSp(10);
+    expect(g.canAddPassive('critPower')).toBe(false);
+    g.addPassive('critChance');
+    expect(g.canAddPassive('critPower')).toBe(false); // Lv1 では足りない
+    g.addPassive('critChance');
+    expect(g.canAddPassive('critPower')).toBe(true);
+    expect(g.addPassive('critPower')).toBe(true);
+    expect(g.passiveLevel('critPower')).toBe(1);
+  });
+
+  it('前提は 2 段になる（追い打ち ← 受け流し ← 見切り）', () => {
+    const g = withSp(10);
+    expect(g.canAddPassive('followUp')).toBe(false);
+    expect(g.canAddPassive('parryArt')).toBe(false);
+    g.addPassive('evasion');
+    expect(g.canAddPassive('parryArt')).toBe(true);
+    expect(g.canAddPassive('followUp')).toBe(false);
+    g.addPassive('parryArt');
+    expect(g.canAddPassive('followUp')).toBe(true);
+  });
+
+  it('戻せるのは、メニューを開いてから上げた分だけ。開く前に上げた分は戻せない', () => {
+    const g = withSp(5);
+    g.addPassive('agile');
+    g.beginEdit();
+    expect(g.canRemovePassive('agile')).toBe(false);
+    g.addPassive('agile');
+    expect(g.canRemovePassive('agile')).toBe(true);
+    expect(g.removePassive('agile')).toBe(true);
+    expect(g.passiveLevel('agile')).toBe(1);
+    expect(g.canRemovePassive('agile')).toBe(false);
+    g.endEdit();
+    expect(g.canRemovePassive('agile')).toBe(false); // 編集の外では戻せない
+  });
+
+  it('前提を割る取り下げはできない（急所突きを習得したまま、会心の心得を Lv2 から Lv1 には戻せない）。依存が先なら戻せる', () => {
+    const g = withSp(6);
+    g.beginEdit();
+    g.addPassive('critChance');
+    g.addPassive('critChance');
+    g.addPassive('critPower');
+    expect(g.canRemovePassive('critChance')).toBe(false);
+    expect(g.removePassive('critChance')).toBe(false);
+    expect(g.removePassive('critPower')).toBe(true);
+    expect(g.canRemovePassive('critChance')).toBe(true);
+    expect(g.removePassive('critChance')).toBe(true);
+    expectInvariant(g);
+  });
+
+  it('全部振り直す（無料）と、剣技のレベルもパッシブも初期に戻り、ポイントが返る', () => {
+    const g = withSp(8);
+    g.addSkill('yotsuba');
+    g.addPassive('critChance');
+    g.addPassive('critChance');
+    g.addPassive('critPower');
+    g.addPassive('agile');
+    g.beginEdit();
+    g.addPassive('agile');
+    g.resetSkills();
+    expect(g.skillPoints).toBe(8);
+    expect(g.skillLevel('yotsuba')).toBe(1);
+    for (const id of PASSIVE_ORDER) expect(g.passiveLevel(id)).toBe(0);
+    // 振り直したあとの編集は、振り直した状態が起点（さらに戻せない）
+    expect(g.canRemovePassive('agile')).toBe(false);
+    expectInvariant(g);
+  });
+
+  it('modifiersFor は、パッシブ込み・系統ごと。stats だけの modifiers は変わらない。変化があったときだけ作り直す', () => {
+    const g = withSp(6);
+    const base = g.modifiersFor('sword');
+    expect(g.modifiersFor('sword')).toBe(base); // キャッシュ
+    g.addPassive('swordMastery');
+    g.addPassive('swordMastery');
+    const sword = g.modifiersFor('sword');
+    const great = g.modifiersFor('greatsword');
+    expect(sword).not.toBe(base);
+    expect(sword.damage).toBeCloseTo(1.08, 9);
+    expect(great.damage).toBeCloseTo(1, 9); // 大剣では効かない
+    expect(g.modifiers.damage).toBe(1); // stats だけ
+    expect(g.modifiersFor('sword')).toBe(sword);
+  });
+
+  it('保存から戻す: パッシブが往復する。範囲外は丸める。前提を割った・ポイントの合わないセーブは、スキルもパッシブも初期に戻してポイントを返す', () => {
+    const a = withSp(8);
+    a.addPassive('critChance');
+    a.addPassive('critChance');
+    a.addPassive('critPower');
+    a.addSkill('houzan');
+    const b = new Growth(a.toSnapshot());
+    expect(b.toSnapshot()).toEqual(a.toSnapshot());
+    expect(b.modifiersFor('sword')).toEqual(a.modifiersFor('sword'));
+    // 前提を割ったセーブ（急所突きだけ習得しているのに、会心の心得が 0）
+    const base = withSp(4).toSnapshot();
+    const broken = new Growth({ ...base, skillPoints: 3, passives: { ...base.passives, critPower: 1 } });
+    for (const id of PASSIVE_ORDER) expect(broken.passiveLevel(id)).toBe(0);
+    expect(broken.skillPoints).toBe(4);
+    // ポイントの合わないセーブ
+    const cheat = new Growth({ ...base, passives: { ...base.passives, agile: 5 } });
+    expect(cheat.passiveLevel('agile')).toBe(0);
+    expect(cheat.skillPoints).toBe(4);
+    // 範囲外・小数は丸める（合計が合うように与える）
+    const clamp = new Growth({ ...base, skillPoints: 4 - 5, passives: { ...base.passives, agile: 99 } });
+    expectInvariant(clamp);
+    expect(clamp.passiveLevel('agile')).toBeLessThanOrEqual(PASSIVES.agile.levelMax);
+  });
+
+  it('passives の無い古いスナップショットでも、未習得として読める', () => {
+    const snap = withSp(3).toSnapshot();
+    const { passives: _p, ...old } = snap;
+    void _p;
+    const g = new Growth(old);
+    for (const id of PASSIVE_ORDER) expect(g.passiveLevel(id)).toBe(0);
+    expect(g.skillPoints).toBe(3);
   });
 });

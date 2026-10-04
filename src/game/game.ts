@@ -22,6 +22,9 @@ import { Inventory } from '../combat/inventory';
 import { SkillBook } from '../combat/skills';
 import { SKILLS, SKILL_ORDER, isSkillId, type SkillDef } from '../combat/data/skills';
 import { Growth } from '../combat/growth';
+import { KillBuff } from '../combat/buffs';
+import { KILL_BUFF } from '../combat/data/passives';
+import type { Modifiers } from '../combat/modifiers';
 import { makeSave, parseSave } from '../combat/save';
 import { clearSave, readSave, writeSave } from '../platform/storage';
 import { ITEMS, ITEM_ORDER, ITEM_RULES, type ItemId } from '../combat/data/items';
@@ -219,6 +222,9 @@ export class Game {
   readonly growth: Growth;
   /** 挑戦の進み具合（クリアした敵の段階・選んでいる段階。ADR-036）。セーブに入る */
   readonly progress: Progress;
+  /** 闘気（パッシブ。敵を倒すと一定時間、攻撃力が上がる。ADR-037）。HUD に表示した serial も持つ */
+  private readonly killBuff = new KillBuff();
+  private seenBuff = -1;
   /** 成長の表示（HUD）を合わせ終えた Growth.serial と、この挑戦で得た経験値・始めたときのレベル（リザルトに出す） */
   private seenGrowth = -1;
   private xpRun = 0;
@@ -494,6 +500,7 @@ export class Game {
     if (result.killed) this.sfx.play('kill');
     if (result.killed) {
       this.encounter.onKill();
+      if (this.mods.killBuff > 0) this.killBuff.onKill(); // 闘気: 倒すたびに重なる
       this.awardXp(enemy);
       this.dropItems(enemy);
       // ボスを倒すと手下（呼ばれた小蝙蝠など）は消える（倒した数には入らない）
@@ -505,13 +512,27 @@ export class Game {
 
   // ---------------------------------------------------------------- 成長（ADR-033）
 
+  /** 闘気の HUD の印（レベルの下）。重なりが変わったときに文字を、残り時間は毎ステップ（重なりがあるあいだだけ）合わせる */
+  private syncBuffUi(): void {
+    const b = this.killBuff;
+    if (this.seenBuff === b.serial && b.stacks === 0) return;
+    this.seenBuff = b.serial;
+    this.hud.setKillBuff(b.stacks, Math.round(b.bonus(this.mods.killBuff) * 100), b.ratio, KILL_BUFF.maxStacks);
+  }
+
+  /** 戦闘が読む効果の集計: ステータス + パッシブ（いま装備している武器の系統で効くものだけ。ADR-037）。振り分け・装備が変わったときだけ作り直される（Growth がキャッシュ） */
+  private get mods(): Modifiers {
+    return this.growth.modifiersFor(this.player.loadout.weapon);
+  }
+
   /**
    * 成長の状態を、スキルのレベル・戦闘の数値（Modifiers）・HUD に反映する（起動時・振り分けが変わったとき・「最初から」）。
    * 戦闘中（一時停止メニューからの振り分け）でも呼べる
    */
   private applyGrowth(): void {
     for (const id of SKILL_ORDER) this.skills.setLevel(id, this.growth.skillLevel(id));
-    this.player.setModifiers(this.growth.modifiers);
+    this.player.setModifiers(this.mods);
+    if (this.mods.killBuff === 0) this.killBuff.clear(); // 闘気を取り下げたら、重なりも消す
     this.hud.setPlayerHp(this.player.health.hp, this.player.health.max);
     this.syncGrowthUi();
     this.menu.refreshMarks();
@@ -684,6 +705,18 @@ export class Game {
     this.damageNumbers.spawnText(enemy.body.x, enemy.def.height + 0.35, enemy.body.z, 'PARRY', 'parry', fx.labelScale);
     this.sfx.play(fx.sfx);
     this.encounter.onParry();
+    this.healOnParry();
+  }
+
+  /** パリィに成功したときの回復（パッシブの受け流し。Modifiers.parryHeal。ADR-037）。体力が満タンなら何も出さない */
+  private healOnParry(): void {
+    const n = this.mods.parryHeal;
+    if (n <= 0) return;
+    const p = this.player;
+    const healed = p.heal(n);
+    if (healed <= 0) return;
+    this.hud.setPlayerHp(p.health.hp, p.health.max);
+    this.damageNumbers.spawn(p.body.x, HIT_FEEDBACK.playerImpactHeight + 0.7, p.body.z, healed, 'heal');
   }
 
   /**
@@ -692,7 +725,7 @@ export class Game {
    * 発動の演出: 強いヒットストップ・画面の揺れ・青紫の閃光・「MYSTICAL」の文字・音
    */
   private onJustDodge(): boolean {
-    if (this.mystical.trigger(this.growth.modifiers.mysticalFrames)) {
+    if (this.mystical.trigger(this.mods.mysticalFrames)) {
       const p = this.player;
       p.setMystical(true);
       this.mysticalWas = true;
@@ -718,7 +751,7 @@ export class Game {
   private dropItems(enemy: Enemy): void {
     const def = enemy.def as EnemyDef;
     if (!def.drops || def.drops.length === 0 || this.summonedIds.has(enemy.id)) return;
-    for (const id of this.inventory.rollDrops(def.drops, this.dropRng)) {
+    for (const id of this.inventory.rollDrops(def.drops, this.dropRng, this.mods.dropRate)) {
       if (this.inventory.add(id) === 0) continue;
       this.hitFx.burst(enemy.body.x, 0.9, enemy.body.z, 0, 0, 0.7, FX_TINT.heal);
       this.damageNumbers.spawnText(enemy.body.x, Math.min(enemy.def.height + 0.1, 1.9), enemy.body.z, `＋${ITEMS[id].name}`, 'item');
@@ -738,7 +771,7 @@ export class Game {
       if (r.reason !== 'wait' && ITEM_RULES.denySound) this.sfx.play('itemDeny');
       return;
     }
-    const healed = p.heal(ITEMS[r.item].heal * this.growth.modifiers.heal);
+    const healed = p.heal(ITEMS[r.item].heal * this.mods.heal);
     this.hud.setPlayerHp(p.health.hp, p.health.max);
     this.hitFx.burst(p.body.x, HIT_FEEDBACK.playerImpactHeight, p.body.z, 0, 0, 0.8, FX_TINT.heal);
     this.damageNumbers.spawn(p.body.x, HIT_FEEDBACK.playerImpactHeight + 0.7, p.body.z, healed, 'heal');
@@ -752,7 +785,7 @@ export class Game {
   private useSkill(): void {
     const p = this.player;
     if (p.dead) return;
-    const run = this.skills.prepare(p.loadout.weapon, this.growth.modifiers.skillPower);
+    const run = this.skills.prepare(p.loadout.weapon, this.mods.skillPower);
     if (!run) {
       this.sfx.play('itemDeny');
       return;
@@ -766,7 +799,7 @@ export class Game {
     this.seenSkillSerial = p.skillSerial;
     const id = p.lastSkill;
     if (!id) return;
-    this.skills.start(id, this.growth.modifiers.skillCooldown);
+    this.skills.start(id, this.mods.skillCooldown);
     this.damageNumbers.spawnText(p.body.x, 1.95, p.body.z, SKILLS[id].name, 'skill', 1.2);
     this.sfx.play('skillStart');
   }
@@ -831,6 +864,7 @@ export class Game {
     this.damageNumbers.spawnText(p.x, PROJECTILE_HEIGHT + 0.5, p.z, 'PARRY', 'parry', fx.labelScale);
     this.sfx.play(fx.sfx);
     this.encounter.onParry();
+    this.healOnParry();
   }
 
   /** 弾が消えた。寿命・縁で消えた弾と斬り落とした弾は、小さな閃光とはじける音（当たった・受け止めたときは、その演出がある） */
@@ -883,7 +917,10 @@ export class Game {
     if (!this.player.equip(id)) return false;
     this.touch.setEquipLabel(LOADOUTS[id].name);
     this.refreshMoveList();
-    if (id !== before) this.sfx.play('equip');
+    if (id !== before) {
+      this.applyGrowth(); // 武器の系統が変わると、系統つきのパッシブ（剣術習熟・剛力習熟）の効きが変わる
+      this.sfx.play('equip');
+    }
     return true;
   }
 
@@ -949,6 +986,10 @@ export class Game {
     // スキル: 選択の切替（キーボード）・クールダウンを進める・使用の頼み（始められたかは player.step のあとに skillSerial で分かる）
     if (intent.skillCycle !== 0) this.skills.cycle(this.player.loadout.weapon, intent.skillCycle);
     this.skills.step();
+    // 闘気（パッシブ）: 時間を進めて、いまの重なりぶんの攻撃力を Player へ渡す。HUD の印は重なりが変わったときと、残り時間（毎ステップ）
+    this.killBuff.step();
+    this.player.buffBonus = this.killBuff.bonus(this.mods.killBuff);
+    this.syncBuffUi();
     if (intent.skillPressed) this.useSkill();
     // 装備の切替（立っている・走っているあいだだけ）
     if (intent.equipPressed) this.cycleLoadout();
@@ -1152,6 +1193,8 @@ export class Game {
     this.seenArmor = this.player.armorSerial;
     this.seenSwing = this.player.swingSerial;
     this.xpRun = 0;
+    this.killBuff.clear();
+    this.player.buffBonus = 0;
     this.levelAtRunStart = this.growth.level;
     this.inventory.reset();
     this.summonedIds.clear();
