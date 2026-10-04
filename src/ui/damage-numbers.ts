@@ -43,11 +43,11 @@ export class DamageNumbers {
   }
 
   /** 数字ではなく文字（パリィの「PARRY」など）を同じ要領で浮かべる。scale は文字の大きさの倍率（大剣のパリィは大きく） */
-  spawnText(x: number, y: number, z: number, text: string, style: 'parry', scale = 1): void {
+  spawnText(x: number, y: number, z: number, text: string, style: 'parry' | 'warn' | 'break', scale = 1): void {
     this.put(x, y, z, text, style, scale);
   }
 
-  private put(x: number, y: number, z: number, text: string, style: HitStyle | 'hurt' | 'guard' | 'riposte' | 'parry', scale = 1): void {
+  private put(x: number, y: number, z: number, text: string, style: HitStyle | 'hurt' | 'guard' | 'riposte' | 'parry' | 'warn' | 'break', scale = 1): void {
     // 空きがなければ一番古いものを使う（リングバッファ）
     const it = this.items[this.next]!;
     this.next = (this.next + 1) % this.items.length;
@@ -58,7 +58,7 @@ export class DamageNumbers {
     it.y = y;
     it.z = z;
     it.jitter = (Math.random() - 0.5) * 36;
-    it.scale = (style === 'kill' ? 1.6 : style === 'heavy' || style === 'riposte' ? 1.3 : style === 'parry' ? 1.15 : style === 'guard' ? 0.8 : 1) * scale;
+    it.scale = (style === 'kill' ? 1.6 : style === 'heavy' || style === 'riposte' ? 1.3 : style === 'parry' || style === 'warn' || style === 'break' ? 1.15 : style === 'guard' ? 0.8 : 1) * scale;
     it.el.textContent = text;
     it.el.className = `dmg dmg-${style}`;
     it.el.style.display = '';

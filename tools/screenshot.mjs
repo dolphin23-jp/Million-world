@@ -512,6 +512,80 @@ try {
   await sleep(120);
   await page.screenshot({ path: 'artifacts/shot-lantern-parry.png' });
 
+  // 岩鬼（重装型。ADR-027）: ガード不能の地ならしの予備動作（床の円が内側から満ちる・頭上の「ガード不能」）、攻撃が出た瞬間（床の輪とひび）、体勢を崩して膝をついた絵（ロックして体勢バーを出す）
+  const OGRE_SOLO = { ...SOLO, waves: [[{ type: 'ogre', offset: 0, radius: 7.5 }]], maxAttackers: 2 };
+  const ogreWindup = await page.evaluate((def) => {
+    const g = window.__mw.game;
+    g.restart(def);
+    g.setLoadout('sword');
+    g.stepNow(1);
+    g.player.body.x = 0;
+    g.player.body.z = 0;
+    g.player.yaw = 0;
+    const e = g.enemies[0].enemy;
+    e.place(0.8, 3.4, Math.PI);
+    g.cam.yaw = Math.PI;
+    let n = 0;
+    while (!(e.state === 'windup' && e.stateFrame >= 48) && n++ < 500) g.stepNow(1);
+    g.renderNow(8);
+    return { state: e.state, frame: e.stateFrame };
+  }, OGRE_SOLO);
+  console.log(`[ogre] windup ${JSON.stringify(ogreWindup)}`);
+  if (ogreWindup.state !== 'windup') {
+    console.error('[ogre] 岩鬼が予備動作に入っていません');
+    process.exitCode = 3;
+  }
+  await sleep(120);
+  await page.screenshot({ path: 'artifacts/shot-ogre-circle.png' });
+  const ogreSlam = await page.evaluate(() => {
+    const g = window.__mw.game;
+    const e = g.enemies[0].enemy;
+    let n = 0;
+    while (e.state !== 'attack' && n++ < 100) g.stepNow(1);
+    g.stepNow(6);
+    g.renderNow(5);
+    return { state: e.state, frame: e.stateFrame, impacts: e.impactSerial, hp: g.player.health.hp };
+  });
+  console.log(`[ogre] slam ${JSON.stringify(ogreSlam)}`);
+  if (ogreSlam.impacts !== 1 || ogreSlam.hp >= 100) {
+    console.error('[ogre] 地ならしが出ていない、または立っていたのに当たっていません');
+    process.exitCode = 3;
+  }
+  await sleep(120);
+  await page.screenshot({ path: 'artifacts/shot-ogre-slam.png' });
+  const ogreBreak = await page.evaluate((def) => {
+    const g = window.__mw.game;
+    g.restart(def);
+    g.setLoadout('greatsword');
+    g.stepNow(1);
+    g.player.body.x = 0;
+    g.player.body.z = 0;
+    g.player.yaw = 0;
+    const e = g.enemies[0].enemy;
+    e.place(0.6, 3.2, Math.PI);
+    g.cam.yaw = Math.PI;
+    g.inject({ lockPressed: true });
+    g.stepNow(1);
+    // 体勢ゲージを削って（半分）から、あと一撃で崩す: 予備動作のうちに崩して攻撃を中断させる
+    let n = 0;
+    while (!(e.state === 'windup' && e.stateFrame >= 14) && n++ < 500) g.stepNow(1);
+    e.takeHit({ attackerId: 0, targetId: e.id, damage: 50, knockback: 0, hitStop: 0, dirX: 0, dirZ: -1, x: 0, z: 0 });
+    g.stepNow(2);
+    g.renderNow(10);
+    const mid = { ratio: e.poise.ratio, state: e.state };
+    e.takeHit({ attackerId: 0, targetId: e.id, damage: 40, knockback: 0, hitStop: 0, dirX: 0, dirZ: -1, x: 0, z: 0 });
+    g.stepNow(24);
+    g.renderNow(10);
+    return { mid, state: e.state, breaks: e.breakSerial, ratio: e.poise.ratio, hurt: g.player.health.hp };
+  }, OGRE_SOLO);
+  console.log(`[ogre] break ${JSON.stringify(ogreBreak)}`);
+  if (ogreBreak.state !== 'stagger' || ogreBreak.breaks !== 1 || ogreBreak.hurt !== 100) {
+    console.error('[ogre] 体勢を崩せていない（stagger・攻撃は中断・ダメージなし）');
+    process.exitCode = 3;
+  }
+  await sleep(120);
+  await page.screenshot({ path: 'artifacts/shot-ogre-break.png' });
+
   // 操作ガイド（ADR-024）: ロックして 1 段目を出し、次段の受付が開いた絵（連携の履歴・続けられる技・受付の帯）と、右上の「技表」を開いた絵
   await page.evaluate((solo) => {
     const g = window.__mw.game;

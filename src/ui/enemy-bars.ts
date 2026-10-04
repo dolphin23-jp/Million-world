@@ -11,12 +11,14 @@ interface BarTarget {
   readonly dead: boolean;
   readonly body: { x: number; z: number };
   readonly def: { height: number };
+  /** 体勢ゲージ（重装型だけ。ratio 0..1）。あれば HP バーの下に細いバーを出す */
+  readonly poise?: { readonly ratio: number } | null;
 }
 
 const _v = new THREE.Vector3();
 
 export class EnemyBars {
-  private readonly bars: { el: HTMLElement; fill: HTMLElement; lag: HTMLElement; shown: boolean }[] = [];
+  private readonly bars: { el: HTMLElement; fill: HTMLElement; lag: HTMLElement; poise: HTMLElement; poiseFill: HTMLElement; shown: boolean; poiseShown: boolean }[] = [];
 
   constructor(layer: HTMLElement, size = 8) {
     for (let i = 0; i < size; i++) {
@@ -29,7 +31,15 @@ export class EnemyBars {
       fill.className = 'hp-fill';
       el.append(lag, fill);
       layer.appendChild(el);
-      this.bars.push({ el, fill, lag, shown: false });
+      // 体勢ゲージ（HP バーの下の細いバー。HP バーは overflow: hidden なので、別の要素にして同じ位置に付ける）
+      const poise = document.createElement('div');
+      poise.className = 'poise ebar-poise';
+      poise.style.display = 'none';
+      const poiseFill = document.createElement('div');
+      poiseFill.className = 'poise-fill';
+      poise.appendChild(poiseFill);
+      layer.appendChild(poise);
+      this.bars.push({ el, fill, lag, poise, poiseFill, shown: false, poiseShown: false });
     }
   }
 
@@ -43,14 +53,18 @@ export class EnemyBars {
       if (!visible) {
         if (bar.shown) {
           bar.el.style.display = 'none';
+          bar.poise.style.display = 'none';
           bar.shown = false;
+          bar.poiseShown = false;
         }
         continue;
       }
       _v.set(t.body.x, t.def.height + 0.3, t.body.z).project(camera);
       if (_v.z > 1) {
         bar.el.style.display = 'none';
+        bar.poise.style.display = 'none';
         bar.shown = false;
+        bar.poiseShown = false;
         continue;
       }
       if (!bar.shown) {
@@ -63,6 +77,19 @@ export class EnemyBars {
       const w = `${(t.health.hp / t.health.max) * 100}%`;
       bar.fill.style.width = w;
       bar.lag.style.width = w;
+      // 体勢ゲージ: HP バーの 12px 下（崩れている = 0 のあいだは水色。反撃のチャンスの合図）
+      if (t.poise) {
+        if (!bar.poiseShown) {
+          bar.poise.style.display = '';
+          bar.poiseShown = true;
+        }
+        bar.poise.style.transform = `translate(${(x - 39).toFixed(1)}px, ${(y + 12).toFixed(1)}px)`;
+        bar.poiseFill.style.width = `${Math.max(0, Math.min(1, t.poise.ratio)) * 100}%`;
+        bar.poise.classList.toggle('broken', t.poise.ratio <= 0);
+      } else if (bar.poiseShown) {
+        bar.poise.style.display = 'none';
+        bar.poiseShown = false;
+      }
     }
   }
 }

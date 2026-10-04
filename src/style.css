@@ -240,6 +240,55 @@ body {
 .ebar .hp-fill {
   background: linear-gradient(180deg, #ffb0a0, #e8503a);
 }
+/* 体勢ゲージ（重装型。ADR-027）: HP バーの下の細い黄色のバー。崩れている（0）あいだは水色（反撃のチャンス） */
+.poise {
+  position: absolute;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(14, 12, 30, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  overflow: hidden;
+  box-sizing: border-box;
+  display: none;
+}
+.poise-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 100%;
+  background: linear-gradient(180deg, #fff2a8, #f0b030);
+}
+/* 崩れている（0）あいだは、水色が満タンで点滅する（反撃のチャンスの合図） */
+.poise.broken .poise-fill {
+  width: 100% !important;
+  background: #8fe9ff;
+  animation: poise-blink 0.5s ease-in-out infinite alternate;
+}
+@keyframes poise-blink {
+  from { opacity: 0.55; }
+  to { opacity: 1; }
+}
+.ebar-poise {
+  left: 0;
+  top: 0;
+  width: 78px;
+  will-change: transform;
+}
+#hp-target .poise {
+  left: 2px;
+  right: 2px;
+  top: 13px;
+}
+#hp-target.has-poise .poise {
+  display: block;
+}
+#hp-target.has-poise .hp-name {
+  top: 21px;
+}
+#hp-target.poise-broken .poise {
+  box-shadow: 0 0 8px rgba(143, 233, 255, 0.9);
+}
 
 /* ロックオンのマーカー（src/ui/lock-marker.ts）: 四隅の枠 */
 .lock-marker {
@@ -323,6 +372,15 @@ body {
 }
 .dmg-riposte {
   color: #9ff2ff;
+}
+/* ガード不能の警告（岩鬼の予備動作の頭上）・体勢崩し */
+.dmg-warn {
+  color: #ff5fae;
+  letter-spacing: 0.1em;
+}
+.dmg-break {
+  color: #ffe36a;
+  letter-spacing: 0.12em;
 }
 
 /* ---------- ウェーブのバナー ---------- */

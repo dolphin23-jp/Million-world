@@ -103,6 +103,8 @@ export const FX_TINT = {
   guard: new THREE.Color(1, 0.93, 0.75),
   /** 鬼火が消える・斬り落とされたときの閃光（紫がかった白） */
   orb: new THREE.Color(0.78, 0.66, 1),
+  /** 体勢が崩れたときの閃光（黄金色。パリィの水色と見分ける） */
+  poise: new THREE.Color(1, 0.88, 0.4),
 } as const;
 
 export class HitFx {

@@ -23,7 +23,7 @@ import { Sfx, distanceGain } from '../audio/sfx';
 import type { SfxName } from '../audio/data/sfx';
 import { ENEMIES } from '../ai/data/enemies';
 import { EnemyVisual } from './enemy-visual';
-import { TelegraphLanes } from '../render/telegraph';
+import { TelegraphCircles, TelegraphLanes } from '../render/telegraph';
 import { HitStop } from '../core/hitstop';
 import { HitFx } from '../render/hit-fx';
 import { GroundFx } from '../render/ground-fx';
@@ -81,8 +81,10 @@ interface EnemyEntry {
   visual: EnemyVisual;
   /** 効果音を鳴らし終えた状態遷移（Enemy.stateSerial） */
   seenSerial: number;
-  /** 弾を作り終えた発射（Enemy.fireSerial） */
+  /** 弾を作り終えた発射（Enemy.fireSerial）・床の演出を起こし終えた地面叩き（impactSerial）・演出を起こし終えた体勢崩し（breakSerial） */
   seenFire: number;
+  seenImpact: number;
+  seenBreak: number;
 }
 
 /** プレイヤーの攻撃ごとの振りの効果音 */
@@ -157,6 +159,8 @@ export class Game {
   readonly groundFx = new GroundFx();
   /** 敵の攻撃の予告の床表示（突進の通り道。ADR-025） */
   private readonly lanes = new TelegraphLanes();
+  /** 全周の攻撃の予告の円（岩鬼の地ならし。ADR-027） */
+  private readonly circles = new TelegraphCircles();
   /** 飛び道具（提灯の鬼火。ADR-026）の sim と描画 */
   private readonly projectiles = new ProjectileSystem();
   private readonly projectileFx = new ProjectileRenderer(MAX_PROJECTILES, PROJECTILES.wisp.radius);
@@ -236,6 +240,7 @@ export class Game {
     this.scene.add(this.hitFx.group);
     this.scene.add(this.groundFx.group);
     this.scene.add(this.lanes.group);
+    this.scene.add(this.circles.group);
     this.scene.add(this.projectileFx.group);
     this.scene.add(this.swordTrail.mesh);
     this.hud.onRetry(() => {
@@ -332,7 +337,7 @@ export class Game {
     enemy.place(x, z, Math.atan2(this.player.body.x - x, this.player.body.z - z));
     const visual = new EnemyVisual(type);
     this.scene.add(visual.root);
-    this.enemies.push({ enemy, visual, seenSerial: enemy.stateSerial, seenFire: enemy.fireSerial });
+    this.enemies.push({ enemy, visual, seenSerial: enemy.stateSerial, seenFire: enemy.fireSerial, seenImpact: enemy.impactSerial, seenBreak: enemy.breakSerial });
     this.enemySims.push(enemy);
     return enemy;
   }
@@ -579,6 +584,7 @@ export class Game {
     // 攻撃権: 同時に予備動作〜攻撃に入れる敵の数を制限する（残りは近くで構えて待つ）
     stepSwarm(this.enemySims, dt, this.player.body.x, this.player.body.z, alive, this.encounter.def.maxAttackers);
     this.soundEnemyStates();
+    this.enemyEvents();
     // 敵の弾: 撃たれた弾を作って 1 ステップ飛ばす（寿命・アリーナの縁で消える）
     this.spawnProjectiles();
     this.projectiles.step(dt, this.arena.radius, this.onProjectileEndCb);
@@ -660,8 +666,39 @@ export class Game {
       // 弾き飛ばされて倒れた敵が地面に落ちる音（倒れ切る 14f ≒ 0.23 秒の少し手前）
       if (e.state === 'down') this.sfx.play('knockdown', { gain, delay: 0.17 });
       if (e.state !== 'windup' && e.state !== 'attack') continue;
-      if (e.state === 'windup') this.sfx.play('telegraph', { gain });
+      if (e.state === 'windup' && e.def.attack.unblockable) {
+        // ガード不能の予備動作: 防げる攻撃と違う鋭い合図と、頭上の警告（避けるしかない）
+        this.sfx.play('unblockWarn', { gain: Math.max(gain, 0.7) });
+        this.damageNumbers.spawnText(e.body.x, Math.min(e.def.height + 0.55, 1.9), e.body.z, 'ガード不能', 'warn');
+      } else if (e.state === 'windup') this.sfx.play('telegraph', { gain });
       else this.sfx.play(ENEMY_ATTACK_SFX[e.def.id] ?? 'enemySwing', { gain, delay: 0.02 });
+    }
+  }
+
+  /**
+   * 敵の状態の合図に応じた演出: 地面を叩いた（床の砂ぼこりの輪・ひび割れ・画面の揺れ・音）、体勢を崩された（強いヒットストップ・閃光・「BREAK」・音）。
+   * 合図は Enemy.impactSerial / breakSerial（増えたら 1 回ずつ）
+   */
+  private enemyEvents(): void {
+    for (const entry of this.enemies) {
+      const e = entry.enemy;
+      if (e.impactSerial !== entry.seenImpact) {
+        entry.seenImpact = e.impactSerial;
+        const power = e.def.attack.groundImpact ?? 1;
+        const gain = distanceGain(Math.hypot(e.body.x - this.player.body.x, e.body.z - this.player.body.z));
+        this.groundFx.burst(e.body.x, e.body.z, power);
+        this.cam.shake.trigger(GROUND_IMPACT.shake.amp * power * gain, GROUND_IMPACT.shake.seconds * 1.1);
+        this.sfx.play('groundSmash', { gain: Math.min(GROUND_IMPACT.sfx.maxGain, GROUND_IMPACT.sfx.gain * power) * Math.max(0.5, gain) });
+      }
+      if (e.breakSerial !== entry.seenBreak) {
+        entry.seenBreak = e.breakSerial;
+        const fx = e.parryEffect;
+        this.hitStop.trigger(fx.hitStop);
+        this.cam.shake.trigger(fx.shake.amp, fx.shake.seconds);
+        this.hitFx.burst(e.body.x, e.def.height * 0.6, e.body.z, 0, 0, fx.burst, FX_TINT.poise);
+        this.damageNumbers.spawnText(e.body.x, Math.min(e.def.height + 0.35, 1.9), e.body.z, 'BREAK', 'break', fx.labelScale);
+        this.sfx.play(fx.sfx);
+      }
     }
   }
 
@@ -687,6 +724,7 @@ export class Game {
     this.hitFx.clear();
     this.groundFx.clear();
     this.lanes.clear();
+    this.circles.clear();
     this.projectiles.clear();
     this.projectileFx.clear();
     this.swordTrail.clear();
@@ -717,6 +755,7 @@ export class Game {
     this.hitFx.update(frameDt);
     this.groundFx.update(frameDt);
     this.lanes.update(this.enemySims, frameDt);
+    this.circles.update(this.enemySims);
     this.projectileFx.update(this.projectiles, alpha, animDt);
     if (draw) this.post.render();
     this.damageNumbers.update(this.cam.camera, frameDt, this.host.width, this.host.height);
@@ -729,7 +768,7 @@ export class Game {
       this.host.width,
       this.host.height,
     );
-    this.hud.setTarget(locked ? { name: locked.def.name, hp: locked.health.hp, max: locked.health.max } : null);
+    this.hud.setTarget(locked ? { name: locked.def.name, hp: locked.health.hp, max: locked.health.max, poise: locked.poise ? locked.poise.ratio : null } : null);
     this.updateMoveGuide();
     // 実フレーム間隔で解像度を調整する。段が変わるとレンダターゲットを作り直すので、描画の後で行う
     const nextRatio = this.adaptive.update(frameDt * 1000);
