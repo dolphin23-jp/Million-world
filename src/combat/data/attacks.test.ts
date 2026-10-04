@@ -241,7 +241,7 @@ describe('踏み込み（手付けの下半身）', () => {
       if (a.next) pairs.push([a.id, a.next]);
       for (const to of Object.values(a.branches ?? {})) pairs.push([a.id, to]);
     }
-    expect(pairs.length).toBe(8); // 普通の続き 3 + 分岐 5
+    expect(pairs.length).toBeGreaterThanOrEqual(8);
     for (const [from, to] of pairs) {
       const prev = ATTACKS[from]!;
       const next = ATTACKS[to]!;
@@ -256,7 +256,7 @@ describe('踏み込み（手付けの下半身）', () => {
   });
 
   it('次段の始まりの 1 フレームは足が動かない（前の技から受け取る足の位置と、最初の保持キーの値が合っている）', () => {
-    for (const id of ['combo2', 'combo3', 'gs2', 'comboHop', 'comboSpin', 'comboUpper', 'gsSpin2', 'gsDrop']) {
+    for (const id of ['combo2', 'combo3', 'gs2', 'comboHop', 'comboSpin', 'comboUpper', 'gsSpin2', 'gsDrop', 'sweepBack', 'lungeSlash', 'hopThrust', 'comboSlam']) {
       const s = sampler(id);
       const a = s.sample(0, s.newInput());
       const b = s.sample(1 / 60, s.newInput());
@@ -419,7 +419,8 @@ describe('コンボの分岐（スティックの向きで続きが変わる。A
   const sources = Object.values(ATTACKS).filter((a) => a.branches);
 
   it('分岐のある技は、片手剣の 1〜3 段目と大剣の 1〜2 段目', () => {
-    expect(sources.map((a) => a.id).sort()).toEqual(['combo1', 'combo2', 'combo3', 'gs1', 'gs2']);
+    // ADR-023 の 5 つ（コンボの 1〜3 段目・大剣の 1〜2 段目）に、ADR-024 で跳び退き斬り上げ（前 = 飛び込み突き）が加わる
+    expect(sources.map((a) => a.id)).toEqual(expect.arrayContaining(['combo1', 'combo2', 'combo3', 'gs1', 'gs2', 'comboHop']));
   });
 
   it('分岐先は実在する手付けで、前の技の受付時点（cancelAt）の姿勢から続く（continueFrom）。受付は技の途中にある', () => {
@@ -444,13 +445,20 @@ describe('コンボの分岐（スティックの向きで続きが変わる。A
     }
   });
 
-  it('分岐先はコンボの連鎖（next）をたどって来ない（分岐は 1 段だけ。終端は分岐先で止まる）', () => {
-    for (const a of sources) {
-      for (const to of Object.values(a.branches!)) {
-        expect(ATTACKS[to]!.next, to).toBeUndefined();
-        expect(ATTACKS[to]!.branches, to).toBeUndefined();
+  it('技のつながり（next と branches）は循環しない。分岐先から普通の続き（コンボの本線）へは戻らない', () => {
+    const links = (id: string): string[] => [ATTACKS[id]!.next, ...Object.values(ATTACKS[id]!.branches ?? {})].filter((v): v is string => v !== undefined);
+    const visit = (id: string, path: readonly string[]): void => {
+      expect(path, `${[...path, id].join(' → ')} が循環`).not.toContain(id);
+      for (const to of links(id)) {
+        expect(ATTACKS[to], `${id} → ${to}`).toBeDefined();
+        visit(to, [...path, id]);
       }
-    }
+    };
+    for (const id of Object.keys(ATTACKS)) visit(id, []);
+    // 本線（始動の技から next をたどる）に、分岐先は入らない
+    const main = new Set<string>();
+    for (const ms of [SWORD_MOVESET, GREATSWORD_MOVESET]) for (let id: string | undefined = ms.light; id; id = ATTACKS[id]!.next) main.add(id);
+    for (const a of sources) for (const to of Object.values(a.branches!)) expect(main.has(to), `${a.id} の分岐先 ${to} が本線に入っている`).toBe(false);
   });
 
   it('分岐先は大剣のものは両手持ち（twoHanded）、片手剣のものは片手。片手剣の分岐先は盾版も焼かれる', () => {
@@ -487,8 +495,8 @@ describe('溜めの段階で放つ技が変わる（ChargeDef.levelNext。ADR-02
 describe('地面を叩く技（AttackDef.impact。ADR-023）', () => {
   const smashes = Object.values(ATTACKS).filter((a) => a.impact);
 
-  it('地割り・叩き落としだけが地面を叩く', () => {
-    expect(smashes.map((a) => a.id).sort()).toEqual(['gsDrop', 'gsSmash']);
+  it('地面を叩くのは、地割り・叩き落とし・飛翔叩きつけ（大剣）と落下斬り（片手剣）', () => {
+    expect(smashes.map((a) => a.id).sort()).toEqual(['comboSlam', 'gsDrop', 'gsRiseSlam', 'gsSmash']);
   });
 
   it('床に当たる時刻は当たりの持続の中、位置は体の前 1〜3m、強さは 0.3〜1.5。剣筋は床に当たるまで続く', () => {

@@ -85,6 +85,10 @@ const SWING_SFX: Record<string, SfxName> = {
   comboHop: 'swingRetreat',
   comboSpin: 'swingSweep',
   comboUpper: 'swingDash',
+  comboSlam: 'swingHeavy',
+  hopThrust: 'swingLunge',
+  lungeSlash: 'swingSweep',
+  sweepBack: 'swingSweep',
   heavy: 'swingHeavy',
   lunge: 'swingLunge',
   dash: 'swingDash',
@@ -102,6 +106,10 @@ const SWING_SFX: Record<string, SfxName> = {
   gsSmash: 'gsSwingSmash',
   gsDrop: 'gsSwingDrop',
   gsSpin2: 'gsSwingSpin',
+  gsLungeSweep: 'gsSwingRetreat',
+  gsRetreatLunge: 'gsSwingLunge',
+  gsRiseSlam: 'gsSwingDash',
+  gsHeavyRip: 'gsSwingRise',
 };
 /** 溜めの段階が上がったときの合図 */
 const CHARGE_LEVEL_SFX: readonly SfxName[] = ['chargeLevel1', 'chargeLevel2'];

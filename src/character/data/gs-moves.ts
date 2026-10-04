@@ -17,7 +17,7 @@ type V3 = [number, number, number];
  * 引き絞り（牛の構え）: 両手を右のこめかみの高さへ引き上げ、切っ先を前下がりで敵の顔へ向けたまま腰を落とす。ここから体ごと前へ飛び込んで、胸の高さへ貫く。
  * 左手は導かれる（右手の握りの下）ので、右手を胸の中心から離しすぎると届かない（距離 0.3m、横は右へ 26° まで）。
  */
-const CHAMBER = {
+export const CHAMBER = {
   hips: { yaw: 14, pitch: 0, z: -0.06, y: -0.2 },
   chest: { yaw: 22, pitch: -2 },
   head: { yaw: 8 },
@@ -29,7 +29,7 @@ const CHAMBER = {
 };
 
 /** 突き出し: 両腕が前へ伸び、剣が体の前を真っ直ぐ貫く。腰が前へ倒れるので、刃は胸の座標でやや上向き */
-const THRUST = {
+export const THRUST = {
   hips: { yaw: -6, pitch: 10, z: 0.1, y: -0.24 },
   chest: { yaw: -8, pitch: 14 },
   head: { yaw: -4 },
@@ -42,12 +42,15 @@ const THRUST = {
 
 /**
  * 踏み込み突き（スティック前 + 攻撃）: 腰を落として剣を引き絞り（0.18〜0.27 は一拍）、体ごと大きく踏み込んで両手で貫く。距離を詰める技で、点で突くので範囲は狭いが、威力と踏み込みが大きい。
- * 0 → 0.2 引き絞る / 0.27 → 0.35 突き出す（0.35 に最高速。右足は 0.35 に着地）/ 0.35 → 0.5 伸び切る / 0.5 → 0.58 保つ / 0.58 → 0.9 戻り。
+ * 0 → 0.2 引き絞る / 0.27 → 0.35 突き出す（0.35 に最高速。右足は 0.35 に着地）/ 0.35 → 0.5 伸び切る / 0.5 → 0.66 保つ（突き払いの受付。ADR-024）/ 0.66 → 0.98 戻り。
  * 踏み込み: ルートは 0.12 から加速して 0.35 までに 0.8 m、減速して 0.5 までに 1.5 m（後ろステップ直後の追撃にも使う）。右足は腰の 0.5 m 前へ着地、左足は引き寄せる。
  */
+/** 突き切った姿勢を保つ時刻（突き払い gsLungeSweep の受付。AttackDef.cancelAt と同じ。0.5〜0.66 で保つ） */
+export const GS_LUNGE_HOLD_T = 0.5;
+
 export const GS_LUNGE: AuthoredAttack = {
   name: 'gsLunge',
-  duration: 0.9,
+  duration: 0.98,
   twoHanded: GS_TWO_HAND,
   continueFrom: FROM_STANCE,
   keys: [
@@ -57,26 +60,26 @@ export const GS_LUNGE: AuthoredAttack = {
     { t: 0.5, ease: 'out', rootZ: 1.5 },
     { t: 0.14, ease: 'lin', footR: { z: 0 } },
     { t: 0.35, ease: 'io', footR: { z: 1.3, arc: 0.16 } },
-    { t: 0.58, ease: 'lin', footR: { z: 1.3 } },
-    { t: 0.9, ease: 'io', footR: { z: 1.5, arc: 0.03 } },
+    { t: 0.66, ease: 'lin', footR: { z: 1.3 } },
+    { t: 0.98, ease: 'io', footR: { z: 1.5, arc: 0.03 } },
     { t: 0.3, ease: 'lin', footL: { z: 0 } },
     { t: 0.5, ease: 'out', footL: { z: 0.9, arc: 0.08 } },
-    { t: 0.58, ease: 'lin', footL: { z: 0.9 } },
-    { t: 0.9, ease: 'io', footL: { z: 1.5, arc: 0.1 } },
+    { t: 0.66, ease: 'lin', footL: { z: 0.9 } },
+    { t: 0.98, ease: 'io', footL: { z: 1.5, arc: 0.1 } },
     // ---- 引き絞る → 突く → 伸び切る → 戻る ----
     ...pose(0.18, 'io', CHAMBER),
     ...pose(0.27, 'lin', CHAMBER),
     ...pose(0.35, 'in', THRUST),
     ...pose(0.5, 'out', { ...THRUST, hips: { yaw: -8, pitch: 8, z: 0.08, y: -0.18 } }),
-    ...pose(0.58, 'lin', { ...THRUST, hips: { yaw: -8, pitch: 8, z: 0.08, y: -0.18 } }),
-    ...pose(0.9, 'io', GS_READY),
+    ...pose(0.66, 'lin', { ...THRUST, hips: { yaw: -8, pitch: 8, z: 0.08, y: -0.18 } }),
+    ...pose(0.98, 'io', GS_READY),
   ],
 };
 
 // ---------------------------------------------------------------- 下がりながらの薙ぎ払い（ロック中にスティック後ろ）
 
 /** 巻き込み: 右へひねって、剣を右へ水平に引く（切っ先は右後ろ）。体を沈める */
-const SWEEP_COIL = {
+export const SWEEP_COIL = {
   hips: { yaw: 16, pitch: 6, z: 0.02, y: -0.16 },
   chest: { yaw: 32, pitch: 8 },
   head: { yaw: 8 },
@@ -92,6 +95,9 @@ const SWEEP_COIL = {
  * 0 → 0.12 巻き込む / 0.12 → 0.28 跳びながら薙ぐ（0.2 に前を通る最高速）/ 0.28 → 0.38 払い切って着地 / 0.38 → 0.5 保つ / 0.5 → 0.82 戻り。
  * ルートは 0.12 から 0.4 までに 1.3 m 後ろへ（負）。
  */
+/** 払い切って着地した姿勢を保つ時刻（飛び込み突き gsRetreatLunge の受付。AttackDef.cancelAt と同じ。0.38〜0.5 で保つ） */
+export const GS_RETREAT_HOLD_T = 0.4;
+
 export const GS_RETREAT: AuthoredAttack = {
   name: 'gsRetreat',
   duration: 0.82,
@@ -213,7 +219,7 @@ export const GS_SPIN: AuthoredAttack = {
 // ---------------------------------------------------------------- ロール直後の跳び叩きつけ
 
 /** 跳ぶ前の溜め（ロールの着地から立ち上がりながら）: 剣を右肩の後ろへ引き上げる */
-const LEAP_GATHER = {
+export const LEAP_GATHER = {
   hips: { yaw: 14, pitch: 6, z: -0.02, y: -0.26 },
   chest: { yaw: 28, pitch: 8 },
   head: { yaw: 6 },
@@ -224,7 +230,7 @@ const LEAP_GATHER = {
 };
 
 /** 空中: 剣を頭上へ高く掲げる（刃は後ろ上へ）。体は反る */
-const LEAP_TOP = {
+export const LEAP_TOP = {
   hips: { yaw: 4, pitch: -6, z: -0.04, y: 0.12 },
   chest: { yaw: 6, pitch: -12 },
   head: { yaw: 2 },
@@ -235,7 +241,7 @@ const LEAP_TOP = {
 };
 
 /** 着地と叩きつけ: 深く沈んで前へ倒れ、剣が体の前の低い所を指す（切っ先は床すれすれ） */
-const SLAM = {
+export const SLAM = {
   hips: { yaw: 0, pitch: 16, z: 0.1, y: -0.26 },
   chest: { yaw: 0, pitch: 26 },
   head: { yaw: 0 },
@@ -291,7 +297,7 @@ const RISE_COIL = {
 };
 
 /** 振り上げの終わり: 剣が左上へ抜け、体は反る */
-const RISE_END = {
+export const RISE_END = {
   hips: { yaw: -8, pitch: -8, z: 0.04, y: -0.08 },
   chest: { yaw: -12, pitch: -14 },
   head: { yaw: -6 },
@@ -307,6 +313,9 @@ const RISE_END = {
  * 0 → 0.14 低く巻き込む / 0.14 → 0.23 すくい上げる（0.23 に前を通る最高速。右足は 0.23 に着地）/ 0.23 → 0.34 左上へ振り抜く / 0.34 → 0.5 保つ / 0.5 → 0.86 戻り。
  * ルートは 0.06 から 0.23 までに 0.6 m、減速して 0.38 までに 1.0 m。
  */
+/** 左上へ振り抜いた姿勢を保つ時刻（飛翔叩きつけ gsRiseSlam の受付。AttackDef.cancelAt と同じ。0.34〜0.5 で保つ。ルートは 0.38 で止まる） */
+export const GS_RISE_HOLD_T = 0.38;
+
 export const GS_RISE: AuthoredAttack = {
   name: 'gsRise',
   duration: 0.86,

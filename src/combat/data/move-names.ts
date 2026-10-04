@@ -10,6 +10,10 @@ export const MOVE_NAMES: Readonly<Record<string, string>> = {
   comboHop: '跳び退き斬り',
   comboSpin: '回転斬り',
   comboUpper: '打ち上げ',
+  comboSlam: '落下斬り',
+  hopThrust: '飛び込み突き',
+  lungeSlash: '抜き払い',
+  sweepBack: '返し薙ぎ',
   heavy: '溜め斬り',
   lunge: '踏み込み突き',
   dash: 'ダッシュ斬り',
@@ -26,6 +30,10 @@ export const MOVE_NAMES: Readonly<Record<string, string>> = {
   gsHeavy: '唐竹割り',
   gsSpin2: '連携回転斬り',
   gsDrop: '叩き落とし',
+  gsLungeSweep: '突き払い',
+  gsRetreatLunge: '飛び込み突き',
+  gsRiseSlam: '飛翔叩きつけ',
+  gsHeavyRip: '地擦り斬り上げ',
   gsSmash: '地割り',
 };
 

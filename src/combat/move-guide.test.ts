@@ -108,7 +108,7 @@ describe('buildGuide（操作ガイドの表示内容）', () => {
   });
 
   it('続きの無い技は、受付なし・枠はすべて空', () => {
-    const v = buildGuide(atk('lunge', 10));
+    const v = buildGuide(atk('dash', 10));
     expect(v.window.phase).toBe('none');
     expect(v.chips.every((c) => c.name === null && !c.ready)).toBe(true);
   });
