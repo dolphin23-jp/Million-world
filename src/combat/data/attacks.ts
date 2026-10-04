@@ -106,7 +106,7 @@ export interface AttackDef {
   windows?: readonly HitWindow[];
   /** スーパーアーマー（ArmorDef）。無ければひるむ */
   armor?: ArmorDef;
-  /** 回避・ガードでキャンセルできるようになる時刻（区間先頭からの秒）。省略 = activeEnd（持続の終わり）。多段の技は、最初の窓のあとに置くと途中でやめられる */
+  /** 回避・ガードでキャンセルできるようになる時刻（区間先頭からの秒）。省略 = activeEnd（持続の終わり）。多段の技は、最初の窓のあとに置くと途中でやめられる。溜めのある技は、溜めの途中（activeStart より前）にも置ける */
   dodgeCancelAt?: number;
 }
 
@@ -148,7 +148,7 @@ export function resolveAttack(a: AttackDef): AttackFrames {
     recovery: total - activeEndF,
     cancelFrame: Math.min(total, Math.max(activeEndF, toFrames(a.cancelAt))),
     total,
-    dodgeCancel: a.dodgeCancelAt === undefined ? activeEndF : Math.min(total, Math.max(startup + 1, toFrames(a.dodgeCancelAt))),
+    dodgeCancel: a.dodgeCancelAt === undefined ? activeEndF : Math.min(total, Math.max(1, toFrames(a.dodgeCancelAt))),
     windows,
     armor: a.armor ? { from: toFrames(a.armor.from), to: toFrames(a.armor.to), breakDamage: a.armor.breakDamage } : null,
   };

@@ -2,17 +2,18 @@ import type { WeaponId } from './loadouts';
 
 /**
  * スキル（ADR-031。設計は docs/07-progression-and-world.md）の数値。
- * アクティブスキル「剣技」= 攻撃（ATTACKS）の連なり。1 回の入力で決まった順に技が自動で続く。新しいモーションは作らず、既存の技のつなぎ
- * （AttackDef.next / branches の辺）に沿った連なりだけを作る（姿勢のつなぎ目が自然で、手付けの工数が要らない。辺であることはテストで保証する）。
+ * アクティブスキル「剣技」= 1 回の入力で決まった順に技が自動で続く。**専用の新しいモーション**（SKILL_ATTACKS。src/combat/data/skill-attacks.ts）を中心に、
+ * 既存の技（ATTACKS）を連なりの途中に混ぜてもよい。どの段も、前の段の受付時点（AttackDef.cancelAt）の姿勢から続く（クリップの continueFrom。テストで保証する）。
+ * 多段ヒット（AttackDef.windows）・スーパーアーマー（AttackDef.armor）・回避でのキャンセル（AttackDef.dodgeCancelAt）は攻撃の定義側にある。無敵はつかない。
  * コストはクールダウン（スキルごと）。レベル 1〜SKILL_LEVEL_MAX: 威力・クールダウンが良くなり、連なりが伸びる（minLevel の段が解放される）。
  */
 
-export type SkillId = 'yotsuba' | 'samidare' | 'tatsumaki' | 'dangan' | 'ouzu' | 'houzan' | 'shoryu';
+export type SkillId = 'yotsuba' | 'samidare' | 'tatsumaki' | 'houzan' | 'issen';
 
 export const SKILL_LEVEL_MAX = 5;
 
 export interface SkillStepDef {
-  /** 攻撃 id（ATTACKS のキー）。前の段の AttackDef.next か branches の辺であること */
+  /** 攻撃 id（ATTACKS か SKILL_ATTACKS のキー。findAttack で探す）。前の段の受付時点の姿勢から続くこと（クリップの continueFrom がそうなっているのをテストする） */
   attack: string;
   /** この段が解放されるスキルレベル（省略 = 1）。レベルが上がるほど連なりが伸びる */
   minLevel?: number;
@@ -79,59 +80,35 @@ export const SKILLS: Record<SkillId, SkillDef> = {
     cooldownFrames: 720,
     cooldownPerLevel: COOLDOWN_PER_LEVEL,
   },
-  // ---- 大剣 ----
-  dangan: {
-    id: 'dangan',
-    name: '断岩',
-    short: '断岩',
-    detail: '溜めなしの重い縦斬りと、返しの斬り',
-    family: 'greatsword',
-    steps: [{ attack: 'gsHeavy' }, { attack: 'gsHeavyRip' }],
-    power: 1.15,
-    powerPerLevel: POWER_PER_LEVEL,
-    cooldownFrames: 840,
-    cooldownPerLevel: COOLDOWN_PER_LEVEL,
-  },
-  ouzu: {
-    id: 'ouzu',
-    name: '大渦',
-    short: '大渦',
-    detail: '斬ってから、体ごと回って薙ぐ',
-    family: 'greatsword',
-    steps: [{ attack: 'gs1' }, { attack: 'gsSpin2', scale: 1.1 }],
-    power: 1.3,
-    powerPerLevel: POWER_PER_LEVEL,
-    cooldownFrames: 600,
-    cooldownPerLevel: COOLDOWN_PER_LEVEL,
-  },
+  // ---- 大剣。どれも剣技専用のモーション（SKILL_ATTACKS） ----
   houzan: {
     id: 'houzan',
     name: '崩山',
     short: '崩山',
-    detail: '二連の斬りから、地を叩き割る',
+    detail: '右から払い、左から払い、頭上から地を叩き割る。衝撃波が地面と周囲へ広がる',
     family: 'greatsword',
-    steps: [{ attack: 'gs1' }, { attack: 'gs2' }, { attack: 'gsDrop', scale: 1.1 }],
-    power: 1.25,
+    steps: [{ attack: 'skGsSweep1' }, { attack: 'skGsSweep2' }, { attack: 'skGsSlam' }],
+    power: 1.2,
     powerPerLevel: POWER_PER_LEVEL,
-    cooldownFrames: 780,
+    cooldownFrames: 900,
     cooldownPerLevel: COOLDOWN_PER_LEVEL,
   },
-  shoryu: {
-    id: 'shoryu',
-    name: '昇竜',
-    short: '昇竜',
-    detail: '斬り上げ、跳んで叩きつける',
+  issen: {
+    id: 'issen',
+    name: '一閃',
+    short: '一閃',
+    detail: '剣を引いて少し溜め、一瞬で踏み込んで斬り抜ける。前へ長く広い 1 撃。溜めの間はスーパーアーマー',
     family: 'greatsword',
-    steps: [{ attack: 'gsRise' }, { attack: 'gsRiseSlam', scale: 1.1 }],
-    power: 1.3,
+    steps: [{ attack: 'skGsIssen' }],
+    power: 1.2,
     powerPerLevel: POWER_PER_LEVEL,
-    cooldownFrames: 720,
+    cooldownFrames: 780,
     cooldownPerLevel: COOLDOWN_PER_LEVEL,
   },
 };
 
 /** 一覧に並べる順（系統ごとにまとまる） */
-export const SKILL_ORDER: readonly SkillId[] = ['yotsuba', 'samidare', 'tatsumaki', 'dangan', 'ouzu', 'houzan', 'shoryu'];
+export const SKILL_ORDER: readonly SkillId[] = ['yotsuba', 'samidare', 'tatsumaki', 'houzan', 'issen'];
 
 export function isSkillId(v: unknown): v is SkillId {
   return typeof v === 'string' && Object.prototype.hasOwnProperty.call(SKILLS, v);

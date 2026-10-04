@@ -251,6 +251,19 @@ describe('回避・ガードのキャンセル時刻（dodgeCancelAt）', () => 
     late.step({ dodgePressed: true });
     expect(late.player.state).toBe('dodge');
   });
+  it('溜めのある技は、持続（activeStart）より前の時刻にも置ける（溜めの途中でやめられる）', () => {
+    register(def({ id: 'chargeCancel', activeStart: 0.6, activeEnd: 0.7, cancelAt: 0.9, dodgeCancelAt: 0.25 }));
+    expect(resolveAttack(def({ id: 'chargeCancel2', activeStart: 0.6, activeEnd: 0.7, dodgeCancelAt: 0.25 })).dodgeCancel).toBe(15);
+    const early = scene([]);
+    start(early, 'chargeCancel');
+    early.run(8, { dodgePressed: true });
+    expect(early.player.state).toBe('attack');
+    const late = scene([]);
+    start(late, 'chargeCancel');
+    late.run(16);
+    late.step({ dodgePressed: true });
+    expect(late.player.state).toBe('dodge');
+  });
   it('dodgeCancelAt が無ければ従来どおり持続の終わりから', () => {
     register(def({ id: 'plain2', activeStart: 0.2, activeEnd: 0.5, cancelAt: 0.9 }));
     const sc = scene([]);

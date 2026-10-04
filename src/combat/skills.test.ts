@@ -53,7 +53,7 @@ describe('スキルのデータの整合', () => {
         const fr = resolveAttack(a);
         expect(fr.cancelFrame, `${id}: ${s.attack}`).toBeGreaterThanOrEqual(fr.startup + fr.active);
         expect(fr.dodgeCancel, `${id}: ${s.attack}`).toBeLessThanOrEqual(fr.total);
-        expect(fr.dodgeCancel, `${id}: ${s.attack}`).toBeGreaterThan(fr.startup);
+        expect(fr.dodgeCancel, `${id}: ${s.attack}`).toBeGreaterThan(0);
       }
     }
   });

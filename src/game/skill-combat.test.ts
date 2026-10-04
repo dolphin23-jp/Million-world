@@ -239,6 +239,175 @@ describe('剣技: 竜巻（回転斬り 2 周半）', () => {
   });
 });
 
+describe('剣技: 崩山（大剣。右払い → 左払い → 叩きつけ + 衝撃波）', () => {
+  const HIT = (damage: number) => ({ attackerId: 9, targetId: 0, damage, knockback: 3, hitStop: 0, dirX: 0, dirZ: -1, x: 0, z: 0 });
+
+  it('頼むと 3 つの技が順に出て、段ごとの威力が掛かる', () => {
+    const sc = scene('greatsword', 1.8);
+    sc.book.select('houzan');
+    expect(sc.useSkill()).toBe(true);
+    sc.run(240);
+    expect(sc.attacks).toEqual(['skGsSweep1', 'skGsSweep2', 'skGsSlam']);
+    const p = SKILLS.houzan.power;
+    expect(sc.powers.map((x) => +x.toFixed(4))).toEqual([p, p, p].map((x) => +x.toFixed(4)));
+    expect(sc.player.state).not.toBe('attack');
+  });
+
+  it('叩きつけは、直接の斬りと衝撃波が合わせて 1 体に 1 回だけ当たる。衝撃波は斜め前・体の後ろまで届き、遠くには届かない', () => {
+    // 連なりのあいだに体は 2.3m ほど前へ進む（叩きつけの時点で z ≒ 1.9〜2.3、地面を叩く点はその 1.8m 前）。
+    // 正面 5.0m（直接の斬りだけが届く）・横へ広がった所（扇の外・衝撃波の中）・体の少し後ろ（衝撃波の中）・遠い 9.5m（どちらも届かない）
+    const sc = scene('greatsword', 5.0, undefined, [
+      { x: 3.4, z: 4.2 },
+      { x: 0, z: 0.9 },
+      { x: 0, z: 9.5 },
+    ]);
+    sc.book.select('houzan');
+    sc.useSkill();
+    sc.run(240);
+    const slam = findAttack('skGsSlam')!;
+    const power = SKILLS.houzan.power;
+    const strike = Math.round(slam.damage * power);
+    const shock = Math.round(slam.damage * power * 0.6);
+    const of = (id: number) => sc.hits.filter((h) => h.targetId === id);
+    // 前の敵: 直接の斬り 1 回だけ（続く衝撃波では重ねて当たらない）
+    expect(of(1).map((h) => h.damage)).toEqual([strike]);
+    // 横の敵: 衝撃波だけ（威力 0.6 倍）。1 回だけ
+    expect(of(10).map((h) => h.damage)).toEqual([shock]);
+    // 体の後ろ: 払いと衝撃波が当たるが、衝撃波は 1 回だけ
+    expect(of(11).filter((h) => h.damage === shock).length).toBe(1);
+    // 遠い敵には当たらない
+    expect(of(12).length).toBe(0);
+  });
+
+  it('叩きつけは、地面を叩く瞬間に 1 回、衝撃の合図（impactSerial）を出す', () => {
+    const sc = scene('greatsword', 1.8);
+    sc.book.select('houzan');
+    sc.useSkill();
+    const before = sc.player.impactSerial;
+    sc.run(240);
+    expect(sc.player.impactSerial).toBe(before + 1);
+    expect(sc.player.lastImpact.power).toBeCloseTo(findAttack('skGsSlam')!.impact!.power * SKILLS.houzan.power, 9);
+  });
+
+  it('払いの途中で被弾すると途切れる（スーパーアーマーなし）。叩きつけの振りかぶりは軽い攻撃では怯まず、重い攻撃には割られる', () => {
+    const cut = scene('greatsword', 1.8);
+    cut.book.select('houzan');
+    cut.useSkill();
+    cut.run(12);
+    cut.player.takeHit(HIT(5));
+    expect(cut.player.state).toBe('hit');
+    cut.run(240);
+    expect(cut.attacks).toEqual(['skGsSweep1']);
+
+    const armored = scene('greatsword', 1.8);
+    armored.book.select('houzan');
+    armored.useSkill();
+    for (let i = 0; i < 200 && armored.attacks.length < 3; i++) armored.step();
+    armored.run(10);
+    armored.player.takeHit(HIT(14));
+    expect(armored.player.state).toBe('attack');
+    expect(armored.player.armorSerial).toBe(1);
+
+    const broken = scene('greatsword', 1.8);
+    broken.book.select('houzan');
+    broken.useSkill();
+    for (let i = 0; i < 200 && broken.attacks.length < 3; i++) broken.step();
+    broken.run(10);
+    broken.player.takeHit(HIT(36));
+    expect(broken.player.state).toBe('hit');
+  });
+
+  it('払いのあいだは回避で途中でやめられる', () => {
+    const sc = scene('greatsword', 1.8);
+    sc.book.select('houzan');
+    sc.useSkill();
+    sc.run(21); // 右からの払いの持続が終わって、次段へ移る（0.4 秒 = 24 フレーム）前
+    expect(sc.attacks).toEqual(['skGsSweep1']);
+    sc.step({ dodgePressed: true });
+    expect(sc.player.state).toBe('dodge');
+    sc.run(200);
+    expect(sc.attacks).not.toContain('skGsSlam');
+  });
+});
+
+describe('剣技: 一閃（大剣。溜め → 一瞬のダッシュ → 踏み込み斬り）', () => {
+  const HIT = (damage: number) => ({ attackerId: 9, targetId: 0, damage, knockback: 3, hitStop: 0, dirX: 0, dirZ: -1, x: 0, z: 0 });
+
+  it('溜めたあと、ほぼ一瞬で前へ踏み込み、前の敵（遠く）を 1 回だけ斬る', () => {
+    const sc = scene('greatsword', 5.4);
+    sc.book.select('issen');
+    sc.useSkill();
+    // 溜めのあいだは動かない
+    sc.run(25);
+    expect(sc.player.body.z).toBeLessThan(0.05);
+    const zs: number[] = [];
+    for (let i = 0; i < 20; i++) {
+      sc.step();
+      zs.push(sc.player.body.z);
+    }
+    // ダッシュは 0.1 秒（6 フレーム）ほどで 3.2m 動く。1 フレームの移動は 0.7m 以下
+    expect(sc.player.body.z).toBeGreaterThan(3.0);
+    let maxStep = 0;
+    for (let i = 1; i < zs.length; i++) maxStep = Math.max(maxStep, zs[i]! - zs[i - 1]!);
+    expect(maxStep).toBeLessThan(0.7);
+    sc.run(80);
+    expect(sc.attacks).toEqual(['skGsIssen']);
+    expect(sc.hits.length).toBe(1);
+    expect(sc.hits[0]!.damage).toBe(Math.round(findAttack('skGsIssen')!.damage * SKILLS.issen.power));
+  });
+
+  it('広い扇で斬る（斜め前の敵も 1 回当たる）。後ろと、遠すぎる敵には当たらない', () => {
+    const sc = scene('greatsword', 5.4, undefined, [
+      { x: 2.2, z: 4.6 },
+      { x: 0, z: -2 },
+      { x: 0, z: 9.5 },
+    ]);
+    sc.book.select('issen');
+    sc.useSkill();
+    sc.run(110);
+    const of = (id: number) => sc.hits.filter((h) => h.targetId === id).length;
+    expect(of(1)).toBe(1);
+    expect(of(10)).toBe(1);
+    expect(of(11)).toBe(0);
+    expect(of(12)).toBe(0);
+  });
+
+  it('溜めのあいだはスーパーアーマー（軽い攻撃では怯まない）。重い攻撃には割られる', () => {
+    const light = scene('greatsword', 5.4);
+    light.book.select('issen');
+    light.useSkill();
+    light.run(20);
+    light.player.takeHit(HIT(12));
+    expect(light.player.state).toBe('attack');
+    expect(light.player.armorSerial).toBe(1);
+    light.run(100);
+    expect(light.hits.length).toBe(1);
+
+    const heavy = scene('greatsword', 5.4);
+    heavy.book.select('issen');
+    heavy.useSkill();
+    heavy.run(20);
+    heavy.player.takeHit(HIT(30));
+    expect(heavy.player.state).toBe('hit');
+  });
+
+  it('溜めのあいだでも回避で途中でやめられる。ただし溜め始めてすぐは効かない', () => {
+    const early = scene('greatsword', 5.4);
+    early.book.select('issen');
+    early.useSkill();
+    early.run(6, { dodgePressed: true });
+    expect(early.player.state).toBe('attack');
+    const late = scene('greatsword', 5.4);
+    late.book.select('issen');
+    late.useSkill();
+    late.run(24);
+    late.step({ dodgePressed: true });
+    expect(late.player.state).toBe('dodge');
+    late.run(100);
+    expect(late.hits.length).toBe(0);
+  });
+});
+
 describe('剣技: 始められる状態・途切れ・クールダウン', () => {
   const HURT = { attackerId: 1, targetId: 0, damage: 5, knockback: 0, hitStop: 0, dirX: 0, dirZ: -1, x: 0, z: 0 };
 
@@ -307,6 +476,6 @@ describe('剣技: 始められる状態・途切れ・クールダウン', () =>
 
   it('装備の系統で使えるスキルが替わる（大剣は大剣の最初のスキル）', () => {
     const sc = scene('greatsword', 2.0);
-    expect(sc.book.prepare(sc.player.loadout.weapon)!.skill).toBe('dangan');
+    expect(sc.book.prepare(sc.player.loadout.weapon)!.skill).toBe('houzan');
   });
 });

@@ -14,7 +14,7 @@ type V3 = [number, number, number];
 const V = 90;
 
 /** 振りかぶりの頂点: 溜めの構え（TOP）からさらに剣を高く・後ろへ引き、体を反らせて腰を深く沈める */
-const RAISE = {
+export const RAISE = {
   ...TOP,
   hips: { yaw: 6, pitch: -8, z: -0.06, y: -0.3 },
   chest: { yaw: 6, pitch: -22 },
@@ -24,7 +24,7 @@ const RAISE = {
 };
 
 /** 叩きつけの瞬間: 前へ大きく踏み込んで深く沈み、剣が前下へ斜めに落ちて切っ先が床に届く（切っ先の高さ 0） */
-const IMPACT = {
+export const IMPACT = {
   hips: { yaw: 0, pitch: 20, z: 0.14, y: -0.36 },
   chest: { yaw: 0, pitch: 30 },
   head: { yaw: 0 },
@@ -36,7 +36,7 @@ const IMPACT = {
 };
 
 /** 跳ね返り: 床に弾かれて剣が持ち上がり、体が反動で起きる（腰が上がって胸が反る） */
-const REBOUND = {
+export const REBOUND = {
   hips: { yaw: 0, pitch: 14, z: 0.11, y: -0.3 },
   chest: { yaw: 0, pitch: 22 },
   head: { yaw: 0 },
@@ -48,7 +48,7 @@ const REBOUND = {
 };
 
 /** 落ち着き: もう一度沈んで、剣先が床の上で止まる（受け止めた反動が収まる） */
-const SETTLE = {
+export const SETTLE = {
   hips: { yaw: 0, pitch: 18, z: 0.13, y: -0.35 },
   chest: { yaw: 0, pitch: 27 },
   head: { yaw: 0 },

@@ -1,5 +1,6 @@
 import { ATTACKS, type AttackDef, type HitWindow } from './attacks';
 import { FLURRY, FLURRY_COUNT, QUAD3, QUAD3_HOLD_T, QUAD4, QUAD4_HOLD_T, WHIRL, WHIRL_PASSES, WHIRL_STOP_T, flurryThrustT } from '../../character/data/skill-sword';
+import { GSK_ISSEN, GSK_SLAM, GSK_SLAM_IMPACT_T, GSK_SWEEP1, GSK_SWEEP1_HOLD_T, GSK_SWEEP2, GSK_SWEEP2_HOLD_T, ISSEN_DASH_FROM, ISSEN_PASS_T } from '../../character/data/skill-greatsword';
 import type { HitboxDef } from '../hit';
 
 const deg = (d: number) => (d * Math.PI) / 180;
@@ -113,6 +114,91 @@ SKILL_ATTACKS.skWhirl = {
   hitStop: 4,
   knockback: 0.9,
   fade: 0.08,
+};
+
+// ---------------------------------------------------------------- 大剣
+// 崩山: 右からの払い → 左からの払い → 叩きつけ（衝撃波）。払いは途中で敵の攻撃に割られる（スーパーアーマーなし）。叩きつけは振りかぶりから地面を叩くまでスーパーアーマー
+SKILL_ATTACKS.skGsSweep1 = {
+  id: 'skGsSweep1',
+  segment: 'gskSweep1',
+  authored: GSK_SWEEP1,
+  segmentDuration: GSK_SWEEP1.duration,
+  activeStart: 0.24,
+  activeEnd: 0.34,
+  cancelAt: GSK_SWEEP1_HOLD_T,
+  trail: [0.17, 0.42],
+  rate: 1.1,
+  lunge: 0,
+  hitbox: { kind: 'arc', range: 3.0, halfAngle: deg(100) },
+  damage: 22,
+  hitStop: 8,
+  knockback: 1.2,
+  fade: 0.05,
+};
+SKILL_ATTACKS.skGsSweep2 = {
+  id: 'skGsSweep2',
+  segment: 'gskSweep2',
+  authored: GSK_SWEEP2,
+  segmentDuration: GSK_SWEEP2.duration,
+  activeStart: 0.2,
+  activeEnd: 0.3,
+  cancelAt: GSK_SWEEP2_HOLD_T,
+  trail: [0.13, 0.38],
+  rate: 1.1,
+  lunge: 0,
+  hitbox: { kind: 'arc', range: 3.0, halfAngle: deg(100) },
+  damage: 24,
+  hitStop: 8,
+  knockback: 1.2,
+  fade: 0.05,
+};
+// 叩きつけ: 直接の斬り（前の扇）のあと、地面を叩いた点を中心に衝撃波（円）が広がる。2 つの窓は同じ当たりの記録を共有する（1 体に 1 回）
+const SLAM_STRIKE: HitboxDef = { kind: 'arc', range: 3.4, halfAngle: deg(100) };
+const SLAM_SHOCK: HitboxDef = { kind: 'circle', offset: 1.8, radius: 3.3 };
+SKILL_ATTACKS.skGsSlam = {
+  id: 'skGsSlam',
+  segment: 'gskSlam',
+  authored: GSK_SLAM,
+  segmentDuration: GSK_SLAM.duration,
+  activeStart: GSK_SLAM_IMPACT_T - 0.06,
+  activeEnd: GSK_SLAM_IMPACT_T + 0.17,
+  cancelAt: 999,
+  trail: [0.2, 0.5],
+  rate: 1,
+  lunge: 0,
+  impact: { t: GSK_SLAM_IMPACT_T, dist: 1.8, power: 1.4 },
+  hitbox: SLAM_STRIKE,
+  windows: [
+    { start: GSK_SLAM_IMPACT_T - 0.06, end: GSK_SLAM_IMPACT_T + 0.03, hitbox: SLAM_STRIKE, group: 0 },
+    { start: GSK_SLAM_IMPACT_T + 0.03, end: GSK_SLAM_IMPACT_T + 0.17, hitbox: SLAM_SHOCK, damageScale: 0.6, knockbackScale: 1.3, hitStopScale: 0.7, group: 0 },
+  ],
+  armor: { from: 0.1, to: GSK_SLAM_IMPACT_T + 0.12, breakDamage: 30 },
+  dodgeCancelAt: GSK_SLAM_IMPACT_T + 0.17,
+  damage: 44,
+  hitStop: 13,
+  knockback: 3.0,
+  fade: 0.05,
+};
+
+// 一閃: 溜め（スーパーアーマー。重い攻撃には割られる）→ 一瞬のダッシュ → 水平の斬り 1 回（前へ長く・広い扇）。溜めの途中でも回避でやめられる
+SKILL_ATTACKS.skGsIssen = {
+  id: 'skGsIssen',
+  segment: 'gskIssen',
+  authored: GSK_ISSEN,
+  segmentDuration: GSK_ISSEN.duration,
+  activeStart: ISSEN_PASS_T - 0.05,
+  activeEnd: ISSEN_PASS_T + 0.07,
+  cancelAt: 999,
+  trail: [ISSEN_DASH_FROM + 0.03, 0.8],
+  rate: 1,
+  lunge: 0,
+  hitbox: { kind: 'arc', range: 3.4, halfAngle: deg(95) },
+  armor: { from: 0.26, to: ISSEN_PASS_T + 0.15, breakDamage: 22 },
+  dodgeCancelAt: 0.3,
+  damage: 46,
+  hitStop: 14,
+  knockback: 3.6,
+  fade: 0.06,
 };
 
 /** 攻撃 id から定義を探す（ふつうの攻撃 → 剣技専用の攻撃の順） */
