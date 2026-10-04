@@ -1,5 +1,6 @@
 import { PROJECTILES } from '../combat/data/projectiles';
 import { fanOffset } from '../combat/projectile';
+import { hitboxReach } from '../combat/hit';
 import type { EnemyAttackDef } from './data/enemies';
 
 /**
@@ -58,7 +59,7 @@ export function laneLength(atk: EnemyAttackDef): number {
     const p = PROJECTILES[atk.projectile];
     return (p.speed * p.lifetimeFrames) / 60;
   }
-  const reach = atk.hitbox.kind === 'arc' ? atk.hitbox.range : atk.hitbox.length;
+  const reach = hitboxReach(atk.hitbox);
   return atk.lunge + reach;
 }
 
@@ -110,7 +111,7 @@ export function circleOf(e: TelegraphSource, out: CircleView): boolean {
   const atk = e.attackDef;
   const t = atk.telegraph;
   if (!t || t.kind !== 'circle') return false;
-  out.radius = atk.hitbox.kind === 'arc' ? atk.hitbox.range : atk.hitbox.length;
+  out.radius = hitboxReach(atk.hitbox);
   out.unblockable = atk.unblockable === true;
   if (e.state === 'windup') {
     const locked = e.stateFrame >= atk.windupTrackFrames;

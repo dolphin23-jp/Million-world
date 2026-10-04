@@ -26,6 +26,40 @@ import type { HitboxDef } from '../hit';
 
 const deg = (d: number) => (d * Math.PI) / 180;
 
+/**
+ * 当たりの窓（ADR-031。多段ヒットの技）: 1 つの攻撃のなかに、当たりが出る時間帯を複数持つ（高速突き 5 連・回転斬りの前後など）。
+ * 窓が無い攻撃は、従来どおり activeStart〜activeEnd の 1 つの窓（AttackDef.hitbox・ダメージ）。
+ * 窓があるときも activeStart / activeEnd は「最初の窓の開始 / 最後の窓の終わり」に合わせておく（剣筋・テストが読む）。
+ */
+export interface HitWindow {
+  /** 区間先頭からの秒（activeStart / activeEnd と同じ基準） */
+  start: number;
+  end: number;
+  /** この窓の当たりの形（省略 = AttackDef.hitbox） */
+  hitbox?: HitboxDef;
+  /** 攻撃者の向きからのずれ（rad。回転斬りの後ろ半分 = π） */
+  yawOffset?: number;
+  /** この窓のダメージ・ノックバック・ヒットストップの倍率（省略 = 1） */
+  damageScale?: number;
+  knockbackScale?: number;
+  hitStopScale?: number;
+  /**
+   * 「当てた記録」を共有する組。同じ値の窓は、同じ敵に重ねて当たらない（直撃と衝撃波が同じ敵に 2 回当たらない）。
+   * 組が変わるたびに記録が消える（= 別の窓は同じ敵に当たり直す）。省略 = 窓ごとに別の組
+   */
+  group?: number;
+}
+
+/**
+ * スーパーアーマー（ADR-031）: from〜to（区間先頭からの秒）のあいだ、breakDamage 未満のダメージではひるまない（ダメージは受ける。短い無敵はつく）。
+ * breakDamage 以上の攻撃（岩鬼・ボスの重い攻撃など）には割られて、ひるむ（連なりも途切れる）
+ */
+export interface ArmorDef {
+  from: number;
+  to: number;
+  breakDamage: number;
+}
+
 export interface AttackDef {
   id: string;
   /** 使うアニメーション区間名（src/character/data/hero.ts の segments）。手付けの攻撃ではクリップ名（authored.name） */
@@ -68,6 +102,21 @@ export interface AttackDef {
   damage: number;
   hitStop: number;
   knockback: number;
+  /** 多段ヒットの当たりの窓（HitWindow）。無ければ activeStart〜activeEnd の 1 つ */
+  windows?: readonly HitWindow[];
+  /** スーパーアーマー（ArmorDef）。無ければひるむ */
+  armor?: ArmorDef;
+  /** 回避・ガードでキャンセルできるようになる時刻（区間先頭からの秒）。省略 = activeEnd（持続の終わり）。多段の技は、最初の窓のあとに置くと途中でやめられる */
+  dodgeCancelAt?: number;
+}
+
+/** resolveAttack が sim フレームに直した当たりの窓。start は含み、end は含まない（isActiveFrame と同じ） */
+export interface ResolvedWindow {
+  start: number;
+  end: number;
+  def: HitWindow;
+  /** 記録を共有する組（HitWindow.group。省略は窓の番号） */
+  group: number;
 }
 
 export interface AttackFrames {
@@ -76,6 +125,12 @@ export interface AttackFrames {
   recovery: number;
   cancelFrame: number;
   total: number;
+  /** 回避・ガードでキャンセルできるフレーム（既定は持続の終わり） */
+  dodgeCancel: number;
+  /** 当たりの窓（フレーム）。窓が無い攻撃は空 */
+  windows: readonly ResolvedWindow[];
+  /** スーパーアーマーの区間（フレーム。from 含む・to 含まない）と、割れるダメージ。無ければ null */
+  armor: { from: number; to: number; breakDamage: number } | null;
 }
 
 export function resolveAttack(a: AttackDef): AttackFrames {
@@ -83,12 +138,19 @@ export function resolveAttack(a: AttackDef): AttackFrames {
   const startup = toFrames(a.activeStart);
   const activeEndF = Math.max(startup + 1, toFrames(a.activeEnd));
   const total = Math.max(activeEndF + 1, toFrames(a.segmentDuration));
+  const windows: ResolvedWindow[] = (a.windows ?? []).map((w, i) => {
+    const start = toFrames(w.start);
+    return { start, end: Math.max(start + 1, toFrames(w.end)), def: w, group: w.group ?? i };
+  });
   return {
     startup,
     active: activeEndF - startup,
     recovery: total - activeEndF,
     cancelFrame: Math.min(total, Math.max(activeEndF, toFrames(a.cancelAt))),
     total,
+    dodgeCancel: a.dodgeCancelAt === undefined ? activeEndF : Math.min(total, Math.max(startup + 1, toFrames(a.dodgeCancelAt))),
+    windows,
+    armor: a.armor ? { from: toFrames(a.armor.from), to: toFrames(a.armor.to), breakDamage: a.armor.breakDamage } : null,
   };
 }
 

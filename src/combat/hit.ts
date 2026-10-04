@@ -15,7 +15,16 @@ export type HitboxDef =
   /** 扇形（斬り）。range は攻撃者の中心から相手の円の縁までの届く距離、halfAngle は正面からの片側の角度（rad） */
   | { kind: 'arc'; range: number; halfAngle: number }
   /** 線分に幅を持たせた領域（突き）。攻撃者の中心から正面へ length、相手の円との距離が radius 以内で当たる */
-  | { kind: 'line'; length: number; radius: number };
+  | { kind: 'line'; length: number; radius: number }
+  /** 円（地面の衝撃波。ADR-031）。攻撃者の中心から正面へ offset の点を中心に、半径 radius の円（相手の円の半径も足す） */
+  | { kind: 'circle'; offset: number; radius: number };
+
+/** 当たりの届く距離（攻撃者の中心から）。予告の帯の長さの計算に使う */
+export function hitboxReach(box: HitboxDef): number {
+  if (box.kind === 'arc') return box.range;
+  if (box.kind === 'line') return box.length;
+  return box.offset + box.radius;
+}
 
 /** 攻撃者の位置と向き（yaw: +Z が 0、+X が +π/2。Player.yaw と同じ） */
 export interface HitOrigin {
@@ -54,6 +63,13 @@ export function hitboxHits(origin: HitOrigin, box: HitboxDef, target: Circle): b
   const d = Math.hypot(dx, dz);
   const fx = Math.sin(origin.yaw);
   const fz = Math.cos(origin.yaw);
+
+  if (box.kind === 'circle') {
+    const px = origin.x + fx * box.offset - target.x;
+    const pz = origin.z + fz * box.offset - target.z;
+    const reach = box.radius + target.r;
+    return px * px + pz * pz <= reach * reach;
+  }
 
   if (box.kind === 'line') {
     // 線分 (origin → origin + f * length) と円の中心の距離

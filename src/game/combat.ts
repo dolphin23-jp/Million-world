@@ -1,4 +1,4 @@
-import type { AttackDef } from '../combat/data/attacks';
+import type { AttackDef, ResolvedWindow } from '../combat/data/attacks';
 import { HIT_FEEDBACK } from '../combat/data/hit-feedback';
 import type { ParryEffectDef } from '../combat/data/guard';
 import type { GuardOutcome } from '../combat/guard';
@@ -18,6 +18,8 @@ export const PLAYER_ID = 0;
 export interface AttackerView {
   readonly attackActive: boolean;
   readonly attack: AttackDef | null;
+  /** 多段ヒットの技（AttackDef.windows）でいま当たりが出ている窓。窓の無い攻撃では null / 省略（AttackDef の当たりを使う） */
+  readonly hitWindow?: ResolvedWindow | null;
   /** いまの攻撃の威力の倍率（溜めの段階。1 = 等倍）。ダメージ・ノックバック・ヒットストップに掛かる */
   readonly attackPower: number;
   readonly body: Circle;
@@ -64,13 +66,14 @@ export function resolvePlayerAttack<T extends CombatTarget>(
 ): number {
   const atk = attacker.attack;
   if (!atk || !attacker.attackActive) return 0;
+  const win = attacker.hitWindow?.def;
   _origin.x = attacker.body.x;
   _origin.z = attacker.body.z;
-  _origin.yaw = attacker.yaw;
+  _origin.yaw = attacker.yaw + (win?.yawOffset ?? 0);
   _boxes.length = 0;
   _hit.length = 0;
   for (const t of targets) _boxes.push(t.body);
-  const n = collectHits(_origin, atk.hitbox, _boxes, attacker.hitTracker, _hit);
+  const n = collectHits(_origin, win?.hitbox ?? atk.hitbox, _boxes, attacker.hitTracker, _hit);
   for (const box of _hit) {
     const target = targets.find((t) => t.body === box);
     if (!target) continue;
@@ -78,10 +81,10 @@ export function resolvePlayerAttack<T extends CombatTarget>(
     // 弾かれて動けない敵への攻撃は反撃: ダメージが大きく、ノックバックは小さい（遠くへ飛ばさず、続けて当てられる）
     const riposte = target.riposte ?? null;
     const ev = makeHitEvent(PLAYER_ID, _origin, box, {
-      damage: Math.round(atk.damage * p * (riposte ? riposte.riposteDamageScale : 1)),
+      damage: Math.round(atk.damage * (win?.damageScale ?? 1) * p * (riposte ? riposte.riposteDamageScale : 1)),
       // ノックバックは威力の半分だけ倍率を掛ける（吹き飛びすぎない）。ヒットストップは威力に比例して伸びる
-      knockback: atk.knockback * (1 + (p - 1) * 0.5) * (riposte ? riposte.riposteKnockbackScale : 1),
-      hitStop: Math.min(Math.round(atk.hitStop * p), HIT_FEEDBACK.maxHitStop),
+      knockback: atk.knockback * (win?.knockbackScale ?? 1) * (1 + (p - 1) * 0.5) * (riposte ? riposte.riposteKnockbackScale : 1),
+      hitStop: Math.min(Math.round(atk.hitStop * (win?.hitStopScale ?? 1) * p), HIT_FEEDBACK.maxHitStop),
     });
     const result = target.takeHit(ev);
     onHit(ev, target, result, riposte !== null);

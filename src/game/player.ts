@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { InputIntent } from '../input/intent';
-import { ATTACKS, CHARGES, DODGES, DODGE_RULES, HIT_STUN, MOVE, PLAYER_STATS, resolveAttack, rootMotionOf, type AttackDef, type AttackFrames, type ChargeDef, type DodgeKind } from '../combat/data/attacks';
+import { ATTACKS, CHARGES, DODGES, DODGE_RULES, HIT_STUN, MOVE, PLAYER_STATS, resolveAttack, rootMotionOf, type AttackDef, type AttackFrames, type ChargeDef, type DodgeKind, type ResolvedWindow } from '../combat/data/attacks';
+import { findAttack } from '../combat/data/skill-attacks';
 import { DEFAULT_LOADOUT, LOADOUTS, type LoadoutDef, type LoadoutId } from '../combat/data/loadouts';
 import { PARRY_EFFECTS, type GuardDef, type ParryEffectDef } from '../combat/data/guard';
 import { guardOutcome as resolveGuardOutcome, guardedDamage, type GuardOutcome } from '../combat/guard';
@@ -23,6 +24,9 @@ import { HeroVisual } from './hero-visual';
 
 export type PlayerState = 'idle' | 'run' | 'attack' | 'charge' | 'guard' | 'dodge' | 'hit' | 'dead';
 
+/** スーパーアーマーが攻撃を耐えたあとの短い無敵（フレーム）。続けて当たって一気に削られないようにする */
+const ARMOR_INVULN_FRAMES = 24;
+
 /** ガードを押してから、構えに入れる状況になるまで待てるフレーム（先行入力。攻撃の硬直中などに押しても構えられる） */
 const GUARD_BUFFER_FRAMES = 12;
 
@@ -43,8 +47,13 @@ export class Player {
   stateFrame = 0;
   attack: AttackDef | null = null;
   attackFrames: AttackFrames | null = null;
-  /** この攻撃で当てた対象の記録（1 攻撃 1 対象 1 回）。攻撃を始めるたびにリセットする */
+  /** この攻撃で当てた対象の記録（1 攻撃 1 対象 1 回。多段の技は窓の組ごと）。攻撃を始めるたび・窓の組が変わるたびにリセットする */
   readonly hitTracker = new HitTracker();
+  /** 多段ヒットの技（AttackDef.windows）で、いま当たりが出ている窓の番号（-1 = 出ていない）と、記録をリセットした窓の組。step() の終わりに更新する */
+  private winIdx = -1;
+  private winGroup = -1;
+  /** スーパーアーマーが攻撃を耐えたたびに増える（Game が演出を出すのに読む） */
+  armorSerial = 0;
   /** 被弾の記録。hitSerial は被弾のたびに増える（見た目側が被弾を検出するため） */
   hitSerial = 0;
   lastHit: HitEvent | null = null;
@@ -209,7 +218,35 @@ export class Player {
     this.stateFrame++;
     if (this.hurtInvuln > 0) this.hurtInvuln--;
     this.pendingSkill = null;
+    this.updateWindow();
     this.refreshHurtbox();
+  }
+
+  /**
+   * 多段ヒットの技の窓を、いまの stateFrame（描画されている姿勢の時刻）に合わせる。窓の組が変わったら「当てた記録」を消す
+   * （次の窓では同じ敵にもう一度当たる）。窓の無い攻撃・攻撃していないときは -1
+   */
+  private updateWindow(): void {
+    const fr = this.attackFrames;
+    this.winIdx = -1;
+    if (this.state !== 'attack' || !fr || fr.windows.length === 0) return;
+    for (let i = 0; i < fr.windows.length; i++) {
+      const w = fr.windows[i]!;
+      if (this.stateFrame >= w.start && this.stateFrame < w.end) {
+        this.winIdx = i;
+        if (w.group !== this.winGroup) {
+          this.winGroup = w.group;
+          this.hitTracker.reset();
+        }
+        return;
+      }
+    }
+  }
+
+  /** いま当たりが出ている窓（多段ヒットの技）。窓の無い攻撃・窓のあいだは null。resolvePlayerAttack・cutProjectiles が読む */
+  get hitWindow(): ResolvedWindow | null {
+    const fr = this.attackFrames;
+    return this.winIdx >= 0 && fr ? (fr.windows[this.winIdx] ?? null) : null;
   }
 
   /**
@@ -228,6 +265,13 @@ export class Player {
     const r = applyDamage(this.health, ev.damage);
     this.hitSerial++;
     this.lastHit = ev;
+    // スーパーアーマー（剣技の一部。AttackDef.armor）: 割れない重さの攻撃は、ダメージは受けるが、ひるまず・飛ばされず、攻撃を続ける（短い無敵はつく）
+    if (!r.killed && this.armoredAgainst(ev.damage)) {
+      this.armorSerial++;
+      this.hurtInvuln = ARMOR_INVULN_FRAMES;
+      this.refreshHurtbox();
+      return r;
+    }
     this.attack = null;
     this.attackFrames = null;
     this.attackBuffered = false;
@@ -246,6 +290,21 @@ export class Player {
     this.setState(r.killed ? 'dead' : 'hit', true);
     this.refreshHurtbox();
     return r;
+  }
+
+  /** いまスーパーアーマーが効いていて、damage の攻撃では割れないか */
+  private armoredAgainst(damage: number): boolean {
+    const fr = this.attackFrames;
+    const ar = fr?.armor;
+    if (this.state !== 'attack' || !ar) return false;
+    return this.stateFrame >= ar.from && this.stateFrame < ar.to && damage < ar.breakDamage;
+  }
+
+  /** スーパーアーマーが効いている最中か（見た目の光に使う） */
+  get armored(): boolean {
+    const fr = this.attackFrames;
+    const ar = fr?.armor;
+    return this.state === 'attack' && !!ar && this.stateFrame >= ar.from && this.stateFrame < ar.to;
   }
 
   /** ロックオンの照準があるか（横・後ろの入力が使える。操作ガイドが読む） */
@@ -354,6 +413,8 @@ export class Player {
     this.attack = def;
     this.attackFrames = resolveAttack(def);
     this.attackPower = power;
+    this.winIdx = -1;
+    this.winGroup = -1;
     // 長押しの判定: この攻撃を始めたときに押していて、そこから離していなければ、1 段目の途中で溜めへ移る
     this.heldSinceBegin = this.heldNow;
     this.hitTracker.reset();
@@ -371,7 +432,7 @@ export class Player {
   /** 剣技を始める（連なりの 1 段目）。以降の段は stepAttack が受付のたびに自動で続ける。始めたことを skillSerial / lastSkill で知らせる */
   private beginSkill(run: SkillRun, mx: number, mz: number, mLen: number): void {
     const first = run.steps[0]!;
-    this.beginAttack(ATTACKS[first.attack]!, mx, mz, mLen, first.power);
+    this.beginAttack(findAttack(first.attack)!, mx, mz, mLen, first.power);
     // 攻撃ボタンの長押しで溜めに移らない（剣技はスキルボタンから始めた）
     this.heldSinceBegin = false;
     this.skillRun = { run, i: 0 };
@@ -418,13 +479,13 @@ export class Player {
       this.beginCharge(CHARGES[this.loadout.charge]!);
       return;
     }
-    // 回避キャンセル（持続終了後）
-    if (intent.dodgePressed && f >= activeEnd) {
+    // 回避キャンセル（持続終了後。多段の技は dodgeCancelAt = 最初の窓のあと から）
+    if (intent.dodgePressed && f >= fr.dodgeCancel) {
       this.beginDodge(mx, mz, mLen);
       return;
     }
-    // ガードキャンセル（持続終了後。先行入力のあるとき）
-    if (f >= activeEnd && this.canGuard()) {
+    // ガードキャンセル（同じ時刻から。先行入力のあるとき）
+    if (f >= fr.dodgeCancel && this.canGuard()) {
       this.beginGuard();
       return;
     }
@@ -437,7 +498,7 @@ export class Player {
     if (sk && f >= fr.cancelFrame) {
       const next = sk.run.steps[sk.i + 1];
       if (next) {
-        this.beginAttack(ATTACKS[next.attack]!, mx, mz, mLen, next.power, true);
+        this.beginAttack(findAttack(next.attack)!, mx, mz, mLen, next.power, true);
         this.skillRun = { run: sk.run, i: sk.i + 1 };
         return;
       }
@@ -703,7 +764,10 @@ export class Player {
    */
   get attackActive(): boolean {
     const fr = this.attackFrames;
-    return this.state === 'attack' && fr !== null && isActiveFrame(fr.startup, fr.active, this.stateFrame);
+    if (this.state !== 'attack' || fr === null) return false;
+    // 多段ヒットの技は、窓のあいだだけ当たりが出る
+    if (fr.windows.length > 0) return this.winIdx >= 0;
+    return isActiveFrame(fr.startup, fr.active, this.stateFrame);
   }
 
   /**

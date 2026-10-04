@@ -139,16 +139,18 @@ export function resolveReflectedProjectiles<T extends CombatTarget>(
 export function cutProjectiles(system: ProjectileSystem, attacker: AttackerView, onEnd?: OnEnd): number {
   const atk = attacker.attack;
   if (!atk || !attacker.attackActive) return 0;
+  const win = attacker.hitWindow?.def;
   _origin.x = attacker.body.x;
   _origin.z = attacker.body.z;
-  _origin.yaw = attacker.yaw;
+  _origin.yaw = attacker.yaw + (win?.yawOffset ?? 0);
+  const box = win?.hitbox ?? atk.hitbox;
   let n = 0;
   for (const p of system.pool) {
     if (!p.alive || p.team !== 'enemy') continue;
     _circle.x = p.x;
     _circle.z = p.z;
     _circle.r = p.def.radius;
-    if (!hitboxHits(_origin, atk.hitbox, _circle)) continue;
+    if (!hitboxHits(_origin, box, _circle)) continue;
     end(p, 'cut', onEnd);
     n++;
   }
