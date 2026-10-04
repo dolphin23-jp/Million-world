@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { Player } from './player';
-import { resolveEnemyAttacks, resolvePlayerAttack, type CombatTarget } from './combat';
+import { NEVER_CRIT, resolveEnemyAttacks, resolvePlayerAttack, type AttackerView, type CombatTarget } from './combat';
 import { Enemy } from '../ai/enemy';
 import { ENEMIES } from '../ai/data/enemies';
 import { ATTACKS, DODGE, DODGES, HIT_STUN, PLAYER_STATS, resolveAttack } from '../combat/data/attacks';
 import { createEmptyIntent, type InputIntent } from '../input/intent';
 import type { DamageResult } from '../combat/health';
 import type { HitEvent } from '../combat/hit';
+import { CRIT } from '../combat/data/crit';
+import { BASE_MODIFIERS } from '../combat/modifiers';
+import { HIT_FEEDBACK } from '../combat/data/hit-feedback';
 
 /**
  * プレイヤー（本物の Player の sim）と敵（本物の Enemy の sim）を組み合わせ、Game.step と同じ順序で 1 フレームずつ進める。
@@ -352,5 +355,113 @@ describe('敵の攻撃がプレイヤーに当たる（Enemy + Player の結合�
     expect(sc.player.state).toBe('hit');
     expect(sc.player.attack).toBeNull();
     expect(sc.player.attackActive).toBe(false);
+  });
+});
+
+describe('会心（ADR-035）: 命中ごとの抽選', () => {
+  const imp = (z: number, id = 1): Enemy => {
+    const e = new Enemy(ENEMIES.imp, id, 0, z);
+    e.place(0, z, Math.PI);
+    return e;
+  };
+  /** 1 段目の持続フレームまで進めて、その攻撃の当たりを集める。rng の呼び出しを数える */
+  function swing(opts: { critRate?: number; critDamage?: number; rng?: () => number; enemies?: Enemy[] } = {}) {
+    const player = new Player();
+    player.setModifiers({ ...BASE_MODIFIERS, critRate: opts.critRate ?? 0, critDamage: opts.critDamage ?? CRIT.baseDamage });
+    const enemies = opts.enemies ?? [imp(1.6)];
+    const hits: HitEvent[] = [];
+    let draws = 0;
+    const rng = opts.rng ?? NEVER_CRIT;
+    const counted = () => {
+      draws++;
+      return rng();
+    };
+    player.step(DT, { ...createEmptyIntent(), attackPressed: true }, CAM_YAW);
+    for (let i = 0; i < 80; i++) {
+      player.step(DT, createEmptyIntent(), CAM_YAW);
+      for (const e of enemies) e.step(DT, player.body.x, player.body.z);
+      resolvePlayerAttack(player, enemies as CombatTarget[], (ev) => hits.push(ev), counted);
+    }
+    return { hits, draws };
+  }
+
+  it('既定の乱数は会心しない（NEVER_CRIT）。会心率が 100% でも、乱数を渡さなければ会心にならない', () => {
+    const { hits } = swing({ critRate: 1 });
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.crit).toBeUndefined();
+    expect(hits[0]!.damage).toBe(ATTACKS.combo1!.damage);
+  });
+
+  it('会心になると、ダメージが会心ダメージの倍率になり、ノックバック・ヒットストップが増えて、crit が付く', () => {
+    const plain = swing({ critRate: 0.5, rng: () => 0.99 }).hits[0]!;
+    const crit = swing({ critRate: 0.5, critDamage: 2, rng: () => 0 }).hits[0]!;
+    expect(plain.crit).toBeUndefined();
+    expect(crit.crit).toBe(true);
+    expect(crit.damage).toBe(Math.round(ATTACKS.combo1!.damage * 2));
+    expect(crit.knockback).toBeCloseTo(plain.knockback * CRIT.knockbackScale, 9);
+    expect(crit.hitStop).toBe(Math.min(plain.hitStop + CRIT.hitStopBonus, HIT_FEEDBACK.maxHitStop));
+  });
+
+  it('境界: rng() < 会心率 のときだけ会心（等しければ会心ではない）。会心率 0 では乱数を引かない', () => {
+    expect(swing({ critRate: 0.05, rng: () => 0.0499 }).hits[0]!.crit).toBe(true);
+    expect(swing({ critRate: 0.05, rng: () => 0.05 }).hits[0]!.crit).toBeUndefined();
+    expect(swing({ critRate: 0, rng: () => 0 }).draws).toBe(0);
+  });
+
+  it('STR と会心は掛け算で重なる（ダメージ = 技 × STR × 会心）', () => {
+    const player = new Player();
+    player.setModifiers({ ...BASE_MODIFIERS, damage: 1.2, critRate: 1, critDamage: 1.5 });
+    const e = imp(1.6);
+    const hits: HitEvent[] = [];
+    player.step(DT, { ...createEmptyIntent(), attackPressed: true }, CAM_YAW);
+    for (let i = 0; i < 80; i++) {
+      player.step(DT, createEmptyIntent(), CAM_YAW);
+      e.step(DT, player.body.x, player.body.z);
+      resolvePlayerAttack(player, [e as CombatTarget], (ev) => hits.push(ev), () => 0);
+    }
+    expect(hits[0]!.damage).toBe(Math.round(ATTACKS.combo1!.damage * 1.2 * 1.5));
+  });
+
+  it('命中 1 回ごとに 1 回ずつ抽選する（2 体に当たれば 2 回。当たらなければ引かない）', () => {
+    const two = swing({ critRate: 0.3, rng: () => 0.99, enemies: [imp(1.5, 1), imp(1.6, 2)] });
+    expect(two.hits).toHaveLength(2);
+    expect(two.draws).toBe(2);
+    const far = swing({ critRate: 0.3, rng: () => 0.99, enemies: [imp(9)] });
+    expect(far.hits).toHaveLength(0);
+    expect(far.draws).toBe(0);
+  });
+
+  it('同じ敵への別の命中（多段の窓）は、それぞれ別に抽選する', () => {
+    const seq = [0, 0.99, 0, 0.99, 0];
+    let i = 0;
+    const attacker: AttackerView = {
+      attackActive: true,
+      attack: { ...ATTACKS.combo1! },
+      attackPower: 1,
+      critRate: 0.5,
+      critDamage: 2,
+      body: { x: 0, z: 0, r: 0.4 },
+      yaw: 0,
+      hitTracker: { reset() {}, has: () => false, add() {}, count: 0 } as unknown as AttackerView['hitTracker'],
+    };
+    const target = imp(1.2);
+    const got: boolean[] = [];
+    for (let n = 0; n < 4; n++) resolvePlayerAttack(attacker, [target as CombatTarget], (ev) => got.push(ev.crit === true), () => seq[i++ % seq.length]!);
+    expect(got).toEqual([true, false, true, false]);
+  });
+
+  it('会心率・会心ダメージの口が無い攻撃者（古いテスト用の見え）は会心しない', () => {
+    const attacker: AttackerView = {
+      attackActive: true,
+      attack: { ...ATTACKS.combo1! },
+      attackPower: 1,
+      body: { x: 0, z: 0, r: 0.4 },
+      yaw: 0,
+      hitTracker: { reset() {}, has: () => false, add() {}, count: 0 } as unknown as AttackerView['hitTracker'],
+    };
+    const got: HitEvent[] = [];
+    resolvePlayerAttack(attacker, [imp(1.2) as CombatTarget], (ev) => got.push(ev), () => 0);
+    expect(got).toHaveLength(1);
+    expect(got[0]!.crit).toBeUndefined();
   });
 });

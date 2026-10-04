@@ -1,4 +1,5 @@
 import type { AttackDef, ResolvedWindow } from '../combat/data/attacks';
+import { CRIT } from '../combat/data/crit';
 import { HIT_FEEDBACK } from '../combat/data/hit-feedback';
 import type { ParryEffectDef } from '../combat/data/guard';
 import type { GuardOutcome } from '../combat/guard';
@@ -25,6 +26,9 @@ export interface AttackerView {
   /** ダメージ・ノックバックの倍率（STR。Modifiers。省略 = 等倍） */
   readonly damageMul?: number;
   readonly knockbackMul?: number;
+  /** 会心率（0..1）と会心ダメージの倍率（DEX・パッシブ。Modifiers。省略 = 会心しない）。命中 1 回ごとに抽選する */
+  readonly critRate?: number;
+  readonly critDamage?: number;
   readonly body: Circle;
   readonly yaw: number;
   readonly hitTracker: HitTracker;
@@ -60,12 +64,19 @@ const _origin: HitOrigin = { x: 0, z: 0, yaw: 0 };
 const _boxes: Hurtbox[] = [];
 const _hit: Hurtbox[] = [];
 
-/** 新しく当たった数を返す */
+/** 抽選の乱数の既定: 会心しない（1 は常に会心率より大きい）。テストの結果が乱数で揺れないように。ゲームは Math.random 相当を渡す */
+export const NEVER_CRIT = (): number => 1;
+
+/**
+ * 新しく当たった数を返す。会心は命中 1 回ごとに rng（0 以上 1 未満）で抽選する: rng() < 会心率 なら会心。
+ * 会心はダメージに会心ダメージの倍率が掛かり、ノックバック・ヒットストップが少し増える（ADR-035）
+ */
 export function resolvePlayerAttack<T extends CombatTarget>(
   attacker: AttackerView,
   targets: readonly T[],
   /** riposte: 弾かれて体勢を崩している敵への攻撃（反撃）か */
   onHit: (ev: HitEvent, target: T, result: DamageResult, riposte: boolean) => void,
+  rng: () => number = NEVER_CRIT,
 ): number {
   const atk = attacker.attack;
   if (!atk || !attacker.attackActive) return 0;
@@ -83,11 +94,14 @@ export function resolvePlayerAttack<T extends CombatTarget>(
     const p = attacker.attackPower;
     // 弾かれて動けない敵への攻撃は反撃: ダメージが大きく、ノックバックは小さい（遠くへ飛ばさず、続けて当てられる）
     const riposte = target.riposte ?? null;
+    const rate = attacker.critRate ?? 0;
+    const crit = rate > 0 && rng() < rate;
     const ev = makeHitEvent(PLAYER_ID, _origin, box, {
-      damage: Math.round(atk.damage * (win?.damageScale ?? 1) * p * (attacker.damageMul ?? 1) * (riposte ? riposte.riposteDamageScale : 1)),
+      damage: Math.round(atk.damage * (win?.damageScale ?? 1) * p * (attacker.damageMul ?? 1) * (riposte ? riposte.riposteDamageScale : 1) * (crit ? attacker.critDamage ?? CRIT.baseDamage : 1)),
       // ノックバックは威力の半分だけ倍率を掛ける（吹き飛びすぎない）。ヒットストップは威力に比例して伸びる
-      knockback: atk.knockback * (win?.knockbackScale ?? 1) * (1 + (p - 1) * 0.5) * (attacker.knockbackMul ?? 1) * (riposte ? riposte.riposteKnockbackScale : 1),
-      hitStop: Math.min(Math.round(atk.hitStop * (win?.hitStopScale ?? 1) * p), HIT_FEEDBACK.maxHitStop),
+      knockback: atk.knockback * (win?.knockbackScale ?? 1) * (1 + (p - 1) * 0.5) * (attacker.knockbackMul ?? 1) * (riposte ? riposte.riposteKnockbackScale : 1) * (crit ? CRIT.knockbackScale : 1),
+      hitStop: Math.min(Math.round(atk.hitStop * (win?.hitStopScale ?? 1) * p) + (crit ? CRIT.hitStopBonus : 0), HIT_FEEDBACK.maxHitStop),
+      crit,
     });
     const result = target.takeHit(ev);
     onHit(ev, target, result, riposte !== null);

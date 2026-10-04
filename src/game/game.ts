@@ -200,6 +200,8 @@ export class Game {
   /** アイテム欄（薬瓶。ADR-030）。敵を倒すと確率で増え、ボタンで使う。dropRng はドロップの抽選の乱数（開発・テストで差し替えられる） */
   readonly inventory = new Inventory();
   dropRng: () => number = Math.random;
+  /** 会心の抽選の乱数（ADR-035）。命中 1 回ごとに 1 回引く。開発・テストで差し替えられる（() => 0 で必ず会心、() => 1 で会心なし） */
+  critRng: () => number = Math.random;
   private seenInventorySerial = -1;
   /** スキル欄（剣技。ADR-031）。seenSkillSerial = クールダウンと演出を起こし終えた Player.skillSerial、skillUiKey = スキルボタンの表示を合わせ終えた状態 */
   readonly skills = new SkillBook();
@@ -458,8 +460,10 @@ export class Game {
     const y = HIT_FEEDBACK.impactHeight;
     // 弾かれた敵への反撃は、水色がかった閃光と大きな数字で「反撃が通った」を見せる
     this.hitFx.burst(ev.x, y, ev.z, ev.dirX, ev.dirZ, fb.power, riposte ? FX_TINT.parry : undefined);
-    this.damageNumbers.spawn(enemy.body.x, y + 0.5, enemy.body.z, result.dealt, riposte && !result.killed ? 'riposte' : fb.style);
+    // 会心は数字を専用の見た目（大きな金色）にし、命中の音の上にきらめく音を重ねる（とどめでも、反撃でも会心が読める）
+    this.damageNumbers.spawn(enemy.body.x, y + 0.5, enemy.body.z, result.dealt, fb.crit ? 'crit' : riposte && !result.killed ? 'riposte' : fb.style);
     this.sfx.play(fb.style === 'heavy' || riposte ? 'hitHeavy' : 'hit');
+    if (fb.crit) this.sfx.play('crit');
     if (result.killed) this.sfx.play('kill');
     if (result.killed) {
       this.encounter.onKill();
@@ -935,7 +939,7 @@ export class Game {
     this.spawnProjectiles();
     if (enemiesRun) this.projectiles.step(dt, this.arena.radius, this.onProjectileEndCb);
     // 先にプレイヤーの攻撃を解決する。同じフレームに当たり合うなら、プレイヤーが先に当てて敵の攻撃を中断する（敵の弾は斬り落とされる）
-    resolvePlayerAttack(this.player, this.enemySims, (ev, enemy, result, riposte) => this.onPlayerHit(ev, enemy, result, riposte));
+    resolvePlayerAttack(this.player, this.enemySims, (ev, enemy, result, riposte) => this.onPlayerHit(ev, enemy, result, riposte), this.critRng);
     cutProjectiles(this.projectiles, this.player, this.onProjectileEndCb);
     resolveEnemyAttacks(this.enemySims, this.player, (ev, _enemy, result) => this.onEnemyHit(ev, result), {
       onGuard: (ev, _enemy, result) => this.onEnemyGuarded(ev, result),

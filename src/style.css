@@ -713,6 +713,15 @@ body {
 .dmg-kill {
   color: #ff8a6a;
 }
+/* 会心: 大きな金色の数字（末尾に「!」）に、白い縁の光。通常・強・とどめのどれより目立つ（ADR-035） */
+.dmg-crit {
+  color: #ffe45c;
+  letter-spacing: 0.04em;
+  text-shadow:
+    -3px 0 #6a2a00, 3px 0 #6a2a00, 0 -3px #6a2a00, 0 3px #6a2a00,
+    -2px -2px #6a2a00, 2px -2px #6a2a00, -2px 2px #6a2a00, 2px 2px #6a2a00,
+    0 0 16px rgba(255, 214, 90, 0.95), 0 0 30px rgba(255, 150, 40, 0.6);
+}
 .dmg-hurt {
   color: #ff5d5d;
 }

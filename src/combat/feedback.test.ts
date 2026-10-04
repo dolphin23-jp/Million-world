@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { hitFeedback } from './feedback';
 import { ATTACKS } from './data/attacks';
 import { HIT_FEEDBACK } from './data/hit-feedback';
+import { CRIT } from './data/crit';
 
 const of = (id: string, killed = false) => hitFeedback({ damage: ATTACKS[id]!.damage, hitStop: ATTACKS[id]!.hitStop }, killed);
 
@@ -40,5 +41,31 @@ describe('hitFeedback', () => {
     for (const a of Object.values(ATTACKS)) {
       expect(hitFeedback({ damage: a.damage, hitStop: a.hitStop }, true).hitStop, a.id).toBeLessThanOrEqual(20);
     }
+  });
+});
+
+describe('hitFeedback: 会心（ADR-035）', () => {
+  const a = ATTACKS.combo2!;
+  const base = hitFeedback({ damage: a.damage, hitStop: a.hitStop }, false);
+  const crit = hitFeedback({ damage: a.damage, hitStop: a.hitStop, crit: true }, false);
+
+  it('会心でない命中は crit: false。会心は crit: true', () => {
+    expect(base.crit).toBe(false);
+    expect(crit.crit).toBe(true);
+  });
+  it('会心は揺れ・エフェクトが大きい（ヒットストップは当たり判定が加算済みの値をそのまま使う）', () => {
+    expect(crit.shakeAmp).toBeCloseTo(base.shakeAmp * CRIT.shakeScale, 9);
+    expect(crit.power).toBeGreaterThan(base.power);
+    expect(crit.hitStop).toBe(base.hitStop);
+  });
+  it('会心でも、とどめの重なりでも壊れない（とどめの揺れ・ヒットストップに会心の倍率が重なる）', () => {
+    const k = hitFeedback({ damage: a.damage, hitStop: a.hitStop }, true);
+    const kc = hitFeedback({ damage: a.damage, hitStop: a.hitStop, crit: true }, true);
+    expect(kc.style).toBe('kill');
+    expect(kc.crit).toBe(true);
+    expect(kc.shakeAmp).toBeCloseTo(k.shakeAmp * CRIT.shakeScale, 9);
+  });
+  it('エフェクトの強さの上限は、会心のぶんだけ上がる', () => {
+    expect(hitFeedback({ damage: 999, hitStop: 0, crit: true }, false).power).toBeCloseTo(HIT_FEEDBACK.power.max * CRIT.powerScale, 9);
   });
 });

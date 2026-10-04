@@ -1,3 +1,4 @@
+import { CRIT } from './data/crit';
 import { STAT_BASE, STAT_EFFECTS, STAT_IDS, effectivePoints, type StatId } from './data/stats';
 
 /**
@@ -13,6 +14,9 @@ export interface Modifiers {
   attackSpeed: number;
   /** パリィの受付の加算（フレーム。DEX） */
   parryFrames: number;
+  /** 会心率（0..1。1 回の命中ごとに抽選）と会心ダメージの倍率（1.5 = 会心で 1.5 倍。DEX・パッシブ。M6-3。ADR-035） */
+  critRate: number;
+  critDamage: number;
   /** 移動の速さの倍率（AGI） */
   moveSpeed: number;
   /** 回避の無敵の加算（フレーム。AGI） */
@@ -36,6 +40,8 @@ export const BASE_MODIFIERS: Readonly<Modifiers> = {
   knockback: 1,
   attackSpeed: 1,
   parryFrames: 0,
+  critRate: CRIT.baseRate,
+  critDamage: CRIT.baseDamage,
   moveSpeed: 1,
   dodgeInvuln: 0,
   mysticalFrames: 0,
@@ -67,6 +73,8 @@ export function computeModifiers(stats: StatBlock): Modifiers {
     knockback: 1 + E.str.knockback * str,
     attackSpeed: 1 + E.dex.attackSpeed * dex,
     parryFrames: Math.floor(E.dex.parryFramesPer * dex),
+    critRate: Math.min(CRIT.maxRate, Math.max(0, CRIT.baseRate + E.dex.critRate * dex)),
+    critDamage: Math.max(CRIT.minDamage, CRIT.baseDamage + E.dex.critDamage * dex),
     moveSpeed: 1 + E.agi.moveSpeed * agi,
     dodgeInvuln: Math.floor(E.agi.dodgeInvulnFramesPer * agi),
     mysticalFrames: Math.round(E.agi.mysticalFramesPer * agi),
@@ -85,7 +93,7 @@ export function describeStat(id: StatId, m: Modifiers): string {
     case 'str':
       return `ダメージ ${pct(m.damage)} / ノックバック ${pct(m.knockback)}`;
     case 'dex':
-      return `攻撃の速さ ${pct(m.attackSpeed)} / パリィ受付 +${m.parryFrames}f`;
+      return `攻撃の速さ ${pct(m.attackSpeed)} / パリィ受付 +${m.parryFrames}f / 会心率 ${(m.critRate * 100).toFixed(1)}% / 会心ダメージ ×${m.critDamage.toFixed(2)}`;
     case 'agi':
       return `移動 ${pct(m.moveSpeed)} / 回避の無敵 +${m.dodgeInvuln}f / ミスティカル +${(m.mysticalFrames / 60).toFixed(2)}秒`;
     case 'int':

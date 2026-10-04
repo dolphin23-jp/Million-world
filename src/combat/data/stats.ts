@@ -29,7 +29,7 @@ export interface StatInfo {
 
 export const STAT_INFO: Record<StatId, StatInfo> = {
   str: { name: '力', short: 'STR', detail: '攻撃のダメージ・ノックバック' },
-  dex: { name: '器用', short: 'DEX', detail: '攻撃の速さ・パリィの受付' },
+  dex: { name: '器用', short: 'DEX', detail: '攻撃の速さ・パリィの受付・会心率と会心ダメージ' },
   agi: { name: '敏捷', short: 'AGI', detail: '移動の速さ・回避の無敵・ミスティカルの長さ' },
   int: { name: '知力', short: 'INT', detail: 'スキルのクールダウンと威力・薬瓶の回復' },
   vit: { name: '体力', short: 'VIT', detail: '最大体力・受けるダメージの軽減' },
@@ -39,8 +39,8 @@ export const STAT_INFO: Record<StatId, StatInfo> = {
 export const STAT_EFFECTS = {
   /** STR: ダメージ +1.0% / ノックバック +0.5% */
   str: { damage: 0.01, knockback: 0.005 },
-  /** DEX: 攻撃の速さ +0.5%（モーションの倍率）/ パリィの受付 10 点で +1 フレーム */
-  dex: { attackSpeed: 0.005, parryFramesPer: 0.1 },
+  /** DEX: 攻撃の速さ +0.5%（モーションの倍率）/ パリィの受付 10 点で +1 フレーム / 会心率 +0.5%（初期 5%。CRIT）/ 会心ダメージ +1.5%（初期 ×1.5） */
+  dex: { attackSpeed: 0.005, parryFramesPer: 0.1, critRate: 0.005, critDamage: 0.015 },
   /** AGI: 移動 +0.6% / 回避の無敵 8 点で +1 フレーム / ミスティカルの長さ 1 点で +3 フレーム（0.05 秒） */
   agi: { moveSpeed: 0.006, dodgeInvulnFramesPer: 0.125, mysticalFramesPer: 3 },
   /** INT: スキルのクールダウン −0.8%（下限 0.5 倍）/ スキルの威力 +0.6% / 薬瓶の回復 +1% */

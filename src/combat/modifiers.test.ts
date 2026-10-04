@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BASE_MODIFIERS, baseStats, computeModifiers, describeStat, type Modifiers } from './modifiers';
+import { CRIT } from './data/crit';
 import { STAT_BASE, STAT_EFFECTS, STAT_IDS, STAT_OVER_RATE, STAT_SOFT_CAP, effectivePoints, type StatId } from './data/stats';
 
 const withStat = (id: StatId, points: number) => ({ ...baseStats(), [id]: STAT_BASE + points });
@@ -80,12 +81,47 @@ describe('逓減（振った点が上限を超えた分は半分の効き）', (
   });
 });
 
+describe('会心（DEX。ADR-035）', () => {
+  it('初期は会心率 5%・会心ダメージ ×1.5。DEX 1 点ごとに会心率 +0.5%・会心ダメージ +0.015', () => {
+    const base = computeModifiers(baseStats());
+    expect(base.critRate).toBe(CRIT.baseRate);
+    expect(base.critDamage).toBe(CRIT.baseDamage);
+    const m = computeModifiers(withStat('dex', 20));
+    expect(m.critRate).toBeCloseTo(0.05 + 0.005 * 20, 9);
+    expect(m.critDamage).toBeCloseTo(1.5 + 0.015 * 20, 9);
+  });
+  it('DEX 以外のステータスは会心に効かない', () => {
+    for (const id of STAT_IDS) {
+      if (id === 'dex') continue;
+      const m = computeModifiers(withStat(id, 30));
+      expect(m.critRate, id).toBe(CRIT.baseRate);
+      expect(m.critDamage, id).toBe(CRIT.baseDamage);
+    }
+  });
+  it('単調に伸び、上限（会心率 maxRate）を超えない。逓減も効く', () => {
+    let prev = computeModifiers(withStat('dex', 0));
+    for (let pts = 1; pts <= 200; pts++) {
+      const m = computeModifiers(withStat('dex', pts));
+      expect(m.critRate).toBeGreaterThanOrEqual(prev.critRate);
+      expect(m.critDamage).toBeGreaterThan(prev.critDamage);
+      expect(m.critRate).toBeLessThanOrEqual(CRIT.maxRate);
+      prev = m;
+    }
+    // 30 点を超えた分は効き半分
+    const a = computeModifiers(withStat('dex', 31)).critDamage - computeModifiers(withStat('dex', 30)).critDamage;
+    const b = computeModifiers(withStat('dex', 30)).critDamage - computeModifiers(withStat('dex', 29)).critDamage;
+    expect(a).toBeCloseTo(b / 2, 9);
+  });
+});
+
 describe('画面の説明', () => {
   it('ステータスごとの効果の文章に、集計した数値が入る', () => {
     const m = computeModifiers({ ...baseStats(), str: STAT_BASE + 12, dex: STAT_BASE + 20, vit: STAT_BASE + 10 });
     expect(describeStat('str', m)).toContain('+12%');
     expect(describeStat('dex', m)).toContain('+10%');
     expect(describeStat('dex', m)).toContain('+2f');
+    expect(describeStat('dex', m)).toContain('会心率 15.0%');
+    expect(describeStat('dex', m)).toContain('会心ダメージ ×1.80');
     expect(describeStat('vit', m)).toContain('+20');
     expect(describeStat('vit', m)).toContain('−3%');
     for (const id of STAT_IDS) expect(describeStat(id, BASE_MODIFIERS).length).toBeGreaterThan(5);
