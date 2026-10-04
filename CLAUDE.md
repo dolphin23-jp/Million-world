@@ -33,8 +33,10 @@ node tools/build-character.mjs <manifest.json>   # クリップ結合・リタ�
 python3 tools/clean-texture.py <glb> <tex.png> <out.png>   # 生成テクスチャの描き崩れ（腰まわり）を塗り直す。docs/05 参照
 node tools/clip-arm-height.mjs <glb>   # クリップごとの腕の挙上角（脇の破綻の目安）
 node tools/sfx-check.mjs   # 効果音を書き出して数値検査し、artifacts/audio/*.wav を出す（先に npm run build）
-node tools/motion-sheet.mjs <label> --script '0:{"attackPressed":true}' --end 36   # 手付けクリップの姿勢を 1 枚に並べる（npm run build の後。--cam side|front|back|three|top、--aim x,z、--weapon <装備 id>、--clip <名前> でクリップを直接再生。--mode weights|wsum:<骨>|ybands|normals|wire で重み・服の縁の高さ・法線を見る、--no-outline、--tile 1 で拡大。詳細はファイル先頭）
+node tools/motion-sheet.mjs <label> --script '0:{"attackPressed":true}' --end 36   # 手付けクリップの姿勢を 1 枚に並べる（npm run build の後。--cam side|front|back|three|top、--aim x,z、--weapon <装備 id>、--clip <名前> でクリップを直接再生。--mode weights|wsum:<骨>|ybands|normals|wire で重み・服の縁の高さ・法線を見る、--no-outline、--tile 1 で拡大、--track grip|hands|handR|handL|tip で握りなどを追尾して拡大（--dist 0.7〜1.3）。詳細はファイル先頭）
 node tools/motion-check.mjs <clip> | --stats | --trace <clip>   # 手付けクリップの数値検査: 骨の床からの高さ・剣先の速さ / 全クリップの焼き込み統計 / フレームごとの腕・手首
+node tools/grip-check.mjs [--weapon greatsword] [--worst] [--check] [クリップ名 …]   # 両手が柄を握れているか（手のひらの中心が柄の軸の上か・握りの向きが合うか）を実際の骨でフレームごとに測る。握り・リグ・両手持ちの IK を触ったら（先に npm run build。ADR-023）
+node tools/measure-hand-axes.mjs <glb>   # 両手のメッシュの座標系（指・親指側・手の甲側）を頂点から測る（HERO.handFrames の元。手のメッシュを替えたとき）
 node tools/waist-stress.mjs [--check] [--worst N]   # 全クリップで胴（腰・胸）の変形の崩れ度（辺の伸び・断面・ひねり）を three.js のスキニングで測る。--check でしきい値超過なら終了コード 2。骨・重みを触ったら必ず（先に npm run build）
 node tools/measure-joint-centers.mjs <glb>   # 骨がメッシュの断面の中心を通っているかを測る（補正済みなら差が ±0.1cm）
 node tools/recenter-skeleton.mjs <in.glb> <mid.glb> && node tools/reskin-torso.mjs <mid.glb> <out.glb>   # 骨を体の中心へ寄せる → 胴の重みを作り直す（ADR-022。補正前の資産にかける。hero.glb の生成の手順は ADR-022）
