@@ -1094,7 +1094,22 @@ try {
   await page.locator('.menu-tab').nth(2).click();
   await sleep(150);
   await page.screenshot({ path: 'artifacts/shot-moves.png' });
+  // 段階（敵の色違い。ADR-036）: 何もクリアしていないので段階 1 だけ。2 以降は「？？？」で、選べない
   await page.locator('.menu-tab').nth(3).click();
+  await sleep(150);
+  await page.screenshot({ path: 'artifacts/shot-menu-tier.png' });
+  const tierTab = await page.evaluate(() => ({
+    cards: document.querySelectorAll('.tr-card').length,
+    locked: document.querySelectorAll('.tr-card.locked').length,
+    selected: document.querySelectorAll('.tr-card.selected').length,
+    picks: [...document.querySelectorAll('.tr-pick')].map((b) => b.disabled || b.hidden),
+  }));
+  console.log(`[tier-tab] ${JSON.stringify(tierTab)}`);
+  if (tierTab.cards !== 4 || tierTab.locked !== 3 || tierTab.selected !== 1 || tierTab.picks.some((x) => !x)) {
+    console.error('[tier-tab] 段階のタブが想定どおりでない（4 枚・解放済み 1・選択中 1・押せるボタンなし）');
+    process.exitCode = 3;
+  }
+  await page.locator('.menu-tab').nth(4).click();
   await sleep(150);
   await page.screenshot({ path: 'artifacts/shot-menu-settings.png' });
   await page.click('.menu-close');
@@ -1110,6 +1125,41 @@ try {
     g.growth.reset();
     g.applyGrowth(); // private だが実行時は呼べる（後の撮影シーンに振り分けを持ち越さない）
   });
+
+  // 敵の段階（色違いの強化版。ADR-036）: 種類 × 段階の一覧。段が上がるほど色が替わり（紅・蒼・黒）ひと回り大きくなる。小型 4 種と大型 2 種を 2 枚に分けて撮る
+  const tierSheet = async (kinds, file, xs, zs) => {
+    const info = await page.evaluate(
+      ({ solo, kinds, xs, zs }) => {
+        const g = window.__mw.game;
+        g.restart({ ...solo, waves: [[]], maxAttackers: 0 });
+        g.player.body.x = 0;
+        g.player.body.z = 0;
+        g.player.yaw = 0;
+        g.cam.yaw = Math.PI;
+        g.damageNumbers.clear();
+        const rows = [];
+        kinds.forEach((kind, ki) => {
+          for (let tier = 1; tier <= 4; tier++) {
+            const e = g.spawnEnemy(kind, xs[tier - 1], zs[ki], tier);
+            rows.push({ kind, tier, name: e.def.name, hp: e.health.max, tierDef: e.def.tier ?? 1 });
+          }
+        });
+        g.renderNow(20);
+        return rows;
+      },
+      { solo: SOLO, kinds, xs, zs },
+    );
+    await sleep(150);
+    await page.screenshot({ path: file });
+    return info;
+  };
+  const small = await tierSheet(['imp', 'boar', 'lantern', 'bat'], 'artifacts/shot-tiers-small.png', [-4.5, -1.5, 1.5, 4.5], [4.5, 7.5, 10.5, 13.5]);
+  const large = await tierSheet(['ogre', 'boss'], 'artifacts/shot-tiers-large.png', [-8, -3, 3, 8], [8, 17]);
+  console.log(`[tiers] ${small.concat(large).map((r) => `${r.name}:${r.hp}`).join(' ')}`);
+  if (small.concat(large).some((r, i) => r.tierDef !== (i % 4) + 1) || small.concat(large).length !== 24) {
+    console.error('[tiers] 段階ごとの敵が出ていない（名前・段階）');
+    process.exitCode = 3;
+  }
 
   // 12〜13. リザルト: 勝ち（敵を倒しきる）と負け（プレイヤーを倒す）。CSS アニメはループを止めると進まないので、止めて撮る
   await page.addStyleTag({ content: '*, *::before, *::after { animation: none !important; }' });
@@ -1131,6 +1181,38 @@ try {
   }, SOLO);
   await sleep(1400);
   await page.screenshot({ path: 'artifacts/shot-result-win.png' });
+  // 勝つと次の段階が解放され、リザルトに「次の段階が解放されました」と「次の段階へ」が出る。押すと段階 2 の敵で最初から始まる（ADR-036）
+  const win = await page.evaluate(() => {
+    const g = window.__mw.game;
+    return {
+      cleared: g.progress.cleared,
+      unlocked: g.progress.unlocked,
+      note: document.querySelector('.result-unlock')?.textContent ?? '',
+      noteHidden: document.querySelector('.result-unlock')?.classList.contains('hidden') ?? true,
+      nextHidden: document.getElementById('result-next')?.classList.contains('hidden') ?? true,
+      nextText: document.getElementById('result-next')?.textContent ?? '',
+      tierText: document.querySelector('.result-tier')?.textContent ?? '',
+      saved: JSON.parse(localStorage.getItem('mw.save') ?? 'null')?.progress ?? null,
+    };
+  });
+  console.log(`[tier-win] ${JSON.stringify(win)}`);
+  if (win.cleared !== 1 || win.unlocked !== 2 || win.noteHidden || win.nextHidden || !win.nextText.includes('弐') || win.saved?.cleared !== 1) {
+    console.error('[tier-win] 勝って次の段階が解放され、リザルトに「次の段階へ」が出て、セーブされているはず');
+    process.exitCode = 3;
+  }
+  await page.evaluate(() => document.getElementById('result-next')?.classList.add('armed'));
+  await page.dispatchEvent('#result-next', 'pointerdown');
+  const next = await page.evaluate(() => {
+    const g = window.__mw.game;
+    g.stepNow(2);
+    g.renderNow(3);
+    return { tier: g.progress.tier, encTier: g.encounter.tier, enemyTier: g.enemies[0]?.enemy.def.tier ?? 1, enemyName: g.enemies[0]?.enemy.def.name ?? '', badge: document.querySelector('.tier-badge')?.textContent ?? '' };
+  });
+  console.log(`[tier-next] ${JSON.stringify(next)}`);
+  if (next.tier !== 2 || next.encTier !== 2) {
+    console.error('[tier-next] 「次の段階へ」で段階 2 の戦闘が始まっていない');
+    process.exitCode = 3;
+  }
 
   await page.evaluate((solo) => {
     const g = window.__mw.game;
@@ -1142,6 +1224,45 @@ try {
   }, SOLO);
   await sleep(1400);
   await page.screenshot({ path: 'artifacts/shot-result-lose.png' });
+
+  // 開始画面の段階の選択（ADR-036）: 段階 2 までクリア済みのセーブ → 段階 3 まで選べて、4 は「？？？」。3 を選ぶとセーブされ、始めると段階 3 の敵が出る
+  {
+    const p2 = await browser.newPage({ viewport: { width: 1194, height: 834 }, deviceScaleFactor: 1 });
+    p2.on('console', (m) => logs.push(`[${m.type()}] ${m.text()}`));
+    p2.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}`));
+    await p2.addInitScript(() => {
+      localStorage.setItem('mw.save', JSON.stringify({ version: 2, level: 12, xp: 0, statPoints: 0, skillPoints: 0, stats: { str: 5, dex: 5, agi: 5, int: 5, vit: 5 }, skills: {}, selected: {}, progress: { cleared: 2, tier: 2 } }));
+    });
+    await p2.goto(`http://127.0.0.1:${port}${BASE}?adaptive=0`, { waitUntil: 'load' });
+    await p2.waitForFunction(() => Boolean(window.__mw?.game?.ready), null, { timeout: 60000 });
+    await sleep(800);
+    const chips = await p2.evaluate(() => [...document.querySelectorAll('.tier-chip')].map((c) => ({ tier: c.dataset.tier, text: c.textContent, locked: c.classList.contains('locked'), selected: c.classList.contains('selected') })));
+    console.log(`[tier-start] ${JSON.stringify(chips)}`);
+    if (chips.length !== 4 || chips.map((c) => c.locked).join() !== 'false,false,false,true' || chips[1]?.selected !== true) {
+      console.error('[tier-start] 開始画面の段階: 4 つ・4 つ目だけ未解放・保存した段階 2 が選ばれているはず');
+      process.exitCode = 3;
+    }
+    await p2.screenshot({ path: 'artifacts/shot-start-tier.png' });
+    await p2.dispatchEvent('.tier-chip[data-tier="3"]', 'pointerdown');
+    await p2.dispatchEvent('.tier-chip[data-tier="4"]', 'pointerdown'); // 未解放: 何も起きない
+    const picked = await p2.evaluate(() => ({ tier: window.__mw.game.progress.tier, saved: JSON.parse(localStorage.getItem('mw.save') ?? 'null')?.progress ?? null }));
+    await p2.dispatchEvent('#start-overlay', 'pointerdown');
+    await sleep(600);
+    const started = await p2.evaluate(() => {
+      const g = window.__mw.game;
+      g.loop.stop();
+      g.stepNow(3);
+      return { encTier: g.encounter.tier, enemy: g.enemies[0]?.enemy.def.name ?? null, badge: document.querySelector('.tier-badge')?.textContent ?? '' };
+    });
+    console.log(`[tier-start] 選んだ ${JSON.stringify(picked)} / 始めた ${JSON.stringify(started)}`);
+    if (picked.tier !== 3 || picked.saved?.tier !== 3 || picked.saved?.cleared !== 2 || started.encTier !== 3 || started.enemy !== '蒼の子鬼') {
+      console.error('[tier-start] 段階 3 を選んで始めると、段階 3 の敵（蒼の子鬼）の戦闘が始まり、選択がセーブされているはず');
+      process.exitCode = 3;
+    }
+    await p2.evaluate(() => window.__mw.game.renderNow(10));
+    await p2.screenshot({ path: 'artifacts/shot-start-tier-fight.png' });
+    await p2.close();
+  }
 
   const errors = logs.filter((l) => l.startsWith('[error]') || l.startsWith('[pageerror]'));
   console.log(logs.join('\n'));

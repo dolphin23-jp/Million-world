@@ -38,6 +38,8 @@ export interface Projectile {
   damage: number;
   knockback: number;
   hitStop: number;
+  /** 弾き返したときのダメージ（弾のデータの値に、撃った敵の段階の倍率を掛けたもの。ADR-036） */
+  reflectDamage: number;
   /** 撃たれてから進んだ sim フレーム、寿命（フレーム） */
   age: number;
   lifetime: number;
@@ -67,6 +69,7 @@ export class ProjectileSystem {
         damage: 0,
         knockback: 0,
         hitStop: 0,
+        reflectDamage: 0,
         age: 0,
         lifetime: 0,
         reflectSerial: 0,
@@ -82,8 +85,11 @@ export class ProjectileSystem {
     return n;
   }
 
-  /** 弾を撃つ。(x, z) = 銃口、(dirX, dirZ) = 単位ベクトル。空きが無ければ一番古い弾を消して使う */
-  spawn(def: ProjectileDef, ownerId: number, x: number, z: number, dirX: number, dirZ: number): Projectile {
+  /**
+   * 弾を撃つ。(x, z) = 銃口、(dirX, dirZ) = 単位ベクトル。空きが無ければ一番古い弾を消して使う。
+   * damageScale / reflectScale = 撃った敵の段階の倍率（ダメージ・弾き返したときのダメージ。ADR-036。省略 = 等倍）
+   */
+  spawn(def: ProjectileDef, ownerId: number, x: number, z: number, dirX: number, dirZ: number, damageScale = 1, reflectScale = 1): Projectile {
     let slot: Projectile | null = null;
     let oldest: Projectile = this.pool[0]!;
     for (const p of this.pool) {
@@ -103,9 +109,10 @@ export class ProjectileSystem {
     p.dirX = dirX;
     p.dirZ = dirZ;
     p.speed = def.speed;
-    p.damage = def.damage;
+    p.damage = damageScale === 1 ? def.damage : Math.max(1, Math.round(def.damage * damageScale));
     p.knockback = def.knockback;
     p.hitStop = def.hitStop;
+    p.reflectDamage = reflectScale === 1 ? def.reflect.damage : Math.round(def.reflect.damage * reflectScale);
     p.age = 0;
     p.lifetime = def.lifetimeFrames;
     p.reflectSerial = 0;
@@ -158,7 +165,7 @@ export function reflect(p: Projectile, dirX: number, dirZ: number): void {
   p.dirX = dirX;
   p.dirZ = dirZ;
   p.speed = p.def.speed * r.speedScale;
-  p.damage = r.damage;
+  p.damage = p.reflectDamage;
   p.knockback = r.knockback;
   p.hitStop = r.hitStop;
   p.age = 0;
@@ -210,6 +217,9 @@ export interface ShotSpec {
   /** 本数と扇の広がり（count 1 = 1 本。spread は fanOffset の約束） */
   count: number;
   spread: number;
+  /** 弾のダメージ・弾き返したときのダメージの倍率（敵の段階。ADR-036。省略 = 等倍） */
+  damageScale?: number;
+  reflectScale?: number;
 }
 
 /**
@@ -218,7 +228,9 @@ export interface ShotSpec {
  */
 export function spawnShot(system: ProjectileSystem, ownerId: number, cx: number, cz: number, shot: ShotSpec): Projectile {
   const def = PROJECTILES[shot.projectile];
-  if (shot.count <= 1) return system.spawn(def, ownerId, shot.x, shot.z, shot.dirX, shot.dirZ);
+  const ds = shot.damageScale ?? 1;
+  const rs = shot.reflectScale ?? 1;
+  if (shot.count <= 1) return system.spawn(def, ownerId, shot.x, shot.z, shot.dirX, shot.dirZ, ds, rs);
   const reach = Math.hypot(shot.x - cx, shot.z - cz);
   const yaw = Math.atan2(shot.dirX, shot.dirZ);
   let last: Projectile | null = null;
@@ -226,7 +238,7 @@ export function spawnShot(system: ProjectileSystem, ownerId: number, cx: number,
     const a = yaw + fanOffset(i, shot.count, shot.spread);
     const dx = Math.sin(a);
     const dz = Math.cos(a);
-    last = system.spawn(def, ownerId, cx + dx * reach, cz + dz * reach, dx, dz);
+    last = system.spawn(def, ownerId, cx + dx * reach, cz + dz * reach, dx, dz, ds, rs);
   }
   return last!;
 }

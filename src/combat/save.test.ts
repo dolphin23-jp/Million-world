@@ -4,6 +4,7 @@ import { Growth } from './growth';
 import { totalXpTo } from './data/growth';
 import { SkillBook } from './skills';
 import { SKILL_ORDER } from './data/skills';
+import { Progress } from './progress';
 
 function sample(): Growth {
   const g = new Growth();
@@ -66,5 +67,34 @@ describe('セーブデータ', () => {
     b.restoreSelection(parseSave({ version: SAVE_VERSION, selected: sel })!.selected);
     expect(b.selectedFor('sword')!.id).toBe('tatsumaki');
     expect(b.selectedFor('greatsword')!.id).toBe('houzan');
+  });
+});
+
+describe('挑戦の進み具合（版 2。ADR-036）', () => {
+  it('版は 2。進み具合（クリアした段階・選んでいる段階）が往復する', () => {
+    expect(SAVE_VERSION).toBe(2);
+    const prog = new Progress({ cleared: 2, tier: 3 });
+    const data = parseSave(JSON.parse(JSON.stringify(makeSave(new Growth(), {}, prog))))!;
+    expect(data.progress).toEqual({ cleared: 2, tier: 3 });
+    expect(new Progress(data.progress).toSnapshot()).toEqual(prog.toSnapshot());
+  });
+  it('makeSave に進み具合を渡さなければ、何もクリアしていない扱い', () => {
+    expect(makeSave(new Growth(), {}).progress).toEqual({ cleared: 0, tier: 1 });
+  });
+  it('版 1 のセーブは、成長をそのまま引き継ぎ、進み具合は初期（何もクリアしていない）に移行する', () => {
+    const v1 = { version: 1, level: 5, xp: 10, statPoints: 6, skillPoints: 3, stats: { str: 7, dex: 5, agi: 5, int: 5, vit: 5 }, skills: { yotsuba: 2 }, selected: { sword: 'samidare' } };
+    const d = parseSave(v1)!;
+    expect(d).not.toBeNull();
+    expect(d.version).toBe(SAVE_VERSION);
+    expect(d.level).toBe(5);
+    expect(d.stats.str).toBe(7);
+    expect(d.selected).toEqual({ sword: 'samidare' });
+    expect(d.progress).toEqual({ cleared: 0, tier: 1 });
+  });
+  it('進み具合が壊れていても、読める範囲に丸める（解放していない段階を選んでいたら戻す）', () => {
+    expect(parseSave({ version: 2, progress: 'x' })!.progress).toEqual({ cleared: 0, tier: 1 });
+    expect(parseSave({ version: 2, progress: { cleared: 1, tier: 4 } })!.progress).toEqual({ cleared: 1, tier: 2 });
+    expect(parseSave({ version: 2, progress: { cleared: 'a', tier: null } })!.progress).toEqual({ cleared: 0, tier: 1 });
+    expect(parseSave({ version: 2 })!.progress).toEqual({ cleared: 0, tier: 1 });
   });
 });

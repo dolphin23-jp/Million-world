@@ -41,6 +41,9 @@ export interface Shot {
   /** 撃つ本数と扇の広がり（rad。ADR-029。通常は 1 本・広がり 0）。i 本目の向きは fanOffset(i, count, spread) だけ中心の向きから回した向き */
   count: number;
   spread: number;
+  /** 弾のダメージ・弾き返したときのダメージの倍率（敵の段階。ADR-036。通常は 1） */
+  damageScale: number;
+  reflectScale: number;
 }
 
 /** 複数の技を持つ敵が、いまの段階・距離で選べる技か */
@@ -84,7 +87,7 @@ export class Enemy {
   attackOriginZ = 0;
   /** 飛び道具を撃つたびに増える（Game が弾を作るため）と、直近の弾の出どころ */
   fireSerial = 0;
-  readonly shot: Shot = { projectile: 'wisp', x: 0, z: 0, dirX: 0, dirZ: 1, count: 1, spread: 0 };
+  readonly shot: Shot = { projectile: 'wisp', x: 0, z: 0, dirX: 0, dirZ: 1, count: 1, spread: 0, damageScale: 1, reflectScale: 1 };
   /** 段階（ボス。ADR-029）が上がるたびに増える（Game が演出を起こすため） */
   phaseSerial = 0;
   /** 召喚（ボス）の判定が出るたびに増える（Game が手下を出すため）と、その内容 */
@@ -434,6 +437,8 @@ export class Enemy {
     s.z = this.body.z + this.lungeDirZ * reach;
     s.count = atk.projectileCount ?? 1;
     s.spread = atk.projectileSpread ?? 0;
+    s.damageScale = atk.projectileDamageScale ?? 1;
+    s.reflectScale = atk.projectileReflectScale ?? 1;
     this.fireSerial++;
   }
 

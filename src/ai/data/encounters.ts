@@ -29,6 +29,8 @@ export interface EncounterDef {
    * 群れの小さな敵は重みが小さく、予算の中で数体が同時に襲える（ADR-028）
    */
   maxAttackers: number;
+  /** 敵の段階（M6-4。ADR-036）。省略 = 1（並）。2 以上だと、出る敵が色違いの強化版（enemyDef(type, tier)）になる */
+  tier?: number;
 }
 
 export const DEMO_ENCOUNTER: EncounterDef = {
@@ -76,6 +78,11 @@ export const DEMO_ENCOUNTER: EncounterDef = {
   defeatDelayFrames: 150,
   maxAttackers: 2,
 };
+
+/** 段階ごとの構成（ウェーブの並びは同じで、敵が強化版になる。ADR-036） */
+export function encounterForTier(tier: number): EncounterDef {
+  return { ...DEMO_ENCOUNTER, tier: Math.max(1, Math.round(tier)) };
+}
 
 /** 評価（上から順に、両方の条件を満たす最初のランク。どれも満たさなければ C）。時間は秒、ダメージは被ダメージの合計 */
 export const RANKS = [

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_PROJECTILES, ProjectileSystem, end, reflect, segmentHitsCircle } from './projectile';
+import { MAX_PROJECTILES, ProjectileSystem, end, reflect, segmentHitsCircle, spawnShot } from './projectile';
 import { PROJECTILES } from './data/projectiles';
 
 const DT = 1 / 60;
@@ -132,5 +132,40 @@ describe('線分と円の判定', () => {
   it('長さ 0 の線分（撃った瞬間）は点として調べる', () => {
     expect(segmentHitsCircle(0.5, 0, 0.5, 0, c, 0.3)).toBe(true);
     expect(segmentHitsCircle(0.8, 0, 0.8, 0, c, 0.3)).toBe(false);
+  });
+});
+
+describe('弾のダメージの倍率（敵の段階。ADR-036）', () => {
+  it('spawn の倍率で、弾のダメージ・弾き返したときのダメージが変わる。省略は等倍', () => {
+    const sys = new ProjectileSystem();
+    const plain = sys.spawn(WISP, 1, 0, 5, 0, -1);
+    expect(plain.damage).toBe(WISP.damage);
+    expect(plain.reflectDamage).toBe(WISP.reflect.damage);
+    const strong = sys.spawn(WISP, 1, 0, 5, 0, -1, 1.65, 3);
+    expect(strong.damage).toBe(Math.round(WISP.damage * 1.65));
+    expect(strong.reflectDamage).toBe(Math.round(WISP.reflect.damage * 3));
+    // 弱い倍率でもダメージは 1 以上（0 にならない）
+    expect(sys.spawn(WISP, 1, 0, 5, 0, -1, 0.001).damage).toBe(1);
+  });
+  it('弾き返すと、撃った敵の段階のダメージで飛んでいく（弾のデータの値ではなく）', () => {
+    const sys = new ProjectileSystem();
+    const p = sys.spawn(WISP, 1, 0, 5, 0, -1, 1.3, 1.8);
+    reflect(p, 0, 1);
+    expect(p.team).toBe('player');
+    expect(p.damage).toBe(Math.round(WISP.reflect.damage * 1.8));
+  });
+  it('spawnShot: 扇の弾すべてに同じ倍率が付く（ShotSpec の damageScale / reflectScale）', () => {
+    const sys = new ProjectileSystem();
+    spawnShot(sys, 3, 0, 0, { projectile: 'wisp', x: 0, z: 0.8, dirX: 0, dirZ: 1, count: 3, spread: 0.6, damageScale: 2, reflectScale: 2 });
+    const alive = sys.pool.filter((q) => q.alive);
+    expect(alive).toHaveLength(3);
+    for (const q of alive) {
+      expect(q.damage).toBe(WISP.damage * 2);
+      expect(q.reflectDamage).toBe(WISP.reflect.damage * 2);
+    }
+    // 倍率を省略した ShotSpec は等倍
+    const sys2 = new ProjectileSystem();
+    spawnShot(sys2, 3, 0, 0, { projectile: 'wisp', x: 0, z: 0.8, dirX: 0, dirZ: 1, count: 1, spread: 0 });
+    expect(sys2.pool.find((q) => q.alive)!.damage).toBe(WISP.damage);
   });
 });

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Game } from './game/game';
 import { installGestureGuards } from './platform/safari';
 import { DEFAULT_LOADOUT, LOADOUTS, LOADOUT_ORDER, isLoadoutId, type LoadoutId } from './combat/data/loadouts';
+import { TIERS } from './ai/data/tiers';
 
 /** 選んだ装備を覚えておく場所。ストレージが使えない（プライベートブラウズ等）ときは覚えないだけ（ゲームは動く） */
 const LOADOUT_KEY = 'mw.loadout';
@@ -78,6 +79,14 @@ function boot(): void {
         if (!isLoadoutId(id)) return;
         game.setLoadout(id);
         saveLoadout(id);
+      },
+    );
+    // 敵の段階（色違いの強化版）。解放済みの段階だけ選べる（クリアすると次が解放される。選んだ段階はセーブされる。ADR-036）
+    game.hud.setupTierPicker(
+      TIERS.map((t) => ({ tier: t.tier, name: t.name, detail: `推奨 Lv ${t.recommendedLevel}`, unlocked: t.tier <= game.progress.unlocked })),
+      game.progress.tier,
+      (tier) => {
+        game.setTier(tier);
       },
     );
     // 読込完了まではタップしても始まらないが、タップ自体は受け付ける（音声解放に使う予定）

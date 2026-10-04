@@ -456,6 +456,24 @@ body {
 #lv-box.up .lv-num {
   animation: lv-up 900ms ease-out;
 }
+/* 敵の段階の印（レベルの下。段 2 以上は色違いの敵と戦っている。ADR-036）。段ごとの色は data-tier */
+.tier-badge {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 1px 8px 2px;
+  border-radius: 999px;
+  font: 800 11px var(--ui-font);
+  letter-spacing: 0.1em;
+  color: #fff;
+  background: rgba(14, 12, 30, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+.tier-badge[data-tier='2'], .tier-chip[data-tier='2'] { --tier-color: #ff6a5a; }
+.tier-badge[data-tier='3'], .tier-chip[data-tier='3'] { --tier-color: #5ab4ff; }
+.tier-badge[data-tier='4'], .tier-chip[data-tier='4'] { --tier-color: #c9a6ff; }
+.tier-badge[data-tier='1'], .tier-chip[data-tier='1'] { --tier-color: #e8e8f0; }
+.tier-badge { border-color: var(--tier-color); color: var(--tier-color); }
 @keyframes lv-up {
   0% { transform: scale(1.7); color: #fff; text-shadow: 0 0 14px #ffe38a; }
   100% { transform: scale(1); }
@@ -927,6 +945,55 @@ body {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
+/* リザルトの段階の名前・解放のお知らせ・ボタンの並び（ADR-036） */
+.result-tier {
+  margin-top: 2px;
+  font: 800 14px var(--ui-font);
+  letter-spacing: 0.18em;
+  color: var(--tier-color, #e8e8f0);
+}
+.result-tier[data-tier='2'] { --tier-color: #ff8a7a; }
+.result-tier[data-tier='3'] { --tier-color: #7cc4ff; }
+.result-tier[data-tier='4'] { --tier-color: #d3b8ff; }
+.result-unlock {
+  margin: -6px auto 14px;
+  font: 800 15px var(--ui-font);
+  letter-spacing: 0.1em;
+  color: #fff3b0;
+  text-shadow: 0 0 12px rgba(255, 210, 90, 0.8);
+}
+.result-unlock.hidden {
+  display: none;
+}
+.result-buttons {
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+}
+#result-next {
+  font: inherit;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  padding: 12px 26px;
+  border-radius: 999px;
+  border: 2px solid var(--tier-color, #8fe9ff);
+  background: rgba(143, 233, 255, 0.14);
+  color: #fff;
+  touch-action: none;
+  opacity: 0.35;
+  pointer-events: none;
+}
+#result-next.hidden {
+  display: none;
+}
+#result-next.armed {
+  opacity: 1;
+  pointer-events: auto;
+}
+#result-next:active {
+  background: rgba(143, 233, 255, 0.45);
+}
 #result-retry {
   font: inherit;
   font-size: 19px;
@@ -1024,6 +1091,47 @@ body {
   background: rgba(255, 211, 106, 0.2);
   color: #fff;
   box-shadow: 0 0 16px rgba(255, 211, 106, 0.35);
+}
+/* 開始画面の段階の選択（敵の色違い。解放していない段階は暗く、押せない。ADR-036） */
+#tier-pick {
+  display: flex;
+  gap: 10px;
+  margin-top: -14px;
+}
+.tier-chip {
+  -webkit-appearance: none;
+  appearance: none;
+  font: inherit;
+  min-width: 96px;
+  padding: 8px 12px 7px;
+  border-radius: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  background: rgba(20, 24, 52, 0.55);
+  color: rgba(255, 255, 255, 0.75);
+  text-align: center;
+  touch-action: none;
+}
+.tier-chip b {
+  display: block;
+  font-size: 15px;
+  letter-spacing: 0.08em;
+}
+.tier-chip small {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  color: rgba(255, 255, 255, 0.55);
+}
+.tier-chip.selected {
+  border-color: var(--tier-color, var(--accent));
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  box-shadow: 0 0 14px var(--tier-color, rgba(255, 211, 106, 0.35));
+}
+.tier-chip.locked {
+  opacity: 0.45;
+  pointer-events: none;
 }
 .start-hint {
   font-size: 18px;
@@ -1365,6 +1473,59 @@ body {
   display: flex;
   justify-content: flex-end;
   padding: 14px 0 4px;
+}
+/* 段階（敵の色違い。ADR-036） */
+.tr-note {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.7);
+  line-height: 1.5;
+}
+.tr-card {
+  --tier-color: #e8e8f0;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+.tr-card[data-tier='2'] { --tier-color: #ff6a5a; }
+.tr-card[data-tier='3'] { --tier-color: #5ab4ff; }
+.tr-card[data-tier='4'] { --tier-color: #c9a6ff; }
+.tr-card.selected {
+  border-color: var(--tier-color);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--tier-color) 45%, transparent);
+}
+.tr-card.locked {
+  opacity: 0.5;
+}
+.tr-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.tr-title {
+  font-size: 17px;
+  color: var(--tier-color);
+}
+.tr-state {
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.6);
+}
+.tr-state.cleared {
+  color: #9fffc0;
+}
+.tr-state.current {
+  color: var(--accent);
+}
+.tr-stat {
+  margin: 6px 0 8px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.78);
+}
+.tr-pick[disabled] {
+  opacity: 0.4;
 }
 /* ステータス */
 .st-head {

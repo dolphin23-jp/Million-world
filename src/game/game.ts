@@ -32,6 +32,9 @@ import { AudioBus } from '../platform/audio';
 import { Sfx, distanceGain } from '../audio/sfx';
 import type { SfxName } from '../audio/data/sfx';
 import { ENEMIES, type EnemyDef, type EnemyId } from '../ai/data/enemies';
+import { enemyDef } from '../ai/data/enemy-variants';
+import { TIER_MAX, tierDef } from '../ai/data/tiers';
+import { Progress } from '../combat/progress';
 import { EnemyVisual } from './enemy-visual';
 import { TelegraphCircles, TelegraphLanes } from '../render/telegraph';
 import { HitStop } from '../core/hitstop';
@@ -43,7 +46,7 @@ import { EnemyBars } from '../ui/enemy-bars';
 import { LockMarker } from '../ui/lock-marker';
 import { LockOn } from '../combat/lockon-state';
 import { Encounter, spawnPoint, type EncounterEvent } from './encounter';
-import { DEMO_ENCOUNTER, type EncounterDef } from '../ai/data/encounters';
+import { DEMO_ENCOUNTER, encounterForTier, type EncounterDef } from '../ai/data/encounters';
 import type { Hurtbox } from '../combat/hit';
 import { hitFeedback } from '../combat/feedback';
 import { GROUND_IMPACT, HIT_FEEDBACK } from '../combat/data/hit-feedback';
@@ -60,6 +63,7 @@ import { StatusTab } from '../ui/menu/status-tab';
 import { SkillsTab } from '../ui/menu/skills-tab';
 import { MovesTab } from '../ui/menu/moves-tab';
 import { SettingsTab } from '../ui/menu/settings-tab';
+import { TierTab } from '../ui/menu/tier-tab';
 import { buildGuide, type GuideContext } from '../combat/move-guide';
 import { buildMoveTree } from '../combat/move-tree';
 import { onVisibility } from '../platform/safari';
@@ -176,6 +180,8 @@ export class Game {
   /** 戦闘の進行（ウェーブ・勝敗・リザルトの集計）。再戦のたびに作り直す */
   encounter: Encounter = new Encounter(DEMO_ENCOUNTER);
   private encounterStarted = false;
+  /** start()（開始画面のタップ）を通ったか。通るまでは、タブの表裏でループを動かさない */
+  private started = false;
   private readonly sandbox: boolean;
   /** 音声の土台（解放は開始画面のタップ。platform/audio.ts）と、効果音の再生 */
   readonly audio = new AudioBus();
@@ -211,6 +217,8 @@ export class Game {
   private readonly summonedIds = new Set<number>();
   /** 成長（経験値・レベル・ポイント・ステータス。ADR-033）。セーブから読み、変わるたびに保存する。ステージ・闘技場に依存しない（経験値は撃破の合図から受け取る） */
   readonly growth: Growth;
+  /** 挑戦の進み具合（クリアした敵の段階・選んでいる段階。ADR-036）。セーブに入る */
+  readonly progress: Progress;
   /** 成長の表示（HUD）を合わせ終えた Growth.serial と、この挑戦で得た経験値・始めたときのレベル（リザルトに出す） */
   private seenGrowth = -1;
   private xpRun = 0;
@@ -298,6 +306,7 @@ export class Game {
     this.persistEnabled = !this.sandbox;
     const save = this.persistEnabled ? parseSave(readSave()) : null;
     this.growth = new Growth(save ?? undefined);
+    this.progress = new Progress(save?.progress);
     if (save) this.skills.restoreSelection(save.selected);
     this.levelAtRunStart = this.growth.level;
     this.applyGrowth();
@@ -309,6 +318,13 @@ export class Game {
     this.scene.add(this.projectileFx.group);
     this.scene.add(this.swordTrail.mesh);
     this.hud.onRetry(() => {
+      this.sfx.play('ui');
+      this.restart();
+    });
+    // リザルトの「次の段階へ」（クリアして解放された次の段階の敵と戦う）
+    this.hud.onNext(() => {
+      const n = this.progress.next;
+      if (n === null || !this.setTier(n)) return;
       this.sfx.play('ui');
       this.restart();
     });
@@ -360,7 +376,8 @@ export class Game {
     });
     onVisibility((visible) => {
       if (visible) {
-        if (!this.loop.isRunning) this.loop.start();
+        // 開始画面のタップ（start）の前は、タブが表に戻っても動かさない（戦闘が始まってしまうと、開始画面で選んだ敵の段階が効かない。ADR-036）
+        if (this.started && !this.loop.isRunning) this.loop.start();
       } else {
         this.loop.stop();
         this.persist();
@@ -378,6 +395,7 @@ export class Game {
   start(): void {
     if (!this.ready) throw new Error('preload() が終わっていません');
     // 戦闘は開始画面のタップのあとに始める（最初の WAVE のバナーが、タップ待ちのあいだに流れて消えないように）
+    this.started = true;
     if (!this.encounterStarted) this.startEncounter();
     this.loop.start();
   }
@@ -408,11 +426,11 @@ export class Game {
     for (let i = 0; i < count; i++) this.render(1, 1 / 60, false);
   }
 
-  /** 敵を 1 体、(x, z) に出す。プレイヤーの方を向く */
-  spawnEnemy(type: keyof typeof ENEMIES, x: number, z: number): Enemy {
-    const enemy = new Enemy(ENEMIES[type], this.nextEnemyId++, x, z);
+  /** 敵を 1 体、(x, z) に出す。プレイヤーの方を向く。tier = 敵の段階（色違いの強化版。省略 = いまの戦闘の段階。ADR-036） */
+  spawnEnemy(type: keyof typeof ENEMIES, x: number, z: number, tier: number = this.encounter.tier): Enemy {
+    const enemy = new Enemy(enemyDef(type, tier), this.nextEnemyId++, x, z);
     enemy.place(x, z, Math.atan2(this.player.body.x - x, this.player.body.z - z));
-    const visual = new EnemyVisual(type);
+    const visual = new EnemyVisual(type, tierDef(tier).tier);
     this.scene.add(visual.root);
     this.enemies.push({ enemy, visual, seenSerial: enemy.stateSerial, seenFire: enemy.fireSerial, seenImpact: enemy.impactSerial, seenBreak: enemy.breakSerial, seenSummon: enemy.summonSerial, seenPhase: enemy.phaseSerial });
     this.enemySims.push(enemy);
@@ -428,9 +446,10 @@ export class Game {
   }
 
   /** 戦闘を始める（最初のウェーブがすぐ出る）。def を渡すと別の構成で始められる（開発・スクリーンショット用） */
-  private startEncounter(def: EncounterDef = DEMO_ENCOUNTER): void {
+  private startEncounter(def: EncounterDef = encounterForTier(this.progress.tier)): void {
     this.encounterStarted = true;
     this.encounter = new Encounter(def);
+    this.hud.setTier(tierDef(this.encounter.tier));
     this.hud.setPlayerHp(this.player.health.hp, this.player.health.max);
     if (this.sandbox) return; // サンドボックスは敵もウェーブも出さない
     this.applyEncounterEvent(this.encounter.step(0, false));
@@ -442,12 +461,20 @@ export class Game {
       this.spawnWave(ev.wave);
       // ボスのウェーブは「BOSS」（最後のウェーブでもある）
       const boss = (this.encounter.def.waves[ev.wave] ?? []).some((w) => (ENEMIES[w.type] as EnemyDef).boss === true);
-      this.hud.showBanner(boss ? 'BOSS' : ev.last && this.encounter.waveCount > 1 ? 'FINAL WAVE' : `WAVE ${ev.wave + 1}`);
+      const wave = boss ? 'BOSS' : ev.last && this.encounter.waveCount > 1 ? 'FINAL WAVE' : `WAVE ${ev.wave + 1}`;
+      // 色違いの強化版（段階 2 以上）の挑戦では、最初のウェーブのバナーに段階の名前を添える
+      this.hud.showBanner(ev.first && this.encounter.tier > 1 ? `${tierDef(this.encounter.tier).name}  ${wave}` : wave);
       this.sfx.play('wave');
     } else {
       const r = this.encounter.result();
-      if (r) this.hud.showResult(r, { gained: this.xpRun, from: this.levelAtRunStart, to: this.growth.level });
+      // 勝ったら、その段階のクリアを記録して、次の段階を解放する（ADR-036）。リザルトに「次の段階へ」が出る
+      const unlocked = ev.phase === 'victory' ? this.progress.onClear(this.encounter.tier) : null;
+      if (r) {
+        const next = this.progress.next;
+        this.hud.showResult(r, { gained: this.xpRun, from: this.levelAtRunStart, to: this.growth.level }, { tier: tierDef(this.encounter.tier), unlocked: unlocked === null ? null : tierDef(unlocked), next: ev.phase === 'victory' && next !== null ? tierDef(next) : null });
+      }
       this.persist();
+      this.menu.refreshMarks();
       this.sfx.play(ev.phase === 'victory' ? 'victory' : 'defeat');
     }
   }
@@ -532,6 +559,23 @@ export class Game {
     this.menu.addTab(new SkillsTab({ growth: this.growth, book: this.skills, currentFamily: () => this.player.loadout.weapon, onChange }));
     this.menu.addTab(this.movesTab);
     this.menu.addTab(
+      new TierTab({
+        progress: this.progress,
+        level: () => this.growth.level,
+        onSelect: (tier) => {
+          const ok = this.setTier(tier);
+          if (ok) this.sfx.play('ui');
+          return ok;
+        },
+        // 選んだ段階で最初から: メニューを閉じて（戦闘を再開して）、最初のウェーブから
+        onRestart: () => {
+          this.menu.setOpen(false);
+          this.restart();
+          this.sfx.play('ui');
+        },
+      }),
+    );
+    this.menu.addTab(
       new SettingsTab({
         onGuideVisible: (on) => this.moveGuide.setVisible(on),
         onResetProgress: () => this.resetProgress(),
@@ -554,6 +598,7 @@ export class Game {
   /** 「最初から」: 成長・スキルのレベルと選択・セーブを消す（戦闘はそのまま続く） */
   private resetProgress(): void {
     this.growth.reset();
+    this.progress.reset();
     this.skills.clearSelection();
     clearSave();
     this.applyGrowth();
@@ -565,7 +610,18 @@ export class Game {
   /** 成長とスキル欄の選択を保存する（レベルアップ・振り分け・スキルの選択・戦闘の終わり・タブを離れるとき）。できなくても続ける */
   persist(): void {
     if (!this.persistEnabled) return;
-    writeSave(makeSave(this.growth, this.skills.selection()));
+    writeSave(makeSave(this.growth, this.skills.selection(), this.progress));
+  }
+
+  /**
+   * 敵の段階を選ぶ（開始画面・メニュー・リザルトの「次の段階へ」。ADR-036）。解放済みの段階だけ選べる。選べたら true（保存する）。
+   * 戦闘はそのまま続く（選んだ段階で戦い始めるのは restart。開始前なら、そのまま開始時に反映される）
+   */
+  setTier(tier: number): boolean {
+    if (!this.progress.select(tier)) return false;
+    this.persist();
+    this.menu.refresh();
+    return true;
   }
 
   /** 剣が地面を叩いた（AttackDef.impact。地割り・叩き落とし）。敵に当たらなくても、砂ぼこりの輪・ひび割れ・揺れ・ヒットストップ・音を出す */
@@ -792,6 +848,7 @@ export class Game {
     if (!req) return;
     const type = req.type as EnemyId;
     if (!ENEMIES[type]) return;
+    const tier = boss.def.tier ?? 1; // 呼ばれた手下も、ボスと同じ段階の強化版
     let alive = 0;
     for (const e of this.enemySims) if (!e.dead && e.def.id === type) alive++;
     const n = Math.min(req.count, Math.max(0, req.max - alive));
@@ -799,7 +856,7 @@ export class Game {
     summonPoints(boss.body.x, boss.body.z, n, req.radius, boss.summonSerial, this.arena.radius, this.summonBuf);
     for (let i = 0; i < n; i++) {
       const p = this.summonBuf[i]!;
-      this.summonedIds.add(this.spawnEnemy(type, p.x, p.z).id);
+      this.summonedIds.add(this.spawnEnemy(type, p.x, p.z, tier).id);
       this.hitFx.burst(p.x, 1.0, p.z, 0, 0, 0.8, FX_TINT.orb);
     }
     this.sfx.play('orbShot', { gain: 0.8 });
@@ -1080,7 +1137,7 @@ export class Game {
   }
 
   /** 戦闘を最初からやり直す（敵を消してプレイヤーを初期状態へ、ウェーブを 1 波目から）。リザルトの「もう一度」もこれを呼ぶ。def で構成を替えられる（開発用） */
-  restart(def: EncounterDef = DEMO_ENCOUNTER): void {
+  restart(def: EncounterDef = encounterForTier(this.progress.tier)): void {
     for (const { visual } of this.enemies) {
       this.scene.remove(visual.root);
       visual.dispose();

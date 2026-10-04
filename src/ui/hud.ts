@@ -1,7 +1,11 @@
 import type { ResultSummary } from '../game/encounter';
+import type { TierDef } from '../ai/data/tiers';
 
 /** リザルトを出してから「もう一度」を押せるようになるまで（ms）。連打の指で一瞬で再戦しないように */
 const RETRY_ARM_MS = 1100;
+
+/** 段階ごとの色（CSS の .tier-badge / .result-tier と同じ。「次の段階へ」の縁に使う） */
+const TIER_COLORS: Record<number, string> = { 1: '#e8e8f0', 2: '#ff6a5a', 3: '#5ab4ff', 4: '#c9a6ff' };
 
 /** HUD（DOM）。デバッグ表示・開始画面・プレイヤーの HP バー・被弾の画面フラッシュ */
 export class Hud {
@@ -13,6 +17,7 @@ export class Hud {
   private readonly lvBox: HTMLElement;
   private readonly lvNum: HTMLElement;
   private readonly lvFill: HTMLElement;
+  private readonly tierBadge: HTMLElement;
   /** レベル表示の直近の状態（変化があったときだけ DOM を触る） */
   private lvKey = '';
   private readonly mysticFx: HTMLElement;
@@ -38,6 +43,8 @@ export class Hud {
   private readonly resultEl: HTMLElement;
   private readonly retryBtn: HTMLElement;
   private retryCb: (() => void) | null = null;
+  private readonly nextBtn: HTMLElement;
+  private nextCb: (() => void) | null = null;
   private armTimer = 0;
   private lastDebugUpdate = 0;
   private fpsAccum = 0;
@@ -54,6 +61,7 @@ export class Hud {
     this.lvBox = document.getElementById('lv-box')!;
     this.lvNum = this.lvBox.querySelector('.lv-num') as HTMLElement;
     this.lvFill = this.lvBox.querySelector('.lv-fill') as HTMLElement;
+    this.tierBadge = this.lvBox.querySelector('.tier-badge') as HTMLElement;
     this.mysticFx = document.getElementById('mystical-fx')!;
     this.mysticGauge = document.getElementById('mystical-gauge')!;
     this.mysticFill = this.mysticGauge.querySelector('.mystical-fill') as HTMLElement;
@@ -75,10 +83,27 @@ export class Hud {
       e.preventDefault();
       this.retry();
     });
+    // 「次の段階へ」（勝って次の段階が解放されたときだけ出る。ADR-036）
+    this.nextBtn = document.getElementById('result-next')!;
+    this.nextBtn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      if (this.nextBtn.classList.contains('armed')) this.nextCb?.();
+    });
     window.addEventListener('keydown', (e) => {
       if (e.repeat) return;
       if (e.code === 'Enter' || e.code === 'Space') this.retry();
     });
+  }
+
+  /** 「次の段階へ」を押したときに呼ぶものを登録する */
+  onNext(cb: () => void): void {
+    this.nextCb = cb;
+  }
+
+  /** 敵の段階の印（レベルの下）。戦闘を始めるたびに合わせる（ADR-036） */
+  setTier(t: TierDef): void {
+    this.tierBadge.textContent = `${t.mark} ${t.color === '' ? '並' : t.color}`;
+    this.tierBadge.dataset.tier = String(t.tier);
   }
 
   /** 「もう一度」を押したときに呼ぶものを登録する */
@@ -100,8 +125,11 @@ export class Hud {
     this.bannerEl.classList.add('show');
   }
 
-  /** リザルト（勝ち: ランクあり / 負け）。「もう一度」は RETRY_ARM_MS 経ってから押せる。xp = この挑戦で得た経験値とレベルの変化（ADR-033） */
-  showResult(r: ResultSummary, xp?: { gained: number; from: number; to: number }): void {
+  /**
+   * リザルト（勝ち: ランクあり / 負け）。「もう一度」は RETRY_ARM_MS 経ってから押せる。xp = この挑戦で得た経験値とレベルの変化（ADR-033）。
+   * tier = 挑んだ段階・新しく解放された段階（あれば、お知らせを出す）・次へ進める段階（あれば「次の段階へ」を出す）（ADR-036）
+   */
+  showResult(r: ResultSummary, xp?: { gained: number; from: number; to: number }, tier?: { tier: TierDef; unlocked: TierDef | null; next: TierDef | null }): void {
     const el = this.resultEl;
     const win = r.phase === 'victory';
     el.classList.toggle('defeat', !win);
@@ -113,6 +141,16 @@ export class Hud {
     (document.getElementById('r-damage') as HTMLElement).textContent = String(r.damageTaken);
     (document.getElementById('r-hits') as HTMLElement).textContent = `${r.hitsTaken} 回`;
     (document.getElementById('r-parries') as HTMLElement).textContent = `${r.parries} 回`;
+    const tierEl = el.querySelector('.result-tier') as HTMLElement;
+    const unlockEl = el.querySelector('.result-unlock') as HTMLElement;
+    tierEl.textContent = tier ? `段階 ${tier.tier.name}` : '';
+    tierEl.dataset.tier = String(tier?.tier.tier ?? 1);
+    unlockEl.textContent = tier?.unlocked ? `次の段階「${tier.unlocked.name}」が解放されました` : '';
+    unlockEl.classList.toggle('hidden', !tier?.unlocked);
+    this.nextBtn.textContent = tier?.next ? `次の段階へ（${tier.next.name}）` : '次の段階へ';
+    this.nextBtn.style.setProperty('--tier-color', tier?.next ? TIER_COLORS[tier.next.tier] ?? '#8fe9ff' : '#8fe9ff');
+    this.nextBtn.classList.toggle('hidden', !tier?.next);
+    this.nextBtn.classList.remove('armed');
     this.retryBtn.classList.remove('armed');
     el.classList.remove('hidden');
     // アニメーションを頭から
@@ -120,12 +158,16 @@ export class Hud {
     void el.offsetWidth;
     el.style.animation = '';
     window.clearTimeout(this.armTimer);
-    this.armTimer = window.setTimeout(() => this.retryBtn.classList.add('armed'), RETRY_ARM_MS);
+    this.armTimer = window.setTimeout(() => {
+      this.retryBtn.classList.add('armed');
+      this.nextBtn.classList.add('armed');
+    }, RETRY_ARM_MS);
   }
 
   hideResult(): void {
     window.clearTimeout(this.armTimer);
     this.retryBtn.classList.remove('armed');
+    this.nextBtn.classList.remove('armed');
     this.resultEl.classList.add('hidden');
   }
 
@@ -306,6 +348,40 @@ export class Hud {
         onPick(it.id);
       });
       chip.classList.toggle('selected', it.id === current);
+      chips.push(chip);
+      root.appendChild(chip);
+    }
+  }
+
+  /**
+   * 開始画面の「敵の段階」の選択（ADR-036）。items は段階ごとの印・名前・説明・解放済みか。解放していない段階は暗く、押せない。
+   * onPick は選んだ段階（解放済みのもののみ）を受け取る
+   */
+  setupTierPicker(items: readonly { tier: number; name: string; detail: string; unlocked: boolean }[], current: number, onPick: (tier: number) => void): void {
+    const root = document.getElementById('tier-pick');
+    if (!root) return;
+    root.textContent = '';
+    const chips: HTMLElement[] = [];
+    for (const it of items) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'tier-chip';
+      chip.dataset.tier = String(it.tier);
+      const b = document.createElement('b');
+      b.textContent = it.unlocked ? it.name : '？？？';
+      const small = document.createElement('small');
+      small.textContent = it.unlocked ? it.detail : `${it.tier - 1} をクリアで解放`;
+      chip.append(b, small);
+      chip.classList.toggle('locked', !it.unlocked);
+      chip.classList.toggle('selected', it.unlocked && it.tier === current);
+      if (it.unlocked) {
+        chip.addEventListener('pointerdown', (e) => {
+          e.preventDefault();
+          e.stopPropagation(); // 開始画面のタップ（ゲーム開始）にしない
+          for (const c of chips) c.classList.toggle('selected', c === chip);
+          onPick(it.tier);
+        });
+      }
       chips.push(chip);
       root.appendChild(chip);
     }
