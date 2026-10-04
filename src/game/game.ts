@@ -32,12 +32,16 @@ import type { Hurtbox } from '../combat/hit';
 import { hitFeedback } from '../combat/feedback';
 import { GROUND_IMPACT, HIT_FEEDBACK } from '../combat/data/hit-feedback';
 import { GUARD_FEEDBACK, type ParryEffectDef } from '../combat/data/guard';
-import { LOADOUTS, nextLoadout, type LoadoutId } from '../combat/data/loadouts';
+import { DEFAULT_LOADOUT, LOADOUTS, nextLoadout, type LoadoutId } from '../combat/data/loadouts';
 import { FX_TINT } from '../render/hit-fx';
 import type { HitEvent } from '../combat/hit';
 import type { DamageResult } from '../combat/health';
 import { ThirdPersonCamera } from './camera';
 import { Hud } from '../ui/hud';
+import { MoveGuide } from '../ui/move-guide';
+import { MoveList } from '../ui/move-list';
+import { buildGuide, type GuideContext } from '../combat/move-guide';
+import { buildMoveTree } from '../combat/move-tree';
 import { onVisibility } from '../platform/safari';
 import { loadCharacter } from '../character/loader';
 import { HERO } from '../character/data/hero';
@@ -147,6 +151,14 @@ export class Game {
   readonly input = new InputAggregator();
   readonly touch: TouchInput;
   readonly hud: Hud;
+  /** 操作ガイド（下の帯）と技表（ADR-024）。技表を開いているあいだは戦闘を止める */
+  private readonly moveGuide: MoveGuide;
+  private readonly moveList: MoveList;
+  private paused = false;
+  private readonly guideCtx: GuideContext = {
+    state: 'idle', moveset: LOADOUTS[DEFAULT_LOADOUT].moveset, chargeId: LOADOUTS[DEFAULT_LOADOUT].charge, attackId: null, trail: [], frame: 0, cancelFrame: 0, total: 0,
+    queued: false, stick: 'none', locked: false, afterDodge: null, chargeLevel: 0,
+  };
   readonly loop: GameLoop;
   readonly adaptive: AdaptiveResolution;
   private readonly startTime = performance.now();
@@ -163,6 +175,10 @@ export class Game {
     this.cam = new ThirdPersonCamera(this.host.width / this.host.height);
     this.hud = new Hud();
     this.hud.setDebugVisible(opts.debug ?? true);
+    this.moveGuide = new MoveGuide(document.getElementById('move-guide')!);
+    this.moveList = new MoveList();
+    this.moveList.onGuideVisible((on) => this.moveGuide.setVisible(on));
+    this.moveList.onOpen((open) => (this.paused = open));
     this.damageNumbers = new DamageNumbers(document.getElementById('fx-layer')!);
     this.enemyBars = new EnemyBars(document.getElementById('fx-layer')!);
     this.lockMarker = new LockMarker(document.getElementById('fx-layer')!);
@@ -205,6 +221,7 @@ export class Game {
     // --- 入力 ---
     this.touch = new TouchInput();
     this.touch.setEquipLabel(this.player.loadout.name);
+    this.refreshMoveList();
     this.input.add(this.touch);
     this.input.add(new KeyboardInput());
     this.input.add({
@@ -407,8 +424,35 @@ export class Game {
     const before = this.player.loadout.id;
     if (!this.player.equip(id)) return false;
     this.touch.setEquipLabel(LOADOUTS[id].name);
+    this.refreshMoveList();
     if (id !== before) this.sfx.play('equip');
     return true;
+  }
+
+  /** 技表を、いまの装備の技で作り直す */
+  private refreshMoveList(): void {
+    const l = this.player.loadout;
+    this.moveList.setMoves(l.name, buildMoveTree(l.moveset, l.charge));
+  }
+
+  /** 操作ガイドを、いまのプレイヤーの状態から更新する（毎描画フレーム。文脈のオブジェクトは使い回す） */
+  private updateMoveGuide(): void {
+    const p = this.player;
+    const c = this.guideCtx;
+    c.state = p.state;
+    c.moveset = p.loadout.moveset;
+    c.chargeId = p.loadout.charge;
+    c.attackId = p.attack?.id ?? null;
+    c.trail = p.chain;
+    c.frame = p.stateFrame;
+    c.cancelFrame = p.attackFrames?.cancelFrame ?? 0;
+    c.total = p.attackFrames?.total ?? 0;
+    c.queued = p.attackQueued;
+    c.stick = p.stickDir;
+    c.locked = p.locked;
+    c.afterDodge = p.afterDodge;
+    c.chargeLevel = p.chargeLevel;
+    this.moveGuide.update(buildGuide(c));
   }
 
   private step(dt: number): void {
@@ -574,7 +618,7 @@ export class Game {
     const t = (now - this.startTime) / 1000;
     // アニメーションは sim の時間スケール（ヒットストップ）に従う
     // ヒットストップ: sim だけ止める。アニメは sim の時間スケールに従い、カメラ・エフェクト・UI は実時間で進む
-    this.loop.stepper.timeScale = this.hitStop.update(frameDt);
+    this.loop.stepper.timeScale = this.paused ? 0 : this.hitStop.update(frameDt);
     const animDt = frameDt * this.loop.stepper.timeScale;
     this.player.syncVisual(alpha, animDt, frameDt);
     for (const { enemy, visual } of this.enemies) visual.update(enemy, alpha, animDt, frameDt);
@@ -600,6 +644,7 @@ export class Game {
       this.host.height,
     );
     this.hud.setTarget(locked ? { name: locked.def.name, hp: locked.health.hp, max: locked.health.max } : null);
+    this.updateMoveGuide();
     // 実フレーム間隔で解像度を調整する。段が変わるとレンダターゲットを作り直すので、描画の後で行う
     const nextRatio = this.adaptive.update(frameDt * 1000);
     if (nextRatio !== null) this.host.setMaxPixelRatio(nextRatio);

@@ -574,3 +574,301 @@ body {
     opacity: 0.3;
   }
 }
+
+/* ---------- 操作ガイド（src/ui/move-guide.ts）---------- */
+#move-guide {
+  /* 画面の下の中央。スティック（左）とボタン（右）のあいだ。タッチは受けない（#hud が pointer-events: none） */
+  position: absolute;
+  left: 50%;
+  bottom: calc(12px + var(--safe-bottom));
+  transform: translateX(-50%);
+  width: min(430px, calc(100vw - 600px));
+  min-width: 330px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 5px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.95);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
+  transition: opacity 160ms ease-out;
+}
+#move-guide[data-mode='hidden'] {
+  opacity: 0;
+}
+/* 立っているあいだは控えめに（攻撃中・溜め中にはっきり出る） */
+#move-guide[data-mode='ready'] {
+  opacity: 0.62;
+}
+.mg-head {
+  min-height: 22px;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 6px;
+  font-size: 13px;
+}
+.mg-head .mg-now {
+  font-size: 17px;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+}
+.mg-head .mg-past {
+  opacity: 0.6;
+  font-size: 12px;
+}
+.mg-head .mg-sep {
+  opacity: 0.5;
+}
+.mg-chips {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+}
+.mg-chip {
+  min-width: 0;
+  padding: 4px 4px 5px;
+  text-align: center;
+  border-radius: 10px;
+  background: rgba(20, 24, 48, 0.55);
+  border: 1.5px solid rgba(255, 255, 255, 0.25);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  transition: opacity 120ms ease-out, border-color 120ms ease-out, background 120ms ease-out;
+}
+.mg-chip .mg-key {
+  display: block;
+  font-style: normal;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  opacity: 0.75;
+  white-space: nowrap;
+}
+.mg-chip .mg-name {
+  display: block;
+  font-size: 12px;
+  line-height: 1.25;
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mg-chip .mg-note {
+  display: block;
+  min-height: 11px;
+  font-size: 9.5px;
+  line-height: 11px;
+  color: var(--accent);
+  white-space: nowrap;
+}
+/* 攻撃中: 続きがある枠は明るく、無い枠は消える。受付が開いたら（rdy）くっきり */
+#move-guide[data-mode='attack'] .mg-chip {
+  opacity: 0.5;
+}
+#move-guide[data-mode='attack'] .mg-chip.none {
+  opacity: 0.18;
+}
+#move-guide[data-mode='attack'] .mg-chip.rdy {
+  opacity: 1;
+  border-color: rgba(255, 255, 255, 0.8);
+  background: rgba(40, 48, 92, 0.72);
+}
+#move-guide[data-mode='ready'] .mg-chip.none {
+  opacity: 0.25;
+}
+.mg-chip.lock {
+  border-style: dashed;
+  opacity: 0.55;
+}
+/* いまのスティックの向きで出る枠（金の縁） */
+#move-guide .mg-chip.sel {
+  border-color: var(--accent);
+  box-shadow: 0 0 12px rgba(255, 211, 106, 0.6);
+  background: rgba(70, 58, 20, 0.7);
+  opacity: 1;
+}
+#move-guide.queued .mg-chip.sel .mg-name::after {
+  content: ' ✓';
+  color: var(--accent);
+}
+/* 受付の帯: 待ち（白）→ 受付中（金。縮んで 0 で連携が切れる） */
+.mg-bar {
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.16);
+  overflow: hidden;
+}
+.mg-bar i {
+  display: block;
+  height: 100%;
+  width: 100%;
+  transform-origin: left center;
+  background: rgba(255, 255, 255, 0.6);
+}
+#move-guide[data-window='open'] .mg-bar i {
+  background: var(--accent);
+  box-shadow: 0 0 8px rgba(255, 211, 106, 0.8);
+}
+.mg-end {
+  text-align: center;
+  font-size: 11px;
+  opacity: 0.6;
+}
+/* 溜め中 */
+.mg-charge {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+}
+#move-guide[data-mode='charge'] .mg-charge {
+  display: flex;
+}
+#move-guide[data-mode='charge'] .mg-chips,
+#move-guide[data-mode='charge'] .mg-end,
+#move-guide:not([data-mode='charge']) .mg-charge {
+  display: none;
+}
+.mg-pips {
+  display: flex;
+  gap: 8px;
+}
+.mg-pips i {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.7);
+  background: rgba(20, 24, 48, 0.5);
+}
+.mg-pips i.on {
+  background: var(--accent);
+  border-color: #fff;
+  box-shadow: 0 0 10px rgba(255, 211, 106, 0.9);
+}
+.mg-charge-bar {
+  width: 70%;
+}
+.mg-charge-bar i {
+  background: var(--accent);
+}
+.mg-charge-text {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-size: 12px;
+}
+.mg-charge-text .mg-now {
+  font-size: 15px;
+  color: var(--accent);
+}
+.mg-charge-text .mg-past {
+  opacity: 0.75;
+}
+
+/* ---------- 技表（src/ui/move-list.ts）---------- */
+#btn-moves {
+  /* 装備の切替の下。小さく、端に置く */
+  position: absolute;
+  right: calc(16px + var(--safe-right));
+  top: calc(60px + var(--safe-top));
+  pointer-events: auto;
+  touch-action: none;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 16px;
+  font: 700 12px var(--ui-font);
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(20, 24, 48, 0.55);
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  -webkit-tap-highlight-color: transparent;
+}
+#moves-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(6, 8, 20, 0.55);
+  touch-action: none;
+}
+#moves-overlay.hidden {
+  display: none;
+}
+.ml-card {
+  width: min(86vw, 640px);
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+  border-radius: 16px;
+  background: rgba(16, 18, 42, 0.92);
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.55);
+  color: #fff;
+}
+.ml-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px 8px;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+.ml-close {
+  font: 700 13px var(--ui-font);
+  padding: 7px 16px;
+  border-radius: 14px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1.5px solid rgba(255, 255, 255, 0.4);
+}
+.ml-body {
+  overflow-y: auto;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+  padding: 4px 18px 10px;
+}
+.ml-node {
+  margin-top: 2px;
+}
+.ml-line {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 4px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 13px;
+}
+.ml-line.d1 .ml-input { padding-left: 18px; }
+.ml-line.d2 .ml-input { padding-left: 36px; }
+.ml-line.d3 .ml-input { padding-left: 54px; }
+.ml-line.d4 .ml-input { padding-left: 72px; }
+.ml-line.d5 .ml-input { padding-left: 90px; }
+.ml-input {
+  /* 深い段ほど字下げするが、技名の桁はそろえる */
+  flex: none;
+  box-sizing: border-box;
+  width: 17.5em;
+  opacity: 0.75;
+}
+.ml-line:not(.d0) .ml-input::before {
+  content: '└ ';
+  opacity: 0.5;
+}
+.ml-name {
+  font-size: 15px;
+  color: var(--accent);
+}
+.ml-line small {
+  opacity: 0.6;
+}
+.ml-guide {
+  padding: 8px 18px 14px;
+  font-size: 13px;
+  opacity: 0.85;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
