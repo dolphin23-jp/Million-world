@@ -100,6 +100,18 @@ export interface EnemyDef {
    */
   hyperArmor?: boolean;
   poise?: PoiseDef;
+  /**
+   * 攻撃権（同時に予備動作〜攻撃に入れる数の予算 = EncounterDef.maxAttackers）を使う重み（既定 1）。群れの小さな敵は 0.5 などにして、予算の中で数体が同時に襲える。
+   * 予備動作に入る前に、いま攻撃中の敵の重みの合計 + 自分の重み ≤ 予算 であること（ADR-028）
+   */
+  attackWeight?: number;
+  /**
+   * 周回（群れの敵。ADR-028）: プレイヤーの近く（stopDistance + 1.8m 以内）では、stopDistance の輪を保ちながらプレイヤーの周りを回る（m/s）。
+   * 攻撃権を待つあいだ、敵が 1 か所に固まらず散らばって囲む。回る向きは敵の id で決まり、攻撃を終えるたびに逆になる
+   */
+  orbitSpeed?: number;
+  /** 飛んでいる敵（ADR-028）: プレイヤーを押し出さず、地上の敵とも体を押し合わない（群れの敵どうしだけが重ならない） */
+  flying?: boolean;
   attack: EnemyAttackDef;
 }
 
@@ -269,6 +281,47 @@ export const ENEMIES = {
       telegraph: { kind: 'circle' },
       unblockable: true,
       groundImpact: 1.2,
+    },
+  },
+  /**
+   * 小蝙蝠（ADR-028。M5-4）: 小型の群れ。弱く（HP 12 = 片手剣 2 発・大剣 1 発）、素早く（4.2 m/s）、数で囲んで噛みつく。
+   * 近づくとプレイヤーの周りを輪（3m）で回って（散らばって囲む）、攻撃権（重み 0.6 = 同時に 3 体まで）が回ってきた順に、予備動作 0.43 秒（後半 16f は向きを固定）→ 急降下で 2.8m を一気に噛みつく。
+   * 1 発は軽い（ダメージ 6）が、複数に囲まれるとまとめて来る。盾・ガード・ロールで防げ、大剣の薙ぎ払い・回転斬りで一掃できる。飛んでいるのでプレイヤーを押し出さない。
+   */
+  bat: {
+    id: 'bat',
+    name: '小蝙蝠',
+    hp: 12,
+    radius: 0.3,
+    height: 1.6,
+    hitStunFrames: 16,
+    knockbackFrames: 10,
+    knockbackScale: 1.8,
+    deathFrames: 40,
+    turnSpeed: 9,
+    moveSpeed: 4.2,
+    aggroRange: 22,
+    stopDistance: 3,
+    spawnIdleFrames: 30,
+    attackWeight: 0.6,
+    orbitSpeed: 2.4,
+    flying: true,
+    attack: {
+      range: 3.6,
+      windupFrames: 26,
+      windupTrackFrames: 10,
+      armorFromFrame: 999,
+      armorBreakDamage: 0,
+      armorKnockbackScale: 1,
+      startupFrames: 2,
+      activeFrames: 10,
+      recoverFrames: 28,
+      cooldownFrames: 60,
+      hitbox: { kind: 'arc', range: 0.8, halfAngle: deg(50) },
+      damage: 6,
+      knockback: 0.7,
+      hitStop: 3,
+      lunge: 2.8,
     },
   },
 } as const satisfies Record<string, EnemyDef>;

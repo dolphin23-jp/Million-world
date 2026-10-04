@@ -2,7 +2,7 @@ import { applyDamage, createHealth, type DamageResult, type Health } from '../co
 import { HitTracker, isActiveFrame, type HitEvent, type Hurtbox } from '../combat/hit';
 import { Knockback } from '../combat/knockback';
 import { Poise } from '../combat/poise';
-import { rotateTowards } from '../core/math';
+import { clamp, rotateTowards } from '../core/math';
 import { PARRY_EFFECTS, type ParryEffectDef } from '../combat/data/guard';
 import { PROJECTILES, type ProjectileId } from '../combat/data/projectiles';
 import type { EnemyAttackDef, EnemyDef } from './data/enemies';
@@ -76,6 +76,8 @@ export class Enemy {
   /** 飛び道具を撃つたびに増える（Game が弾を作るため）と、直近の弾の出どころ */
   fireSerial = 0;
   readonly shot: Shot = { projectile: 'wisp', x: 0, z: 0, dirX: 0, dirZ: 1 };
+  /** 周回する向き（+1 / −1）。id で決まり、攻撃を終えるたびに逆になる */
+  private orbitSide: number;
   /** この攻撃で、もう撃った・地面を叩いたか（攻撃に入るたびに false） */
   private fired = false;
   /** 地面を叩く攻撃の判定が出るたびに増える（Game が床の演出を起こすため） */
@@ -95,6 +97,7 @@ export class Enemy {
     this.body = { id, x, z, r: def.radius, invulnerable: false };
     this.health = createHealth(def.hp);
     this.poise = def.poise ? new Poise(def.poise) : null;
+    this.orbitSide = id % 2 === 0 ? 1 : -1;
     this.prevX = x;
     this.prevZ = z;
   }
@@ -114,6 +117,11 @@ export class Enemy {
   /** 予備動作〜攻撃中か（同時に攻撃できる数の制限＝攻撃権の数え方に使う） */
   get attacking(): boolean {
     return this.state === 'windup' || this.state === 'attack';
+  }
+
+  /** 攻撃権の予算を使う重み（既定 1） */
+  get attackWeight(): number {
+    return this.def.attackWeight ?? 1;
   }
 
   /** 攻撃の判定が出ているフレームか（ヒット判定の入力）。step() の後に読む */
@@ -232,7 +240,13 @@ export class Enemy {
           break;
         }
         this.faceTarget(wantYaw, dt);
-        if (def.retreatDistance !== undefined && dist < def.retreatDistance) {
+        if (def.orbitSpeed !== undefined && dist < def.stopDistance + 1.8) {
+          // 周回: 輪（stopDistance）を保ちながら、プレイヤーの周りを回る（向いている方向に対して横）
+          const radial = clamp((dist - def.stopDistance) * 2.5, -def.moveSpeed, def.moveSpeed);
+          const side = this.orbitSide * def.orbitSpeed;
+          moveX = Math.sin(this.yaw) * radial + Math.cos(this.yaw) * side;
+          moveZ = Math.cos(this.yaw) * radial - Math.sin(this.yaw) * side;
+        } else if (def.retreatDistance !== undefined && dist < def.retreatDistance) {
           // 近づかれたら、向きを保ったまま後ろへ下がる（距離を取って撃つ敵）
           const v = def.retreatSpeed ?? def.moveSpeed;
           moveX = -Math.sin(this.yaw) * v;
@@ -275,6 +289,7 @@ export class Enemy {
         }
         if (this.stateFrame >= atk.startupFrames + atk.activeFrames + atk.recoverFrames) {
           this.cooldown = atk.cooldownFrames;
+          this.orbitSide = -this.orbitSide;
           this.setState('chase');
         }
         break;
