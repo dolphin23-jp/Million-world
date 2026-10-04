@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { circleOf, laneOf, type CircleView, type LaneView, type TelegraphSource } from '../ai/telegraph';
+import { circleOf, laneCount, laneOf, type CircleView, type LaneView, type TelegraphSource } from '../ai/telegraph';
 
 /**
  * 敵の攻撃の予告の床表示（ADR-025・027）。突進・飛び道具の予備動作のあいだ、通り道に向きの分かる帯（進行方向の矢印が流れる）を出す。
@@ -7,7 +7,7 @@ import { circleOf, laneOf, type CircleView, type LaneView, type TelegraphSource 
  * 幾何（どこに・どの濃さで）は src/ai/telegraph.ts（純粋関数）が決め、ここは描くだけ。同時に出せる数は MAX_LANES / MAX_CIRCLES（プールを最初に作って使い回す）。
  */
 
-const MAX_LANES = 4;
+const MAX_LANES = 16;
 /** 矢印 1 つぶんの床の長さ（m） */
 const CELL = 1.5;
 const COLOR_TRACK = new THREE.Color(1, 0.55, 0.2);
@@ -74,26 +74,29 @@ export class TelegraphLanes {
     }
   }
 
-  /** 毎描画フレーム。frameDt は実時間（矢印が流れる速さに使う） */
+  /** 毎描画フレーム。frameDt は実時間（矢印が流れる速さに使う）。扇・輪に弾を撃つ技は、弾の本数ぶんの帯を出す */
   update(enemies: readonly TelegraphSource[], frameDt: number): void {
     let n = 0;
     for (const e of enemies) {
-      if (n >= MAX_LANES) break;
-      if (!laneOf(e, this.view)) continue;
-      const v = this.view;
-      const mesh = this.meshes[n]!;
-      const mat = this.mats[n]!;
-      mesh.visible = true;
-      mesh.position.set(v.x, 0.04, v.z);
-      mesh.rotation.y = v.yaw;
-      mesh.scale.set(v.width, 1, v.length);
-      mat.opacity = Math.min(1, v.intensity) * 0.8;
-      mat.color.copy(v.unblockable ? (v.striking ? COLOR_UNBLOCKABLE_STRIKE : COLOR_UNBLOCKABLE) : v.striking ? COLOR_STRIKE : v.locked ? COLOR_LOCK : COLOR_TRACK);
-      const map = mat.map!;
-      map.repeat.set(1, v.length / CELL);
-      // 進行方向（+Z）へ矢印が流れる（v は −Z 向きに増えるので offset は減らす）。固定されたら速く、突進中はさらに速く
-      map.offset.y -= frameDt * (v.striking ? 5 : v.locked ? 2.2 : 0.8);
-      n++;
+      const count = laneCount(e.attackDef);
+      for (let k = 0; k < count && n < MAX_LANES; k++) {
+        if (!laneOf(e, this.view, k)) break;
+        const v = this.view;
+        const mesh = this.meshes[n]!;
+        const mat = this.mats[n]!;
+        mesh.visible = true;
+        mesh.position.set(v.x, 0.04, v.z);
+        mesh.rotation.y = v.yaw;
+        mesh.scale.set(v.width, 1, v.length);
+        // 本数が多いとき（輪）は、1 本ずつを薄くして重なる中心が白飛びしないように
+        mat.opacity = Math.min(1, v.intensity) * (count > 1 ? 0.6 : 0.8);
+        mat.color.copy(v.unblockable ? (v.striking ? COLOR_UNBLOCKABLE_STRIKE : COLOR_UNBLOCKABLE) : v.striking ? COLOR_STRIKE : v.locked ? COLOR_LOCK : COLOR_TRACK);
+        const map = mat.map!;
+        map.repeat.set(1, v.length / CELL);
+        // 進行方向（+Z）へ矢印が流れる（v は −Z 向きに増えるので offset は減らす）。固定されたら速く、突進中はさらに速く
+        map.offset.y -= frameDt * (v.striking ? 5 : v.locked ? 2.2 : 0.8);
+        n++;
+      }
     }
     for (let i = n; i < MAX_LANES; i++) this.meshes[i]!.visible = false;
   }

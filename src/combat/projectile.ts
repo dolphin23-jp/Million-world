@@ -188,3 +188,14 @@ export function segmentHitsCircle(ax: number, az: number, bx: number, bz: number
   }
   return hit;
 }
+
+/**
+ * 弾を扇・輪に撃つときの i 本目（0 始まり）の向きのずれ（rad。撃つ向きからの差）。
+ * count 1 = ずれなし。spread が 2π 以上 = 全周に等間隔（先頭が撃つ向き）。それ以外は撃つ向きを中心に -spread/2 〜 +spread/2 へ均等
+ */
+export function fanOffset(i: number, count: number, spread: number): number {
+  if (count <= 1) return 0;
+  if (spread >= Math.PI * 2 - 1e-6) return (i * Math.PI * 2) / count;
+  return -spread / 2 + (spread * i) / (count - 1);
+}
+

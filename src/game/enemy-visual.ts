@@ -555,7 +555,7 @@ export class EnemyVisual {
     this.idleTime += animDt;
 
     const dead = e.dead;
-    const atk = e.def.attack;
+    const atk = e.attackDef;
     const boar = this.kind === 'boar';
     const lantern = this.kind === 'lantern';
     const ogre = this.kind === 'ogre';

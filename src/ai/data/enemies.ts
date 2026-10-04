@@ -59,6 +59,39 @@ export interface EnemyAttackDef {
    * 帯（telegraph）の長さは弾の飛ぶ距離
    */
   projectile?: ProjectileId;
+  /**
+   * 弾を複数撃つ（ボスの連弾・輪。ADR-029）: 本数と、扇の広がり（rad。2π 以上 = 全周に等間隔）。既定は 1 本。
+   * 扇は撃つ向きを中心に左右へ均等に広がる。床の予告（lane）も同じ本数の帯を出す
+   */
+  projectileCount?: number;
+  projectileSpread?: number;
+  /** 弾の出る位置を、弾のデータの銃口（Projectile.muzzle）から、さらに前へずらす距離（m）。体の大きな敵が自分の体の外から撃つ */
+  muzzleOffset?: number;
+  /**
+   * 召喚（ボスの号令。ADR-029）: 判定が出る瞬間（startupFrames）に、周り（敵の中心から radius m の円周に等間隔）へ type の敵を count 体呼ぶ。
+   * 実際に出すのは Game（Enemy.summonSerial / summon を読む。生きている同種の敵が多すぎれば出さない）
+   */
+  summon?: { type: string; count: number; radius: number };
+  /**
+   * 複数の技を持つ敵（moves）で、この技が選べる最小の段階（0 = 最初から。EnemyDef.phases の段階）、
+   * 選べる距離の下限（中心間 m。上限は range）、選ばれやすさ（既定 1）、技の名前
+   */
+  minPhase?: number;
+  rangeMin?: number;
+  weight?: number;
+  id?: string;
+  /**
+   * 技の見た目の構え（EnemyVisual）: slam = 武器を頭上へ振りかぶって叩きつける（既定）、cast = 片腕を突き出して放つ、roar = 両腕を広げて吠える。
+   * 予備動作の見た目だけで、当たり判定・タイミングには関わらない
+   */
+  pose?: 'slam' | 'cast' | 'roar';
+}
+
+/** 段階（ボスの怒り。ADR-029）: HP の割合がこの値以下になったら次の段階に入る。段階ごとに技が増え、技の間隔が縮む */
+export interface EnemyPhaseDef {
+  hpBelow: number;
+  /** 技のあとの待ち（cooldownFrames）に掛ける倍率（小さいほど間隔が短い） */
+  cooldownScale: number;
 }
 
 export interface EnemyDef {
@@ -105,6 +138,15 @@ export interface EnemyDef {
    * 予備動作に入る前に、いま攻撃中の敵の重みの合計 + 自分の重み ≤ 予算 であること（ADR-028）
    */
   attackWeight?: number;
+  /**
+   * 複数の技（ボス）: 距離・段階・重みで選ぶ（攻撃に入るたびに、選べる技から重み付きの乱数で。直前と同じ技は、他に選べる技があれば避ける）。
+   * 技はどれも EnemyAttackDef で、attack は先頭の技（既定）。なければ attack 1 つだけ
+   */
+  moves?: readonly EnemyAttackDef[];
+  /** 段階（HP の割合で段階が上がる）。なければ段階は 0 のまま */
+  phases?: readonly EnemyPhaseDef[];
+  /** ボス: 画面上部に大きな HP バーを出し、倒すと手下が消える（ADR-029） */
+  boss?: boolean;
   /**
    * 周回（群れの敵。ADR-028）: プレイヤーの近く（stopDistance + 1.8m 以内）では、stopDistance の輪を保ちながらプレイヤーの周りを回る（m/s）。
    * 攻撃権を待つあいだ、敵が 1 か所に固まらず散らばって囲む。回る向きは敵の id で決まり、攻撃を終えるたびに逆になる

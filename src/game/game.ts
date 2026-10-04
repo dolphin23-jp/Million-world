@@ -12,7 +12,8 @@ import { clampInsideArena, pushOutOfCircle, separateCircles } from '../world/col
 import { Player } from './player';
 import { resolveEnemyAttacks, resolvePlayerAttack } from './combat';
 import { cutProjectiles, resolveProjectilesOnPlayer, resolveReflectedProjectiles, type ProjectileHandlers } from './projectile-combat';
-import { MAX_PROJECTILES, ProjectileSystem, type Projectile, type ProjectileEnd } from '../combat/projectile';
+import { MAX_PROJECTILES, ProjectileSystem, fanOffset, type Projectile, type ProjectileEnd } from '../combat/projectile';
+import { summonPoints, type SummonPoint } from '../ai/summon';
 import { PROJECTILES, PROJECTILE_HEIGHT } from '../combat/data/projectiles';
 import { ProjectileRenderer } from '../render/projectiles';
 import type { Circle } from '../world/collision';
@@ -85,6 +86,9 @@ interface EnemyEntry {
   seenFire: number;
   seenImpact: number;
   seenBreak: number;
+  /** 召喚（Enemy.summonSerial）・段階（Enemy.phaseSerial）の演出を起こし終えた値 */
+  seenSummon: number;
+  seenPhase: number;
 }
 
 /** プレイヤーの攻撃ごとの振りの効果音 */
@@ -339,7 +343,7 @@ export class Game {
     enemy.place(x, z, Math.atan2(this.player.body.x - x, this.player.body.z - z));
     const visual = new EnemyVisual(type);
     this.scene.add(visual.root);
-    this.enemies.push({ enemy, visual, seenSerial: enemy.stateSerial, seenFire: enemy.fireSerial, seenImpact: enemy.impactSerial, seenBreak: enemy.breakSerial });
+    this.enemies.push({ enemy, visual, seenSerial: enemy.stateSerial, seenFire: enemy.fireSerial, seenImpact: enemy.impactSerial, seenBreak: enemy.breakSerial, seenSummon: enemy.summonSerial, seenPhase: enemy.phaseSerial });
     this.enemySims.push(enemy);
     return enemy;
   }
@@ -484,14 +488,29 @@ export class Game {
     if (cut) this.hitStop.trigger(2);
   }
 
-  /** 敵が撃った弾を作る（Enemy.fireSerial が増えたら、その出どころ Enemy.shot から） */
+  /** 敵が撃った弾を作る（Enemy.fireSerial が増えたら、その出どころ Enemy.shot から。扇・輪は本数ぶんを fanOffset の向きに） */
   private spawnProjectiles(): void {
     for (const entry of this.enemies) {
       const e = entry.enemy;
       if (e.fireSerial === entry.seenFire) continue;
       entry.seenFire = e.fireSerial;
       const s = e.shot;
-      this.projectiles.spawn(PROJECTILES[s.projectile], e.id, s.x, s.z, s.dirX, s.dirZ);
+      const def = PROJECTILES[s.projectile];
+      if (s.count <= 1) {
+        this.projectiles.spawn(def, e.id, s.x, s.z, s.dirX, s.dirZ);
+        continue;
+      }
+      // 扇・輪: 中心の向きを、本数ぶんに回す。銃口は、敵の中心から中心の向きへ出した位置（s.x, s.z）を中心に回した向きの根元
+      const cx = e.body.x;
+      const cz = e.body.z;
+      const reach = Math.hypot(s.x - cx, s.z - cz);
+      const yaw = Math.atan2(s.dirX, s.dirZ);
+      for (let i = 0; i < s.count; i++) {
+        const a = yaw + fanOffset(i, s.count, s.spread);
+        const dx = Math.sin(a);
+        const dz = Math.cos(a);
+        this.projectiles.spawn(def, e.id, cx + dx * reach, cz + dz * reach, dx, dz);
+      }
     }
   }
 
@@ -669,7 +688,7 @@ export class Game {
       // 弾き飛ばされて倒れた敵が地面に落ちる音（倒れ切る 14f ≒ 0.23 秒の少し手前）
       if (e.state === 'down') this.sfx.play('knockdown', { gain, delay: 0.17 });
       if (e.state !== 'windup' && e.state !== 'attack') continue;
-      if (e.state === 'windup' && e.def.attack.unblockable) {
+      if (e.state === 'windup' && e.attackDef.unblockable) {
         // ガード不能の予備動作: 防げる攻撃と違う鋭い合図と、頭上の警告（避けるしかない）
         this.sfx.play('unblockWarn', { gain: Math.max(gain, 0.7) });
         this.damageNumbers.spawnText(e.body.x, Math.min(e.def.height + 0.55, 1.9), e.body.z, 'ガード不能', 'warn');
@@ -687,7 +706,7 @@ export class Game {
       const e = entry.enemy;
       if (e.impactSerial !== entry.seenImpact) {
         entry.seenImpact = e.impactSerial;
-        const power = e.def.attack.groundImpact ?? 1;
+        const power = e.attackDef.groundImpact ?? 1;
         const gain = distanceGain(Math.hypot(e.body.x - this.player.body.x, e.body.z - this.player.body.z));
         this.groundFx.burst(e.body.x, e.body.z, power);
         this.cam.shake.trigger(GROUND_IMPACT.shake.amp * power * gain, GROUND_IMPACT.shake.seconds * 1.1);
