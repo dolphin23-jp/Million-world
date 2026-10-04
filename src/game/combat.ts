@@ -3,7 +3,7 @@ import { HIT_FEEDBACK } from '../combat/data/hit-feedback';
 import type { ParryEffectDef } from '../combat/data/guard';
 import type { GuardOutcome } from '../combat/guard';
 import type { DamageResult } from '../combat/health';
-import { collectHits, makeHitEvent, type HitEvent, type HitOrigin, type HitTracker, type Hurtbox } from '../combat/hit';
+import { collectHits, hitboxHits, makeHitEvent, type HitEvent, type HitOrigin, type HitTracker, type Hurtbox } from '../combat/hit';
 import type { EnemyAttackDef } from '../ai/data/enemies';
 import type { Circle } from '../world/collision';
 
@@ -40,6 +40,10 @@ export interface CombatTarget {
 
 /** 防御できる被弾側（Player）。敵の攻撃が当たる瞬間に、まず guardOutcome で防御の結果を聞く（ADR-020） */
 export interface DefenderView extends CombatTarget {
+  /** 回避の無敵が敵の攻撃を避けさせている最中か（ほかの無敵の理由がない）。ジャスト回避の判定（ADR-030） */
+  readonly dodging?: boolean;
+  /** ミスティカルドッジの最中か（無敵）。この間に重なった攻撃も「避けた」ものとして記録する（切れたあとに刺さらない） */
+  readonly evading?: boolean;
   guardOutcome?(ev: HitEvent): GuardOutcome;
   /** ガードで受け止める（軽減したダメージを適用して構えを保つ） */
   guardBlock?(ev: HitEvent): DamageResult;
@@ -101,6 +105,12 @@ export interface EnemyAttackerView {
 export interface EnemyAttackHandlers<E> {
   onGuard?: (ev: HitEvent, enemy: E, result: DamageResult) => void;
   onParry?: (ev: HitEvent, enemy: E, effect: ParryEffectDef) => void;
+  /**
+   * 回避の無敵フレームで避けた（無敵がなければ当たっていた）。ジャスト回避（ミスティカルドッジ。ADR-030）の合図。
+   * 戻り値が true（ミスティカルが発動した・発動中）なら、避けた攻撃は記録され、持続が残っていてももう当たらない
+   * （ミスティカルが切れたあとに、遅い時間の中で止まっていた攻撃が刺さらない）
+   */
+  onJustDodge?: (enemy: E) => boolean;
 }
 
 /**
@@ -124,6 +134,13 @@ export function resolveEnemyAttacks<E extends EnemyAttackerView>(
     _hit.length = 0;
     _boxes.push(victim.body);
     const atk = enemy.attackDef;
+    if (victim.body.invulnerable) {
+      // 無敵の間は当たらず、記録もしない（無敵が切れて持続が残っていれば当たる）。ただし回避の無敵で避けたなら、ジャスト回避の合図を出す
+      if ((victim.dodging || victim.evading) && !enemy.hitTracker.has(victim.body.id) && hitboxHits(_origin, atk.hitbox, victim.body) && handlers.onJustDodge?.(enemy)) {
+        enemy.hitTracker.add(victim.body.id);
+      }
+      continue;
+    }
     if (collectHits(_origin, atk.hitbox, _boxes, enemy.hitTracker, _hit) === 0) continue;
     total++;
     const ev = makeHitEvent(enemy.id, _origin, victim.body, atk);

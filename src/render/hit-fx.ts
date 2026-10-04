@@ -105,6 +105,10 @@ export const FX_TINT = {
   orb: new THREE.Color(0.78, 0.66, 1),
   /** 体勢が崩れたときの閃光（黄金色。パリィの水色と見分ける） */
   poise: new THREE.Color(1, 0.88, 0.4),
+  /** ミスティカルドッジの閃光（青紫がかった白） */
+  mystic: new THREE.Color(0.7, 0.72, 1),
+  /** 薬瓶で回復したときの光（緑がかった白） */
+  heal: new THREE.Color(0.7, 1, 0.8),
 } as const;
 
 export class HitFx {

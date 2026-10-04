@@ -371,6 +371,57 @@ body {
   }
 }
 
+/* ミスティカルドッジ（ADR-030）: 発動中は画面の縁が青紫に染まる（--m は 0..1 の強さ。終わりの手前は点滅）。ゲージは HP バーのすぐ下（ロック対象の HP バーの上の隙間） */
+#mystical-fx {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at 50% 55%, rgba(120, 200, 255, 0) 38%, rgba(110, 120, 255, 0.34) 78%, rgba(150, 90, 255, 0.62) 100%),
+    linear-gradient(rgba(120, 140, 255, 0.07), rgba(120, 140, 255, 0.07));
+  transition: opacity 160ms ease-out;
+}
+#mystical-fx.on {
+  opacity: var(--m, 1);
+}
+#mystical-fx.warn {
+  animation: mystic-warn 360ms ease-in-out infinite;
+}
+@keyframes mystic-warn {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 0.9; }
+}
+#mystical-gauge {
+  position: absolute;
+  top: calc(34px + var(--safe-top));
+  left: 50%;
+  width: min(36vw, 340px);
+  height: 5px;
+  transform: translateX(-50%);
+  border-radius: 5px;
+  background: rgba(10, 12, 30, 0.55);
+  border: 1px solid rgba(160, 200, 255, 0.35);
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 200ms;
+}
+#mystical-gauge[data-state='active'],
+#mystical-gauge[data-state='cooling'] {
+  opacity: 1;
+}
+#mystical-gauge .mystical-fill {
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, #7fd8ff, #b79bff);
+}
+#mystical-gauge[data-state='cooling'] .mystical-fill {
+  background: rgba(150, 165, 200, 0.55);
+}
+#mystical-gauge[data-state='active'].warn .mystical-fill {
+  animation: mystic-warn 360ms ease-in-out infinite;
+}
+
 /* ---------- ダメージ数字（src/ui/damage-numbers.ts） ---------- */
 #fx-layer {
   position: absolute;
@@ -422,6 +473,27 @@ body {
 .dmg-break {
   color: #ffe36a;
   letter-spacing: 0.12em;
+}
+/* ミスティカルドッジ・回復（薬瓶）・拾得 */
+.dmg-mystic {
+  color: #c9b6ff;
+  letter-spacing: 0.14em;
+  text-shadow:
+    -3px 0 #231a55, 3px 0 #231a55, 0 -3px #231a55, 0 3px #231a55,
+    -2px -2px #231a55, 2px -2px #231a55, -2px 2px #231a55, 2px 2px #231a55,
+    0 0 14px rgba(150, 130, 255, 0.9);
+}
+.dmg-heal {
+  color: #8dffb0;
+  text-shadow:
+    -3px 0 #0e3a22, 3px 0 #0e3a22, 0 -3px #0e3a22, 0 3px #0e3a22,
+    -2px -2px #0e3a22, 2px -2px #0e3a22, -2px 2px #0e3a22, 2px 2px #0e3a22,
+    0 4px 8px rgba(0, 0, 0, 0.45);
+}
+.dmg-item {
+  color: #ffe9a8;
+  letter-spacing: 0.06em;
+  font-size: 22px;
 }
 
 /* ---------- ウェーブのバナー ---------- */

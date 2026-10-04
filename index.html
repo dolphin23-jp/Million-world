@@ -37,6 +37,9 @@
     <div id="hud">
       <div id="fx-layer"></div>
       <div id="hurt-flash"></div>
+      <!-- ミスティカルドッジ（ADR-030）: 発動中の画面の縁の色と、残り時間・再使用のゲージ。値は src/ui/hud.ts の setMystical -->
+      <div id="mystical-fx"></div>
+      <div id="mystical-gauge" data-state="ready"><div class="mystical-fill"></div></div>
       <div id="hp-player" class="hp"><div class="hp-lag"></div><div class="hp-fill"></div></div>
       <div id="hp-boss" class="hp" style="display: none"><div class="hp-lag"></div><div class="hp-fill"></div><div class="poise"><div class="poise-fill"></div></div><span class="hp-name"></span></div>
       <div id="hp-target" class="hp" style="display: none"><div class="hp-lag"></div><div class="hp-fill"></div><div class="poise"><div class="poise-fill"></div></div><span class="hp-name"></span></div>

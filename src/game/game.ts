@@ -17,6 +17,8 @@ import { summonPoints, type SummonPoint } from '../ai/summon';
 import { PROJECTILES, PROJECTILE_HEIGHT } from '../combat/data/projectiles';
 import { ProjectileRenderer } from '../render/projectiles';
 import type { Circle } from '../world/collision';
+import { Mystical } from '../combat/mystical';
+import { MYSTICAL } from '../combat/data/mystical';
 import { Enemy } from '../ai/enemy';
 import { stepSwarm } from '../ai/swarm';
 import { AudioBus } from '../platform/audio';
@@ -170,6 +172,9 @@ export class Game {
   /** 飛び道具（提灯の鬼火。ADR-026）の sim と描画 */
   private readonly projectiles = new ProjectileSystem();
   private readonly projectileFx = new ProjectileRenderer(MAX_PROJECTILES, PROJECTILES.wisp.radius);
+  /** ミスティカルドッジ（ジャスト回避。ADR-030）。発動中は敵と敵の弾だけが遅い。mysticalWas = 前ステップで発動中だったか（切れた瞬間の合図用） */
+  readonly mystical = new Mystical();
+  private mysticalWas = false;
   /** 地面を叩いた合図（Player.impactSerial）を処理し終えた値 */
   private seenImpact = 0;
   readonly damageNumbers: DamageNumbers;
@@ -454,6 +459,31 @@ export class Game {
     this.encounter.onParry();
   }
 
+  /**
+   * ジャスト回避（回避の無敵で、当たるはずだった攻撃を避けた。ADR-030）: ミスティカルドッジを発動する。
+   * 発動した・すでに発動中なら true（避けた攻撃は記録され、あとで刺さらない）。クールダウン中は何も起こさず false。
+   * 発動の演出: 強いヒットストップ・画面の揺れ・青紫の閃光・「MYSTICAL」の文字・音
+   */
+  private onJustDodge(): boolean {
+    if (this.mystical.trigger()) {
+      const p = this.player;
+      p.setMystical(true);
+      this.mysticalWas = true;
+      const b = MYSTICAL.burst;
+      this.hitStop.trigger(b.hitStop);
+      this.cam.shake.trigger(b.shake.amp, b.shake.seconds);
+      this.hitFx.burst(p.body.x, HIT_FEEDBACK.playerImpactHeight, p.body.z, Math.sin(p.yaw), Math.cos(p.yaw), b.power, FX_TINT.mystic);
+      this.damageNumbers.spawnText(p.body.x, 1.9, p.body.z, 'MYSTICAL', 'mystic', 1.25);
+      this.sfx.play('mysticalStart');
+    }
+    return this.mystical.active;
+  }
+
+  /** ミスティカルドッジが切れた（時間が戻る）。小さな合図の音 */
+  private onMysticalEnd(): void {
+    this.sfx.play('mysticalEnd');
+  }
+
   /** 弾き返す先（撃った敵の体）。いなければ（倒した・取り除いた）null */
   private readonly ownerBody = (id: number): Circle | null => {
     for (const e of this.enemySims) if (e.id === id && !e.dead) return e.body;
@@ -466,6 +496,7 @@ export class Game {
     onGuard: (ev, _p, result) => this.onEnemyGuarded(ev, result),
     onParry: (ev, p, fx) => this.onProjectileParried(ev, p, fx),
     onEnd: (p, reason) => this.onProjectileEnd(p, reason),
+    onJustDodge: () => void this.onJustDodge(),
   };
   /** ボスの HP バーの段階の目盛り（HP の割合）。ボスが変わったときだけ作り直す */
   private bossTicks: readonly number[] = [];
@@ -547,6 +578,14 @@ export class Game {
     this.moveList.setMoves(l.name, buildMoveTree(l.moveset, l.charge));
   }
 
+  /** ミスティカルドッジの画面の色・ゲージ（発動中は残り、切れたあとは次までの溜まり具合） */
+  private updateMysticalHud(): void {
+    const m = this.mystical;
+    if (m.active) this.hud.setMystical('active', m.ratio, m.warning);
+    else if (m.cooldown > 0) this.hud.setMystical('cooling', 1 - m.cooldownRatio, false);
+    else this.hud.setMystical('ready', 0, false);
+  }
+
   /** 操作ガイドを、いまのプレイヤーの状態から更新する（毎描画フレーム。文脈のオブジェクトは使い回す） */
   private updateMoveGuide(): void {
     const p = this.player;
@@ -609,24 +648,32 @@ export class Game {
       this.touch.setLockIndicator(this.lockIndicator);
     }
 
+    // ミスティカルドッジ（ADR-030）: 倒れた・リザルトでは消す。時間を 1 ステップ進めて、このステップで敵と敵の弾を進めるか決める。プレイヤーの無敵は発動中だけ
+    if (this.player.dead || this.encounter.ended) this.mystical.reset();
+    const enemiesRun = this.mystical.step();
+    this.player.setMystical(this.mystical.active);
+    if (this.mysticalWas && !this.mystical.active) this.onMysticalEnd();
+    this.mysticalWas = this.mystical.active;
+
     this.player.step(dt, intent, this.cam.yaw);
     this.soundPlayerState();
     this.onGroundImpact();
 
     const alive = !this.player.dead;
     // 攻撃権: 同時に予備動作〜攻撃に入れる敵の数を制限する（残りは近くで構えて待つ）
-    stepSwarm(this.enemySims, dt, this.player.body.x, this.player.body.z, alive, this.encounter.def.maxAttackers);
+    if (enemiesRun) stepSwarm(this.enemySims, dt, this.player.body.x, this.player.body.z, alive, this.encounter.def.maxAttackers);
     this.soundEnemyStates();
     this.enemyEvents();
     // 敵の弾: 撃たれた弾を作って 1 ステップ飛ばす（寿命・アリーナの縁で消える）
     this.spawnProjectiles();
-    this.projectiles.step(dt, this.arena.radius, this.onProjectileEndCb);
+    if (enemiesRun) this.projectiles.step(dt, this.arena.radius, this.onProjectileEndCb);
     // 先にプレイヤーの攻撃を解決する。同じフレームに当たり合うなら、プレイヤーが先に当てて敵の攻撃を中断する（敵の弾は斬り落とされる）
     resolvePlayerAttack(this.player, this.enemySims, (ev, enemy, result, riposte) => this.onPlayerHit(ev, enemy, result, riposte));
     cutProjectiles(this.projectiles, this.player, this.onProjectileEndCb);
     resolveEnemyAttacks(this.enemySims, this.player, (ev, _enemy, result) => this.onEnemyHit(ev, result), {
       onGuard: (ev, _enemy, result) => this.onEnemyGuarded(ev, result),
       onParry: (ev, enemy, fx) => this.onEnemyParried(ev, enemy, fx),
+      onJustDodge: () => this.onJustDodge(),
     });
     // 敵の弾 → プレイヤー（ガード・パリィ・無敵の判定は近接の攻撃と同じ）。弾き返した弾 → 敵（大ダメージ。反撃と同じ扱い）
     resolveProjectilesOnPlayer(this.projectiles, this.player, this.ownerBody, this.projectileHandlers);
@@ -765,6 +812,8 @@ export class Game {
     this.enemies.length = 0;
     this.enemySims.length = 0;
     this.player.reset();
+    this.mystical.reset();
+    this.mysticalWas = false;
     this.lockOn.release();
     this.hitStop.reset();
     this.cam.shake.reset();
@@ -790,7 +839,10 @@ export class Game {
     this.loop.stepper.timeScale = this.paused ? 0 : this.hitStop.update(frameDt);
     const animDt = frameDt * this.loop.stepper.timeScale;
     this.player.syncVisual(alpha, animDt, frameDt);
-    for (const { enemy, visual } of this.enemies) visual.update(enemy, alpha, animDt, frameDt);
+    // ミスティカルドッジ中は、敵と敵の弾の見た目だけ遅い時間で進める（アニメの速さと、sim の補間）。プレイヤー・カメラ・エフェクトは等倍
+    const enemyAlpha = this.mystical.visualAlpha(alpha);
+    const enemyAnimDt = animDt * this.mystical.scale;
+    for (const { enemy, visual } of this.enemies) visual.update(enemy, enemyAlpha, enemyAnimDt, frameDt);
     // 剣筋: アニメ更新直後の刃の位置を記録する。時間はアニメの時間（ヒットストップで止まる）
     if (this.player.getBladePoints(_bladeBase, _bladeTip)) {
       this.swordTrail.update(animDt, this.player.trailActive, _bladeBase, _bladeTip);
@@ -812,7 +864,7 @@ export class Game {
     this.groundFx.update(frameDt);
     this.lanes.update(this.enemySims, frameDt);
     this.circles.update(this.enemySims);
-    this.projectileFx.update(this.projectiles, alpha, animDt);
+    this.projectileFx.update(this.projectiles, enemyAlpha, enemyAnimDt);
     if (draw) this.post.render();
     this.damageNumbers.update(this.cam.camera, frameDt, this.host.width, this.host.height);
     const locked = this.lockedEnemy();
@@ -836,6 +888,7 @@ export class Game {
     }
     this.hud.setTarget(locked && !locked.def.boss ? { name: locked.def.name, hp: locked.health.hp, max: locked.health.max, poise: locked.poise ? locked.poise.ratio : null } : null);
     this.updateMoveGuide();
+    this.updateMysticalHud();
     // 実フレーム間隔で解像度を調整する。段が変わるとレンダターゲットを作り直すので、描画の後で行う
     const nextRatio = this.adaptive.update(frameDt * 1000);
     if (nextRatio !== null) this.host.setMaxPixelRatio(nextRatio);
