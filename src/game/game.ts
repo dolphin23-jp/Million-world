@@ -122,7 +122,9 @@ const SWING_SFX: Record<string, SfxName> = {
   gsHeavyRip: 'gsSwingRise',
 };
 /** 敵の攻撃の音（敵の種類ごと。無ければ enemySwing） */
-const ENEMY_ATTACK_SFX: Partial<Record<string, SfxName>> = { boar: 'boarCharge', lantern: 'orbShot' };
+const ENEMY_ATTACK_SFX: Partial<Record<string, SfxName>> = { boar: 'boarCharge', lantern: 'orbShot', bat: 'batSwoop' };
+/** 敵の予備動作の合図（敵の種類ごと。無ければ telegraph）。群れの小蝙蝠は小さく短い鳴き声（何体も鳴るので） */
+const ENEMY_WINDUP_SFX: Partial<Record<string, SfxName>> = { bat: 'batSqueak' };
 /** 溜めの段階が上がったときの合図 */
 const CHARGE_LEVEL_SFX: readonly SfxName[] = ['chargeLevel1', 'chargeLevel2'];
 
@@ -603,10 +605,11 @@ export class Game {
     for (let i = 0; i < this.enemySims.length; i++) {
       const a = this.enemySims[i]!;
       if (a.dead) continue;
-      pushOutOfCircle(this.player.body, a.body);
+      // 飛んでいる敵（群れの小蝙蝠）はプレイヤーを押し出さず、地上の敵とも押し合わない（飛んでいる敵どうしだけが重ならない）
+      if (!a.def.flying) pushOutOfCircle(this.player.body, a.body);
       for (let j = i + 1; j < this.enemySims.length; j++) {
         const b = this.enemySims[j]!;
-        if (!b.dead) separateCircles(a.body, b.body);
+        if (!b.dead && (a.def.flying ?? false) === (b.def.flying ?? false)) separateCircles(a.body, b.body);
       }
     }
     for (const { enemy } of this.enemies) clampInsideArena(enemy.body, 0, 0, this.arena.radius);
@@ -670,7 +673,7 @@ export class Game {
         // ガード不能の予備動作: 防げる攻撃と違う鋭い合図と、頭上の警告（避けるしかない）
         this.sfx.play('unblockWarn', { gain: Math.max(gain, 0.7) });
         this.damageNumbers.spawnText(e.body.x, Math.min(e.def.height + 0.55, 1.9), e.body.z, 'ガード不能', 'warn');
-      } else if (e.state === 'windup') this.sfx.play('telegraph', { gain });
+      } else if (e.state === 'windup') this.sfx.play(ENEMY_WINDUP_SFX[e.def.id] ?? 'telegraph', { gain });
       else this.sfx.play(ENEMY_ATTACK_SFX[e.def.id] ?? 'enemySwing', { gain, delay: 0.02 });
     }
   }
