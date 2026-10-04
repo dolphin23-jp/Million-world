@@ -11,10 +11,10 @@ const H = 0;
  * 座標の約束は combo1.ts と同じ（胸の座標系）。斬りの面は水平（tilt 0）。
  *
  * 時間: 0 → 0.16 右へひねって剣を右後ろへ（0.13〜0.16 は頂点で一拍。腰を落として後ろ足に体重）/ 0.16 → 0.26 薙ぐ（0.23 に前を通る最高速。左足は 0.22 に着地）/
- * 0.26 → 0.38 振り抜く / 0.38 → 0.46 保つ / 0.46 → 0.66 戻り。
+ * 0.26 → 0.38 振り抜く / 0.38 → 0.52 保つ（返し薙ぎの受付。ADR-024）/ 0.52 → 0.72 戻り。
  * 踏み込み: ルートは 0.1 から加速して 0.22 までに 0.3 m、減速して 0.38 までに 0.55 m。
  */
-const WINDUP = {
+export const WINDUP = {
   hips: { yaw: 22, pitch: -2, z: -0.05, y: -0.1 },
   chest: { yaw: 36, pitch: -4 },
   head: { yaw: 12 },
@@ -25,7 +25,7 @@ const WINDUP = {
   ...OFFHAND.guard,
 };
 
-const FOLLOW = {
+export const FOLLOW = {
   hips: { yaw: -18, pitch: 8, z: 0.05, y: -0.14 },
   chest: { yaw: -32, pitch: 10 },
   head: { yaw: -14 },
@@ -36,9 +36,12 @@ const FOLLOW = {
   ...OFFHAND.hip,
 };
 
+/** 払い切りの姿勢を保つ（返し薙ぎ sweepBack の continueFrom がこの時刻の姿勢を指す） */
+export const SWEEP_HOLD_T = 0.4;
+
 export const SWEEP: AuthoredAttack = {
   name: 'sweep',
-  duration: 0.66,
+  duration: 0.72,
   keys: [
     // ---- 下半身: 左足が弧を描いて前へ踏み込む。右足は残って、あとで引き寄せる ----
     { t: 0.1, ease: 'lin', rootZ: 0 },
@@ -46,12 +49,12 @@ export const SWEEP: AuthoredAttack = {
     { t: 0.38, ease: 'out', rootZ: 0.55 },
     { t: 0.1, ease: 'lin', footL: { z: 0 } },
     { t: 0.22, ease: 'io', footL: { z: 0.55, arc: 0.12 } },
-    { t: 0.46, ease: 'lin', footL: { z: 0.55 } },
-    { t: 0.66, ease: 'io', footL: { z: 0.55, arc: 0.02 } },
+    { t: 0.52, ease: 'lin', footL: { z: 0.55 } },
+    { t: 0.72, ease: 'io', footL: { z: 0.55, arc: 0.02 } },
     { t: 0.26, ease: 'lin', footR: { z: 0 } },
     { t: 0.4, ease: 'io', footR: { z: 0.4, arc: 0.07 } },
-    { t: 0.46, ease: 'lin', footR: { z: 0.4 } },
-    { t: 0.66, ease: 'io', footR: { z: 0.55, arc: 0.05 } },
+    { t: 0.52, ease: 'lin', footR: { z: 0.4 } },
+    { t: 0.72, ease: 'io', footR: { z: 0.55, arc: 0.05 } },
     // ---- ひねって溜める → 薙ぐ → 振り抜く ----
     ...pose(0.13, 'io', WINDUP),
     ...pose(0.16, 'lin', WINDUP),
@@ -66,9 +69,9 @@ export const SWEEP: AuthoredAttack = {
       ...OFFHAND.pull,
     }),
     ...pose(0.32, 'out', FOLLOW),
-    ...pose(0.46, 'lin', FOLLOW),
+    ...pose(0.52, 'lin', FOLLOW),
     // ---- 戻り ----
-    ...pose(0.66, 'io', {
+    ...pose(0.72, 'io', {
       hips: { yaw: 0, pitch: 0, z: 0, y: 0 },
       chest: { yaw: 0, pitch: 0 },
       head: { yaw: 0 },

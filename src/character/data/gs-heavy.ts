@@ -64,9 +64,12 @@ export const SMASH = {
 
 /**
  * 溜め斬り（溜めを放つ）: 頭上の構えから、左足を大きく踏み込んで、真上から真下へ叩き割る。溜めの終端（TOP）の姿勢から続けて始まる（continueFrom）。威力は溜めの段階で上がる（CHARGES.greatsword.levelPower）。
- * 0 → 0.14 腰を沈めて力を溜める（TOP からさらに沈む）/ 0.14 → 0.22 振り下ろす（0.22 に体の前を通る最高速。左足は 0.22 に着地）/ 0.22 → 0.3 叩きつけて止まる / 0.3 → 0.5 保つ / 0.5 → 0.98 戻り（硬直は長い）。
+ * 0 → 0.14 腰を沈めて力を溜める（TOP からさらに沈む）/ 0.14 → 0.22 振り下ろす（0.22 に体の前を通る最高速。左足は 0.22 に着地）/ 0.22 → 0.3 叩きつけて止まる / 0.3 → 0.58 保つ（地擦り斬り上げの受付。ADR-024）/ 0.58 → 0.98 戻り（硬直は長い）。
  * 踏み込み: 左足が 0.1 に床を離れ、0.22 に腰の 0.46 m 前へ着地する。右足は引きずって 0.22 には腰の 0.4 m 後ろ（幅 0.86 m。これ以上開くと脚が届かず腰が沈みすぎる）。ルートは 0.1 から加速して 0.22 までに 0.7 m、減速して 0.36 までに 1.3 m。
  */
+/** 叩きつけた姿勢を保つ時刻（地擦り斬り上げ gsHeavyRip の受付。AttackDef.cancelAt と同じ。0.3〜0.58 で保つ。ルートは 0.36 で止まる） */
+export const GS_HEAVY_HOLD_T = 0.4;
+
 export const GS_HEAVY: AuthoredAttack = {
   name: 'gsHeavy',
   duration: 0.98,
@@ -79,19 +82,19 @@ export const GS_HEAVY: AuthoredAttack = {
     { t: 0.36, ease: 'out', rootZ: 1.3 },
     { t: 0.1, ease: 'lin', footL: { z: 0 } },
     { t: 0.22, ease: 'io', footL: { z: 1.16, arc: 0.16 } },
-    { t: 0.5, ease: 'lin', footL: { z: 1.16 } },
+    { t: 0.58, ease: 'lin', footL: { z: 1.16 } },
     { t: 0.98, ease: 'io', footL: { z: 1.3, arc: 0.02 } },
     { t: 0.1, ease: 'lin', footR: { z: 0 } },
     { t: 0.22, ease: 'io', footR: { z: 0.3, arc: 0.05 } },
     { t: 0.38, ease: 'out', footR: { z: 0.85, arc: 0.08 } },
-    { t: 0.5, ease: 'lin', footR: { z: 0.85 } },
+    { t: 0.58, ease: 'lin', footR: { z: 0.85 } },
     { t: 0.98, ease: 'io', footR: { z: 1.3, arc: 0.1 } },
     // ---- 沈む → 振り下ろす → 叩きつける → 保つ → 戻る ----
     ...pose(0.1, 'io', { ...TOP, hips: { yaw: 6, pitch: -4, z: -0.04, y: -0.28 } }),
     ...pose(0.14, 'lin', { ...TOP, hips: { yaw: 6, pitch: -4, z: -0.04, y: -0.28 } }),
     ...pose(0.22, 'in', PASS),
     ...pose(0.3, 'out', SMASH),
-    ...pose(0.5, 'lin', SMASH),
+    ...pose(0.58, 'lin', SMASH),
     ...pose(0.98, 'io', GS_READY),
   ],
 };

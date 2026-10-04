@@ -368,6 +368,32 @@ try {
   await sleep(120);
   await page.screenshot({ path: 'artifacts/shot-lock-switch.png' });
 
+  // 操作ガイド（ADR-024）: ロックして 1 段目を出し、次段の受付が開いた絵（連携の履歴・続けられる技・受付の帯）と、右上の「技表」を開いた絵
+  await page.evaluate((solo) => {
+    const g = window.__mw.game;
+    g.restart({ ...solo, maxAttackers: 0 });
+    g.setLoadout('sword');
+    g.stepNow(1);
+    g.player.body.x = 0;
+    g.player.body.z = 0;
+    g.player.yaw = 0;
+    g.enemies[0].enemy.place(0, 6, Math.PI);
+    g.inject({ lockPressed: true });
+    g.stepNow(1);
+    g.stepNow(30);
+    g.inject({ attackPressed: true });
+    g.stepNow(1);
+    g.stepNow(24);
+    g.renderNow(5);
+  }, SOLO);
+  await sleep(120);
+  await page.screenshot({ path: 'artifacts/shot-guide.png' });
+  await page.click('#btn-moves');
+  await sleep(250);
+  await page.screenshot({ path: 'artifacts/shot-moves.png' });
+  await page.click('.ml-close');
+  await sleep(150);
+
   // 12〜13. リザルト: 勝ち（敵を倒しきる）と負け（プレイヤーを倒す）。CSS アニメはループを止めると進まないので、止めて撮る
   await page.addStyleTag({ content: '*, *::before, *::after { animation: none !important; }' });
   await page.evaluate((solo) => {

@@ -8,7 +8,7 @@ import { pose } from './stagger';
 const V = 90;
 
 /** 予備動作の頂点: 腰を落として体を反らせ、剣を頭の上〜後ろへ大きく振りかぶる。頂点で一拍止めてから振り下ろす */
-const TOP = {
+export const TOP = {
   hips: { yaw: 6, pitch: -6, z: -0.06, y: -0.12 },
   chest: { yaw: 10, pitch: -14 },
   head: { yaw: 2 },
@@ -20,7 +20,7 @@ const TOP = {
 };
 
 /** 振り下ろしの終わり: 前へ大きく踏み込んで腰を深く沈め、体を倒し、剣先が前の低い所で止まる。この姿勢を保つ */
-const LAND = {
+export const LAND = {
   hips: { yaw: 0, pitch: 14, z: 0.08, y: -0.2 },
   chest: { yaw: 0, pitch: 24 },
   head: { yaw: 0 },

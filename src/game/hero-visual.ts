@@ -11,6 +11,8 @@ import type { WeaponId } from '../combat/data/loadouts';
 import { HERO } from '../character/data/hero';
 import { captureRig, type CapturedRig } from '../character/rig-capture';
 import { BONE } from '../character/rig';
+import { PostureTrim } from '../character/posture';
+import { POSTURE_LEAN, POSTURE_SHARE, POSTURE_SPEED } from '../character/data/posture';
 import { approach } from '../core/math';
 import { buildSword } from './sword';
 import { buildGreatsword } from './greatsword';
@@ -59,6 +61,9 @@ export class HeroVisual {
   private swordGlow = 0;
   private glowPulse = 0;
   private seenChargeLevel = 0;
+  /** 立ち姿の前傾補正（ADR-024）と、いまの傾き（度。状態に応じて出し入れする）。骨が見つからないときは補正なし */
+  private readonly posture: PostureTrim | null;
+  private lean = 0;
   /** 手付けアニメの元になったリグ情報と、焼いたときの統計（デバッグ・検証用） */
   readonly capture: CapturedRig;
   readonly authoredStats: Record<string, BakeStats> = {};
@@ -139,7 +144,18 @@ export class HeroVisual {
     } else console.warn(`[hero] ボーンがありません: ${BONE.foreL}`);
     this.shield.visible = false;
 
+    this.posture = this.makePosture(asset);
     this.animator.play(HERO.clips.idle, { loop: true, fade: 0 });
+  }
+
+  private makePosture(asset: CharacterAsset): PostureTrim | null {
+    const get = (name: string) => asset.bones.get(name);
+    const b = { hips: get(BONE.hips), spine02: get(BONE.spine02), spine01: get(BONE.spine01), spine: get(BONE.spine), neck: get(BONE.neck), head: get(BONE.head), upLegL: get(BONE.upLegL), upLegR: get(BONE.upLegR) };
+    if (!b.hips || !b.spine02 || !b.spine01 || !b.spine || !b.neck || !b.head || !b.upLegL || !b.upLegR) {
+      console.warn('[hero] 姿勢の補正に使う骨がありません');
+      return null;
+    }
+    return new PostureTrim({ hips: b.hips, spine02: b.spine02, spine01: b.spine01, spine: b.spine, neck: b.neck, head: b.head, upLegL: b.upLegL, upLegR: b.upLegR }, POSTURE_SHARE);
   }
 
   private makeWeapon(group: THREE.Group, range: { baseY: number; tipY: number }): WeaponView {
@@ -230,7 +246,14 @@ export class HeroVisual {
       const rate = Math.max(HERO.runRateMin, p.speed / HERO.runCycleSpeed);
       this.animator.setRate(rate);
     }
+    // ミキサーが骨へ書き直さない値の上に補正が重ならないよう、更新の前に戻して、更新のあとにかけ直す
+    this.posture?.release();
     this.animator.update(dt);
+    if (this.posture) {
+      const target = POSTURE_LEAN[p.loadout.weapon][p.state];
+      this.lean = approach(this.lean, target, frameDt * (target > this.lean ? POSTURE_SPEED.toward : POSTURE_SPEED.away));
+      this.posture.apply(this.lean);
+    }
   }
 
   /** 手付けクリップの名前（盾を持つときは、左腕を盾の位置に固定して焼き直した版があればそれ） */

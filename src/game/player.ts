@@ -4,7 +4,7 @@ import { ATTACKS, CHARGES, DODGES, DODGE_RULES, HIT_STUN, MOVE, PLAYER_STATS, re
 import { DEFAULT_LOADOUT, LOADOUTS, type LoadoutDef, type LoadoutId } from '../combat/data/loadouts';
 import { PARRY_EFFECTS, type GuardDef, type ParryEffectDef } from '../combat/data/guard';
 import { guardOutcome as resolveGuardOutcome, guardedDamage, type GuardOutcome } from '../combat/guard';
-import { afterDodgeOf, classifyStick, pickAttack, pickChargeRelease, pickFollowUp } from '../combat/moveset';
+import { afterDodgeOf, classifyStick, pickAttack, pickChargeRelease, pickFollowUp, type AfterDodge, type StickDir } from '../combat/moveset';
 import { applyDamage, createHealth, type DamageResult } from '../combat/health';
 import { HitTracker, isActiveFrame, type HitEvent, type Hurtbox } from '../combat/hit';
 import { Knockback } from '../combat/knockback';
@@ -23,6 +23,9 @@ export type PlayerState = 'idle' | 'run' | 'attack' | 'charge' | 'guard' | 'dodg
 
 /** ガードを押してから、構えに入れる状況になるまで待てるフレーム（先行入力。攻撃の硬直中などに押しても構えられる） */
 const GUARD_BUFFER_FRAMES = 12;
+
+/** 連携の履歴（Player.chain）に残す技の数 */
+const MAX_CHAIN = 6;
 /** 構えているあいだの向き直りの速さ（走るときの旋回速度に対する倍率） */
 const GUARD_TURN_SCALE = 0.6;
 
@@ -47,6 +50,10 @@ export class Player {
   /** 被弾後の無敵の残りフレーム */
   private hurtInvuln = 0;
   private attackBuffered = false;
+  /** 直近の sim ステップでのスティックの向き（対象に対して。ロックなしは倒していれば前）。操作ガイドが読む（ADR-024） */
+  stickDir: StickDir = 'none';
+  /** 連携の履歴（技の id。古い → 新しい）。次段の受付から続けた技は足し、そうでなければ始めた技だけになる。操作ガイドが読む */
+  chain: string[] = [];
   /** いまの攻撃の威力の倍率（溜めの段階で上がる。ダメージ・ノックバック・ヒットストップに掛かる。src/game/combat.ts） */
   attackPower = 1;
   /** 溜め（攻撃の長押し）の構え。charge 状態のときだけ非 null。chargeLevel は構えが整ってからの保持で上がる段階（0, 1, 2）*/
@@ -135,6 +142,7 @@ export class Player {
     const mz = rz * intent.moveX + fz * intent.moveY;
     const mLen = Math.hypot(mx, mz);
 
+    this.stickDir = classifyStick(mLen, Math.atan2(mx, mz), this.aimYaw() ?? this.yaw, this.hasAim);
     if (intent.attackPressed) this.attackBuffered = true;
     this.heldNow = intent.attackHeld;
     if (this.state !== 'dodge' && this.framesSinceDodge < 9999) this.framesSinceDodge++;
@@ -216,6 +224,21 @@ export class Player {
     return r;
   }
 
+  /** ロックオンの照準があるか（横・後ろの入力が使える。操作ガイドが読む） */
+  get locked(): boolean {
+    return this.hasAim;
+  }
+
+  /** 回避の直後か（立っているとき）。回避中は、その回避の種類（回避中に押した攻撃もダッシュになる）。操作ガイドが読む */
+  get afterDodge(): AfterDodge {
+    return this.state === 'dodge' ? this.dodgeKind : afterDodgeOf(this.framesSinceDodge, this.dodgeKind);
+  }
+
+  /** 続きの攻撃を先に押してある（次段の受付が開いた瞬間に出る）。操作ガイドが読む */
+  get attackQueued(): boolean {
+    return this.attackBuffered;
+  }
+
   get dead(): boolean {
     return this.state === 'dead';
   }
@@ -289,8 +312,16 @@ export class Player {
     return Math.hypot(dx, dz) > 0.05 ? Math.atan2(dx, dz) : null;
   }
 
-  private beginAttack(def: AttackDef, mx: number, mz: number, mLen: number, power = 1): void {
+  private beginAttack(def: AttackDef, mx: number, mz: number, mLen: number, power = 1, continuing = false): void {
     this.attackBuffered = false;
+    // 連携の履歴: 次段の受付から続けた技は足す（長さは MAX_CHAIN まで）。そうでなければ、この技だけから始める
+    if (continuing) {
+      this.chain.push(def.id);
+      if (this.chain.length > MAX_CHAIN) this.chain.shift();
+    } else {
+      this.chain.length = 0;
+      this.chain.push(def.id);
+    }
     this.attack = def;
     this.attackFrames = resolveAttack(def);
     this.attackPower = power;
@@ -361,7 +392,7 @@ export class Player {
       const ref = this.aimYaw() ?? this.yaw;
       const follow = pickFollowUp(a.next, a.branches, classifyStick(mLen, Math.atan2(mx, mz), ref, this.hasAim));
       if (follow) {
-        this.beginAttack(ATTACKS[follow]!, mx, mz, mLen);
+        this.beginAttack(ATTACKS[follow]!, mx, mz, mLen, 1, true);
         return;
       }
     }
