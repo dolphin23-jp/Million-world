@@ -818,6 +818,74 @@ try {
   await sleep(150);
   await page.screenshot({ path: 'artifacts/shot-item-used.png' });
 
+  // スキル欄（ADR-031）: ロックして剣技（燕返し）を出し、連なりの途中の絵（技名の文字・クールダウンの扇）→ 長押しして上へすべらせた一覧 → 大剣へ替えたスキルボタン
+  const skill = await page.evaluate((solo) => {
+    const g = window.__mw.game;
+    g.restart({ ...solo, maxAttackers: 0 });
+    g.setLoadout('sword');
+    g.stepNow(1);
+    g.player.body.x = 0;
+    g.player.body.z = 0;
+    g.player.yaw = 0;
+    g.cam.yaw = Math.PI;
+    g.enemies[0].enemy.place(0, 1.8, Math.PI);
+    g.inject({ lockPressed: true });
+    g.stepNow(1);
+    g.inject({ skillPressed: true });
+    g.stepNow(1);
+    const serial = g.player.skillSerial;
+    const seq = [];
+    let last = null;
+    for (let i = 0; i < 40; i++) {
+      g.stepNow(1);
+      const id = g.player.attack?.id ?? null;
+      if (id !== last) {
+        last = id;
+        if (id) seq.push(id);
+      }
+    }
+    g.renderNow(6);
+    return { serial, seq, cd: g.skills.cooldownRatio('tsubame') };
+  }, SOLO);
+  console.log(`[skill] ${JSON.stringify(skill)}`);
+  if (skill.serial !== 1 || !skill.seq.includes('comboHop') || skill.cd <= 0) {
+    console.error('[skill] スキルボタンから剣技が始まっていない（連なりが自動で続いていない・クールダウンに入っていない）');
+    process.exitCode = 3;
+  }
+  await sleep(150);
+  await page.screenshot({ path: 'artifacts/shot-skill.png' });
+  const skillBox = await page.locator('#btn-skill').boundingBox();
+  const scx = skillBox.x + skillBox.width / 2;
+  const scy = skillBox.y + skillBox.height / 2;
+  await page.mouse.move(scx, scy);
+  await page.mouse.down();
+  await sleep(400);
+  await page.mouse.move(scx, scy - 40, { steps: 4 });
+  await page.mouse.move(scx, scy - 72 * 2, { steps: 6 });
+  await sleep(150);
+  await page.screenshot({ path: 'artifacts/shot-skill-menu.png' });
+  await page.mouse.up();
+  await sleep(100);
+  const skillPicked = await page.evaluate(() => window.__mw.game.skills.selectedFor('sword').id);
+  console.log(`[skill] 一覧で選んだスキル: ${skillPicked}`);
+  if (skillPicked !== 'samidare') {
+    console.error('[skill] 長押し + スワイプで五月雨に選び替わっていません');
+    process.exitCode = 3;
+  }
+  const gsSkill = await page.evaluate(() => {
+    const g = window.__mw.game;
+    g.setLoadout('greatsword');
+    g.renderNow(4);
+    return g.skills.selectedFor('greatsword').id;
+  });
+  console.log(`[skill] 大剣のスキルボタン: ${gsSkill}`);
+  if (gsSkill !== 'dangan') {
+    console.error('[skill] 大剣に替えても、スキルボタンが大剣のスキルになっていません');
+    process.exitCode = 3;
+  }
+  await sleep(150);
+  await page.screenshot({ path: 'artifacts/shot-skill-greatsword.png' });
+
   // 操作ガイド（ADR-024）: ロックして 1 段目を出し、次段の受付が開いた絵（連携の履歴・続けられる技・受付の帯）と、右上の「技表」を開いた絵
   await page.evaluate((solo) => {
     const g = window.__mw.game;
