@@ -84,7 +84,7 @@ describe('効果音のレシピ（data/sfx.ts）', () => {
   });
 
   it('ゲームが使う音がそろっている', () => {
-    for (const n of ['swing1', 'swing2', 'swing3', 'swingHeavy', 'dodge', 'hit', 'hitHeavy', 'kill', 'hurt', 'telegraph', 'enemySwing', 'boarCharge', 'orbShot', 'orbBreak', 'unblockWarn', 'poiseBreak', 'batSqueak', 'batSwoop', 'lock', 'switch', 'unlock', 'ui', 'wave', 'victory', 'defeat'] as const) {
+    for (const n of ['swing1', 'swing2', 'swing3', 'swingHeavy', 'dodge', 'hit', 'hitHeavy', 'kill', 'hurt', 'telegraph', 'enemySwing', 'boarCharge', 'orbShot', 'orbBreak', 'unblockWarn', 'poiseBreak', 'batSqueak', 'batSwoop', 'bossRoar', 'lock', 'switch', 'unlock', 'ui', 'wave', 'victory', 'defeat'] as const) {
       expect(names, n).toContain(n);
     }
   });

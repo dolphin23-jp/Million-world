@@ -15,6 +15,14 @@ export class Hud {
   private readonly targetLag: HTMLElement;
   private readonly targetName: HTMLElement;
   private readonly targetPoiseFill: HTMLElement;
+  private readonly bossEl: HTMLElement;
+  private readonly bossFill: HTMLElement;
+  private readonly bossLag: HTMLElement;
+  private readonly bossName: HTMLElement;
+  private readonly bossPoiseFill: HTMLElement;
+  private bossShown = false;
+  /** 段階の目盛りを作り済みのボス（作り直さないため） */
+  private bossTicksFor: string | null = null;
   private targetShown = false;
   private readonly bannerEl: HTMLElement;
   private readonly resultEl: HTMLElement;
@@ -38,6 +46,11 @@ export class Hud {
     this.targetLag = this.targetEl.querySelector('.hp-lag') as HTMLElement;
     this.targetName = this.targetEl.querySelector('.hp-name') as HTMLElement;
     this.targetPoiseFill = this.targetEl.querySelector('.poise-fill') as HTMLElement;
+    this.bossEl = document.getElementById('hp-boss')!;
+    this.bossFill = this.bossEl.querySelector('.hp-fill') as HTMLElement;
+    this.bossLag = this.bossEl.querySelector('.hp-lag') as HTMLElement;
+    this.bossName = this.bossEl.querySelector('.hp-name') as HTMLElement;
+    this.bossPoiseFill = this.bossEl.querySelector('.poise-fill') as HTMLElement;
     this.bannerEl = document.getElementById('banner')!;
     this.resultEl = document.getElementById('result')!;
     this.retryBtn = document.getElementById('result-retry')!;
@@ -100,6 +113,55 @@ export class Hud {
   }
 
   /** ロック対象の HP バー（プレイヤーの HP の下）。null で隠す。毎フレーム呼んでよい（変化があったときだけ DOM を触る） */
+  /**
+   * ボスの HP バー（画面上部）。null で隠す。phases は段階の境目（HP の割合。目盛りを出す）、poise は体勢ゲージ 0..1。
+   * ボスがいるあいだは、ロック対象の HP の位置を下へずらす（CSS の boss-on）
+   */
+  setBoss(b: { name: string; hp: number; max: number; poise: number | null; phases: readonly number[] } | null): void {
+    if (!b) {
+      if (this.bossShown) {
+        this.bossEl.style.display = 'none';
+        document.body.classList.remove('boss-on');
+        this.bossShown = false;
+        this.bossTicksFor = null;
+      }
+      return;
+    }
+    if (!this.bossShown) {
+      this.bossEl.style.display = '';
+      document.body.classList.add('boss-on');
+      this.bossShown = true;
+      // 現れた直後は、白い遅れ帯を現在値に揃えてから縮み始めさせる
+      this.bossLag.style.transition = 'none';
+      this.bossLag.style.width = `${Math.max(0, Math.min(1, b.hp / b.max)) * 100}%`;
+      void this.bossLag.offsetWidth;
+      this.bossLag.style.transition = '';
+    }
+    if (this.bossName.textContent !== b.name) this.bossName.textContent = b.name;
+    const key = `${b.name}:${b.phases.join(',')}`;
+    if (this.bossTicksFor !== key) {
+      this.bossTicksFor = key;
+      this.bossEl.querySelectorAll('.phase-tick').forEach((el) => el.remove());
+      for (const p of b.phases) {
+        const tick = document.createElement('div');
+        tick.className = 'phase-tick';
+        tick.style.left = `${p * 100}%`;
+        this.bossEl.appendChild(tick);
+      }
+    }
+    const w = `${Math.max(0, Math.min(1, b.hp / b.max)) * 100}%`;
+    if (this.bossFill.style.width !== w) {
+      this.bossFill.style.width = w;
+      this.bossLag.style.width = w;
+    }
+    const hasPoise = b.poise !== null;
+    this.bossEl.classList.toggle('has-poise', hasPoise);
+    if (hasPoise) {
+      this.bossPoiseFill.style.width = `${Math.max(0, Math.min(1, b.poise!)) * 100}%`;
+      this.bossEl.querySelector('.poise')!.classList.toggle('broken', b.poise! <= 0);
+    }
+  }
+
   setTarget(t: { name: string; hp: number; max: number; /** 体勢ゲージ 0..1（重装型だけ） */ poise?: number | null } | null): void {
     if (!t) {
       if (this.targetShown) {

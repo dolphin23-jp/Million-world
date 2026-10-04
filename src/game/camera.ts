@@ -21,6 +21,9 @@ export const CAMERA = {
   /** 追従の速さ（大きいほど速い） */
   followLambda: 14,
   fov: 50,
+  /** ボスがいるあいだ（ADR-029）、背の高い（3.9m）ボスの頭まで映るよう、カメラを引く距離（m）と、注視点を上げる高さ（m） */
+  bossPullBack: 2.4,
+  bossLookUp: 0.75,
 } as const;
 
 const _target = new THREE.Vector3();
@@ -42,6 +45,9 @@ export class ThirdPersonCamera {
   private lockDist = 0;
   /** 0（通常）〜 1（ロック）。切り替わりをなめらかにする（描画で更新） */
   private lockBlend = 0;
+  /** ボスがいるか（Game が描画で更新する）。いるあいだ少し引いて少し上を見る。0〜1 でなめらかに切り替える */
+  boss = false;
+  private bossBlend = 0;
   /** 開発用: 注視点をここに固定する（追従しない）。モーションシートで、動くキャラを定点から撮るために使う */
   private pinned: THREE.Vector3 | null = null;
 
@@ -92,12 +98,14 @@ export class ThirdPersonCamera {
     _target.set(targetFoot.x, targetFoot.y + CAMERA.lookHeight, targetFoot.z);
     // ロック: 注視点を対象寄りに。距離は離れた敵が映る分だけ引く
     this.lockBlend = damp(this.lockBlend, this.lockActive ? 1 : 0, 6, frameDt);
+    this.bossBlend = damp(this.bossBlend, this.boss ? 1 : 0, 2.5, frameDt);
+    _target.y += CAMERA.bossLookUp * this.bossBlend;
     const bias = LOCKON.focusBias * this.lockBlend;
     if (bias > 0.001) {
       _target.x += (this.lockX - targetFoot.x) * bias;
       _target.z += (this.lockZ - targetFoot.z) * bias;
     }
-    const extra = clamp((this.lockDist - 3) * LOCKON.distanceGain, 0, LOCKON.distanceMax) * this.lockBlend;
+    const extra = clamp((this.lockDist - 3) * LOCKON.distanceGain, 0, LOCKON.distanceMax) * this.lockBlend + CAMERA.bossPullBack * this.bossBlend;
     if (this.pinned) {
       this.follow.copy(this.pinned);
       this.initialized = true;

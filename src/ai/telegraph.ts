@@ -1,4 +1,5 @@
 import { PROJECTILES } from '../combat/data/projectiles';
+import { fanOffset } from '../combat/projectile';
 import type { EnemyAttackDef } from './data/enemies';
 
 /**
@@ -61,11 +62,17 @@ export function laneLength(atk: EnemyAttackDef): number {
   return atk.lunge + reach;
 }
 
-/** 予告を out に書いて true。出さない状態（予告の無い攻撃・予備動作と攻撃以外）は false */
-export function laneOf(e: TelegraphSource, out: LaneView): boolean {
+/** 帯の本数（弾を扇・輪に撃つ技は弾の本数ぶん。ADR-029）。帯の予告の無い技は 0 */
+export function laneCount(atk: EnemyAttackDef): number {
+  return atk.telegraph?.kind === 'lane' ? (atk.projectileCount ?? 1) : 0;
+}
+
+/** 予告を out に書いて true。出さない状態（予告の無い攻撃・予備動作と攻撃以外）は false。index は扇・輪の何本目か（既定 0 = 撃つ向きの 1 本） */
+export function laneOf(e: TelegraphSource, out: LaneView, index = 0): boolean {
   const atk = e.attackDef;
   const t = atk.telegraph;
   if (!t || t.kind !== 'lane') return false;
+  const yaw = e.yaw + fanOffset(index, atk.projectileCount ?? 1, atk.projectileSpread ?? 0);
   out.length = laneLength(atk);
   out.width = t.width;
   out.unblockable = atk.unblockable === true;
@@ -76,7 +83,7 @@ export function laneOf(e: TelegraphSource, out: LaneView): boolean {
     const pulse = 0.08 * Math.sin(e.stateFrame * 0.55);
     out.x = e.body.x;
     out.z = e.body.z;
-    out.yaw = e.yaw;
+    out.yaw = yaw;
     out.intensity = locked ? 0.62 + pulse + 0.2 * ((e.stateFrame - atk.windupTrackFrames) / Math.max(1, atk.windupFrames - atk.windupTrackFrames)) : 0.12 + 0.28 * track;
     out.locked = locked;
     out.striking = false;
@@ -89,7 +96,7 @@ export function laneOf(e: TelegraphSource, out: LaneView): boolean {
     if (u >= 1) return false;
     out.x = e.attackOriginX;
     out.z = e.attackOriginZ;
-    out.yaw = e.yaw;
+    out.yaw = yaw;
     out.intensity = 1 - 0.85 * u;
     out.locked = true;
     out.striking = true;

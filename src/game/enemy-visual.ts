@@ -8,9 +8,9 @@ import { PROJECTILES, PROJECTILE_HEIGHT } from '../combat/data/projectiles';
 import { WISP_COLORS, glowTexture } from '../render/projectiles';
 
 /**
- * 敵（子鬼・暴れ猪・提灯・岩鬼・小蝙蝠）の見た目。プリミティブ製の仮モデルだが、トゥーン着色・輪郭線・影の枠の中に置く（CLAUDE.md 原則 3）。
+ * 敵（子鬼・暴れ猪・提灯・岩鬼・小蝙蝠・ボス）の見た目。プリミティブ製の仮モデルだが、トゥーン着色・輪郭線・影の枠の中に置く（CLAUDE.md 原則 3）。
  * 種類（kind）ごとに部品とポーズの付け方が違い（子鬼は腕を振り上げて叩きつける。暴れ猪は前脚で地面を掻いて頭を下げ、突進で脚を回す。
- * 小蝙蝠は宙を羽ばたいて浮き、予備動作で翼を広げて仰け反り、急降下で噛みつく。提灯は宙に浮いて、予備動作で前に鬼火を溜め、撃つ反動で前のめりになる。岩鬼は金棒を頭上へ振りかぶって地面へ叩きつけ、体勢が減るほど体の割れ目が光り、崩れると膝をつく）、
+ * ボス「夜行の大将」は岩鬼の体の色違いを 1.3 倍にして背に大提灯を担ぎ、技ごとの構え（叩きつけ・片腕で放つ・両腕を広げて吠える）を取る。小蝙蝠は宙を羽ばたいて浮き、予備動作で翼を広げて仰け反り、急降下で噛みつく。提灯は宙に浮いて、予備動作で前に鬼火を溜め、撃つ反動で前のめりになる。岩鬼は金棒を頭上へ振りかぶって地面へ叩きつけ、体勢が減るほど体の割れ目が光り、崩れると膝をつく）、
  * 被弾・のけぞり・倒れ・弾かれの反応と発光は共通。
  * 原点は足元、正面は +Z。体（pivot）は被弾でのけぞり・つぶれ、死亡で倒れる。
  *
@@ -126,6 +126,29 @@ export const BAT_COLORS = {
   fang: 0xfff6e0,
 } as const;
 
+/** 岩鬼・ボスの体の色（buildOgre の引数） */
+/** ボスの頭（岩鬼と同じ。原点 = 足元）の座標 */
+const onBossHead = (x: number, y: number, z: number): [number, number, number] => [x, 2.26 + y, 0.06 + z];
+
+export type OgrePalette = { readonly [K in keyof typeof OGRE_COLORS]: number };
+
+/** ボス「夜行の大将」: 黒鉄の鎧・暗い赤紫の肌・金の縁・白熱した目。割れ目はマゼンタ（岩鬼の橙と見分ける） */
+export const BOSS_COLORS: OgrePalette = {
+  skin: 0x7a2f46,
+  skinRim: 0xffc0d0,
+  armor: 0x2d3040,
+  dark: 0x16182a,
+  metal: 0x555a70,
+  cream: 0xf2e7c9,
+  gold: 0xe3b04b,
+  eye: 0xff8a5a,
+  crackDim: 0x5a1030,
+  crackHot: 0xff5a9a,
+};
+/** ボスの拡大率（岩鬼の部品をそのまま大きくする）。背の大提灯の色 */
+const BOSS_SCALE = 1.3;
+const BOSS_LANTERN = { paper: 0xd9473b, glowDim: 0x7a2a1a, glowHot: 0xffb070 } as const;
+
 /** 小蝙蝠の体の中心の高さ（宙に浮く）と体の半径。倒れて落ちるときの落下量に使う */
 const BAT_Y = 1.0;
 const BAT_R = 0.2;
@@ -165,6 +188,11 @@ export class EnemyVisual {
   private charge: THREE.Group | null = null;
   /** 岩鬼の体勢の割れ目の材質（体勢が減るほど明るくする）。岩鬼以外では使わない */
   private crackMat: THREE.MeshBasicMaterial | null = null;
+  /** 割れ目の色（岩鬼は橙、ボスはマゼンタ） */
+  private crackPalette: OgrePalette = OGRE_COLORS;
+  /** ボスの背の大提灯（段階が進むほど明るく、鬼火を放つ構えで膨らむ）。ボス以外では使わない */
+  private bossLantern: THREE.Group | null = null;
+  private bossLanternMat: THREE.MeshBasicMaterial | null = null;
 
   private seenHit = 0;
   /** 被弾の演出（0..1 で減衰）。実時間で減らす */
@@ -181,7 +209,8 @@ export class EnemyVisual {
     this.root.add(this.pivot);
     if (kind === 'boar') this.buildBoar();
     else if (kind === 'lantern') this.buildLantern();
-    else if (kind === 'ogre') this.buildOgre();
+    else if (kind === 'ogre') this.buildOgre(OGRE_COLORS, false);
+    else if (kind === 'boss') this.buildOgre(BOSS_COLORS, true);
     else if (kind === 'bat') this.buildBat();
     else this.build();
   }
@@ -203,7 +232,7 @@ export class EnemyVisual {
   }
 
   private toon(color: number, over: Partial<Parameters<typeof createToonMaterial>[0]> = {}): ToonMaterial {
-    const rim = this.kind === 'boar' ? BOAR_COLORS.bodyRim : this.kind === 'lantern' ? LANTERN_COLORS.paperRim : this.kind === 'ogre' ? OGRE_COLORS.skinRim : this.kind === 'bat' ? BAT_COLORS.wingRim : IMP_COLORS.bodyRim;
+    const rim = this.kind === 'boar' ? BOAR_COLORS.bodyRim : this.kind === 'lantern' ? LANTERN_COLORS.paperRim : this.kind === 'ogre' ? OGRE_COLORS.skinRim : this.kind === 'boss' ? BOSS_COLORS.skinRim : this.kind === 'bat' ? BAT_COLORS.wingRim : IMP_COLORS.bodyRim;
     const m = createToonMaterial({ color, steps: 3, shadowLevel: 0.5, rimColor: rim, rimStrength: 0.4, ...over });
     this.flashables.push({ mat: m, baseEmissive: m.emissive.clone(), baseIntensity: m.emissiveIntensity });
     return m;
@@ -373,7 +402,11 @@ export class EnemyVisual {
     this.pivot.add(this.tassel);
     this.mesh(this.tassel, tassel, body, 0.02);
 
-    // 予備動作で前（撃つ位置）に溜める鬼火。体の傾きに付き合わせず root に付ける
+    this.buildCharge();
+  }
+
+  /** 予備動作で前（撃つ位置）に溜める鬼火。体の傾きに付き合わせず root に付ける（提灯・ボス） */
+  private buildCharge(): void {
     const ch = new THREE.Group();
     const wisp = WISP_COLORS.enemy;
     const projectile = PROJECTILES.wisp;
@@ -395,8 +428,7 @@ export class EnemyVisual {
    * 体には割れ目が走り、体勢が減るほど溶岩のように光る（体勢を崩す目安）。腕は肩が軸で、金棒は右腕に付く（下ろすと先が床すれすれ）。
    * 子鬼と同じ腕の動かし方（肩を軸に振り上げて叩きつける）で、振りかぶりは頭上まで上げる。描画呼び出しは、動かない部分・細部・目・割れ目・腕 2 本の 5 メッシュ前後。
    */
-  private buildOgre(): void {
-    const C = OGRE_COLORS;
+  private buildOgre(C: OgrePalette, boss: boolean): void {
     const body = this.toon(0xffffff, { vertexColors: true });
     const eyeMat = this.toon(0xffffff, { vertexColors: true, steps: 2, shadowLevel: 0.9, rimStrength: 0, emissive: C.eye, emissiveIntensity: 0.9 });
     const H = { x: 0, y: 2.26, z: 0.06 };
@@ -452,6 +484,7 @@ export class EnemyVisual {
       crack(-0.12, 2.5, 0.2, 0.22, [0.6, 0, 0.3]),
       crack(0.0, 1.5, -0.62, 0.55, [-0.1, 0, 0.4]),
     ];
+    this.crackPalette = C;
     const crackMat = new THREE.MeshBasicMaterial({ vertexColors: true, color: C.crackDim, toneMapped: false, fog: false });
     const crackMesh = new THREE.Mesh(mergeParts(cracks), crackMat);
     this.pivot.add(crackMesh);
@@ -478,6 +511,51 @@ export class EnemyVisual {
       this.pivot.add(grp);
       this.mesh(grp, geo, body, 0.03);
     }
+    if (boss) this.buildBossExtras(body);
+  }
+
+  /**
+   * ボスの追加部品（ADR-029）: 肩当てのトゲ・兜の飾り・背に担いだ大提灯（竿の先に下がる。段階が進むほど明るく、鬼火を放つ構えで膨らむ）。全体を BOSS_SCALE 倍にする。
+   * 鬼火を溜める玉は、提灯と同じものを前に出す。
+   */
+  private buildBossExtras(body: ToonMaterial): void {
+    const C = BOSS_COLORS;
+    const spikes: Part[] = [
+      ...[-1, 1].flatMap((side) => [0, 1, 2].map((i): Part => ({ geo: new THREE.ConeGeometry(0.09, 0.34, 6), color: C.gold, pos: [side * (0.95 + i * 0.12), 2.28 - i * 0.07, -0.05 + i * 0.12], rot: [0.2, 0, -side * (0.7 + i * 0.25)] }))),
+      { geo: new THREE.ConeGeometry(0.1, 0.4, 6), color: C.gold, pos: onBossHead(0, 0.5, 0.0), rot: [0, 0, 0] },
+    ];
+    this.mesh(this.pivot, mergeParts(spikes), body, 0.025);
+
+    // 背の竿と大提灯（竿は肩のあいだから斜め上へ、先に提灯が下がる）
+    const lantern = new THREE.Group();
+    lantern.position.set(0, 3.05, -0.55);
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 1.5, 6), new THREE.MeshBasicMaterial({ color: C.dark, fog: false }));
+    pole.position.set(0, -0.75, 0.05);
+    lantern.add(pole);
+    const paperMat = new THREE.MeshBasicMaterial({ color: BOSS_LANTERN.glowDim, toneMapped: false, fog: false });
+    const paper = new THREE.Mesh(new THREE.SphereGeometry(0.46, 16, 12), paperMat);
+    paper.scale.set(1, 1.2, 1);
+    paper.position.set(0, 0.2, 0);
+    addOutline(paper, { color: 0x2a1018, thickness: 0.03 });
+    lantern.add(paper);
+    const capMat = new THREE.MeshBasicMaterial({ color: C.dark, fog: false });
+    for (const y of [0.78, -0.38]) {
+      const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.26, 0.1, 12), capMat);
+      cap.position.set(0, y, 0);
+      lantern.add(cap);
+    }
+    const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: BOSS_LANTERN.glowHot, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, opacity: 0.55 }));
+    halo.scale.set(2.2, 2.2, 1);
+    halo.position.set(0, 0.2, 0);
+    halo.renderOrder = 7;
+    lantern.add(halo);
+    this.pivot.add(lantern);
+    this.bossLantern = lantern;
+    this.bossLanternMat = paperMat;
+
+    // 鬼火を溜める玉（連弾・輪の構え）
+    this.buildCharge();
+    this.root.scale.setScalar(BOSS_SCALE);
   }
 
   /**
@@ -555,10 +633,10 @@ export class EnemyVisual {
     this.idleTime += animDt;
 
     const dead = e.dead;
-    const atk = e.def.attack;
+    const atk = e.attackDef;
     const boar = this.kind === 'boar';
     const lantern = this.kind === 'lantern';
-    const ogre = this.kind === 'ogre';
+    const ogre = this.kind === 'ogre' || this.kind === 'boss';
     const bat = this.kind === 'bat';
 
     // --- 攻撃の予備動作（テレグラフ）と攻撃 ---
@@ -662,7 +740,7 @@ export class EnemyVisual {
     if (this.crackMat) {
       const hot = e.poise ? 1 - e.poise.ratio : 0;
       const pulse = e.state === 'stagger' ? 0.15 * Math.sin(e.stateFrame * 0.5) : 0;
-      this.crackMat.color.setHex(OGRE_COLORS.crackDim).lerp(_crackHot.setHex(OGRE_COLORS.crackHot), clamp(hot + pulse, 0, 1));
+      this.crackMat.color.setHex(this.crackPalette.crackDim).lerp(_crackHot.setHex(this.crackPalette.crackHot), clamp(hot + pulse, 0, 1));
     }
 
     // 待機のゆらぎ（上下・腕）と、腕の姿勢
@@ -695,11 +773,24 @@ export class EnemyVisual {
       // 房は体の動きに遅れて揺れる（下がるとき・撃った反動で振れる）
       this.tassel.rotation.set(Math.sin(this.idleTime * 3.1) * 0.18 - pitch * 0.9, 0, Math.sin(this.idleTime * 2.3) * 0.2);
     } else if (ogre) {
-      // 金棒を頭上へ（腕を前から真上へ回す）→ 真下へ叩きつける。下ろすときは少し開く
-      const armX = -0.1 - raise * 2.8 - swing * 0.27;
-      const open = armBase * (1 - Math.max(raise, swing)) + 0.2 * raise;
-      this.armL.rotation.set(armX, 0, -open);
-      this.armR.rotation.set(armX, 0, open);
+      const pose = atk.pose ?? 'slam';
+      const reach = Math.max(raise, swing);
+      if (pose === 'cast') {
+        // 片腕（右）を前へ突き出して放つ。左は引いて構える
+        this.armR.rotation.set(-1.35 * reach - 0.1, 0, 0.12);
+        this.armL.rotation.set(0.35 * reach - 0.1, 0, -armBase - 0.3 * reach);
+      } else if (pose === 'roar') {
+        // 両腕を大きく広げて吠える（腕は横へ開いて少し上がる）
+        const open = armBase + 1.25 * reach;
+        this.armL.rotation.set(-0.35 * reach - 0.1, 0, -open);
+        this.armR.rotation.set(-0.35 * reach - 0.1, 0, open);
+      } else {
+        // 金棒を頭上へ（腕を前から真上へ回す）→ 真下へ叩きつける。下ろすときは少し開く
+        const armX = -0.1 - raise * 2.8 - swing * 0.27;
+        const open = armBase * (1 - reach) + 0.2 * raise;
+        this.armL.rotation.set(armX, 0, -open);
+        this.armR.rotation.set(armX, 0, open);
+      }
     } else {
       const spread = lerp(armBase, 2.55, raise);
       const spreadSwing = lerp(spread, 0.3, swing);
@@ -777,7 +868,17 @@ export class EnemyVisual {
       this.pivot.position.set(sx, bob - sink + lift, sz);
     }
 
-    // 溜めている鬼火（提灯の予備動作〜撃つ瞬間）。撃つ位置（銃口）に、小さく生まれて膨らみ、ちらつく
+    // ボスの背の大提灯: 段階が進むほど明るく、鬼火を放つ構え・吠える構えで膨らんで光る。ゆらゆら揺れる
+    if (this.bossLantern && this.bossLanternMat) {
+      const phase = e.phase;
+      const casting = e.state === 'windup' && (atk.pose === 'cast' || atk.pose === 'roar') ? clamp(e.stateFrame / atk.windupFrames, 0, 1) : 0;
+      const heat = clamp(0.25 + 0.28 * phase + 0.45 * casting + (dead ? -0.3 : 0), 0, 1) + 0.06 * Math.sin(this.idleTime * 9);
+      this.bossLanternMat.color.setHex(BOSS_LANTERN.glowDim).lerp(_crackHot.setHex(BOSS_LANTERN.glowHot), clamp(heat, 0, 1));
+      this.bossLantern.scale.setScalar(1 + 0.16 * casting);
+      this.bossLantern.rotation.set(Math.sin(this.idleTime * 1.7) * 0.06 - pitch * 0.5, 0, Math.sin(this.idleTime * 1.3) * 0.08);
+    }
+
+    // 溜めている鬼火（提灯・ボスの予備動作〜撃つ瞬間）。撃つ位置（銃口）に、小さく生まれて膨らみ、ちらつく
     if (this.charge) {
       const proj = atk.projectile ? PROJECTILES[atk.projectile] : null;
       const charging = !dead && proj !== null && (e.state === 'windup' || (e.state === 'attack' && e.stateFrame <= atk.startupFrames + 1));
@@ -785,8 +886,10 @@ export class EnemyVisual {
       if (charging && proj) {
         const w = e.state === 'windup' ? clamp(e.stateFrame / atk.windupFrames, 0, 1) : 1;
         const s = (0.12 + 0.88 * easeOutCubic(w)) * (1 + 0.1 * Math.sin(e.stateFrame * 0.9));
-        this.charge.scale.setScalar(s);
-        this.charge.position.set(0, PROJECTILE_HEIGHT + bob * 0.6, proj.muzzle);
+        // 拡大した root（ボス）の上でも、弾が出る実際の位置（高さ PROJECTILE_HEIGHT・銃口 + ずれ）と大きさに合わせる
+        const k = 1 / this.root.scale.x;
+        this.charge.scale.setScalar(s * k);
+        this.charge.position.set(0, (PROJECTILE_HEIGHT + bob * 0.6) * k, (proj.muzzle + (atk.muzzleOffset ?? 0)) * k);
       }
     }
   }

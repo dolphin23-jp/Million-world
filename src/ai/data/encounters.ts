@@ -58,7 +58,7 @@ export const DEMO_ENCOUNTER: EncounterDef = {
       { type: 'imp', offset: -1.0, radius: 7 },
       { type: 'imp', offset: 1.0, radius: 7 },
     ],
-    // 5 波（最後）: 子鬼 + 猪 + 提灯 + 小蝙蝠 4（接近戦・突進・鬼火・群れを同時にさばく。提灯を先に落とすか、鬼火を弾き返して減らす）
+    // 5 波: 子鬼 + 猪 + 提灯 + 小蝙蝠 4（接近戦・突進・鬼火・群れを同時にさばく。提灯を先に落とすか、鬼火を弾き返して減らす）
     [
       { type: 'imp', offset: -0.9, radius: 7 },
       { type: 'boar', offset: 0.1, radius: 8.5 },
@@ -68,6 +68,8 @@ export const DEMO_ENCOUNTER: EncounterDef = {
       { type: 'bat', offset: 0.9, radius: 8 },
       { type: 'bat', offset: 1.4, radius: 9 },
     ],
+    // 6 波（最後・ボス。ADR-029）: 夜行の大将が 1 体。段階が進むと小蝙蝠を呼ぶ（呼ばれた蝙蝠はボスを倒すと消える）
+    [{ type: 'boss', offset: 0, radius: 9 }],
   ],
   waveGapFrames: 100,
   victoryDelayFrames: 75,
@@ -77,7 +79,7 @@ export const DEMO_ENCOUNTER: EncounterDef = {
 
 /** 評価（上から順に、両方の条件を満たす最初のランク。どれも満たさなければ C）。時間は秒、ダメージは被ダメージの合計 */
 export const RANKS = [
-  { rank: 'S', maxSeconds: 160, maxDamage: 30 },
-  { rank: 'A', maxSeconds: 220, maxDamage: 70 },
-  { rank: 'B', maxSeconds: 300, maxDamage: 100 },
+  { rank: 'S', maxSeconds: 300, maxDamage: 40 },
+  { rank: 'A', maxSeconds: 390, maxDamage: 90 },
+  { rank: 'B', maxSeconds: 500, maxDamage: 140 },
 ] as const;

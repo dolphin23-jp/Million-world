@@ -36,3 +36,20 @@ export const POISE_BREAK: ParryEffectDef = {
   riposteKnockbackScale: 0.2,
   recoverCooldownFrames: 40,
 };
+
+/**
+ * ボスの体勢崩し: 雑魚の体勢崩し（POISE_BREAK）より長く（2 秒。ボスは体勢ゲージが大きく崩しにくいので、崩したぶんの見返りを長く）、
+ * 反撃の倍率は少し小さい（HP が大きいので 1.6 倍）。演出は大きめ
+ */
+export const BOSS_POISE_BREAK: ParryEffectDef = {
+  ...POISE_BREAK,
+  frames: 120,
+  riposteFrames: 120,
+  hitStop: 16,
+  shake: { amp: 0.12, seconds: 0.4 },
+  burst: 1.8,
+  labelScale: 1.6,
+  riposteDamageScale: 1.6,
+  recoverCooldownFrames: 50,
+};
+

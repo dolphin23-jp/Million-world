@@ -175,6 +175,11 @@ export const SFX = {
   batSqueak: { gain: 0.4, layers: [tone('sine', 3300, 2500, 0.06, 0.4, 0.004), tone('sine', 3900, 2900, 0.05, 0.28, 0.004, 0.055)] },
   /** 小蝙蝠の急降下の噛みつき: 小さく鋭い風切り */
   batSwoop: { gain: 0.5, layers: [noise('bandpass', 1800, 4600, 1.1, 0.13, 0.55, 0.03), tone('triangle', 900, 1500, 0.08, 0.16, 0.01)] },
+  /** ボスの咆哮（段階が上がる）: 低く長い唸りと、地を揺らす衝撃 */
+  bossRoar: {
+    gain: 0.9,
+    layers: [noise('lowpass', 900, 140, 0.9, 0.85, 0.7, 0.08), tone('sawtooth', 96, 52, 0.9, 0.4, 0.06), tone('square', 150, 66, 0.7, 0.2, 0.05, 0.05), tone('sine', 62, 38, 0.85, 0.8, 0.03)],
+  },
   enemySwing: { gain: 0.7, layers: [noise('bandpass', 800, 2400, 1.0, 0.2, 0.8, 0.04), tone('sine', 120, 70, 0.2, 0.3, 0.03)] },
 
   // ---- ロックオン・UI・進行 ----

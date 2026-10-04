@@ -6,6 +6,7 @@ import { clamp, rotateTowards } from '../core/math';
 import { PARRY_EFFECTS, type ParryEffectDef } from '../combat/data/guard';
 import { PROJECTILES, type ProjectileId } from '../combat/data/projectiles';
 import type { EnemyAttackDef, EnemyDef } from './data/enemies';
+import { fanOffset } from '../combat/projectile';
 
 /**
  * 敵の sim 側（three に依存しない。見た目は src/game/enemy-visual.ts）。
@@ -32,11 +33,19 @@ import type { EnemyAttackDef, EnemyDef } from './data/enemies';
 /** 飛び道具を撃った瞬間の弾の出どころ（Game が読んで Projectile を作る） */
 export interface Shot {
   projectile: ProjectileId;
-  /** 銃口（敵の中心から向きへ muzzle ぶん前）と、撃つ向き（単位ベクトル） */
+  /** 銃口（敵の中心から向きへ muzzle ぶん前）と、撃つ向き（単位ベクトル。扇・輪では中心の向き） */
   x: number;
   z: number;
   dirX: number;
   dirZ: number;
+  /** 撃つ本数と扇の広がり（rad。ADR-029。通常は 1 本・広がり 0）。i 本目の向きは fanOffset(i, count, spread) だけ中心の向きから回した向き */
+  count: number;
+  spread: number;
+}
+
+/** 複数の技を持つ敵が、いまの段階・距離で選べる技か */
+function eligible(m: EnemyAttackDef, phase: number, dist: number): boolean {
+  return (m.minPhase ?? 0) <= phase && dist <= m.range && dist >= (m.rangeMin ?? 0);
 }
 
 export type EnemyState = 'idle' | 'chase' | 'windup' | 'attack' | 'recover' | 'hit' | 'stagger' | 'down' | 'dead';
@@ -75,7 +84,17 @@ export class Enemy {
   attackOriginZ = 0;
   /** 飛び道具を撃つたびに増える（Game が弾を作るため）と、直近の弾の出どころ */
   fireSerial = 0;
-  readonly shot: Shot = { projectile: 'wisp', x: 0, z: 0, dirX: 0, dirZ: 1 };
+  readonly shot: Shot = { projectile: 'wisp', x: 0, z: 0, dirX: 0, dirZ: 1, count: 1, spread: 0 };
+  /** 段階（ボス。ADR-029）が上がるたびに増える（Game が演出を起こすため） */
+  phaseSerial = 0;
+  /** 召喚（ボス）の判定が出るたびに増える（Game が手下を出すため）と、その内容 */
+  summonSerial = 0;
+  summon: { readonly type: string; readonly count: number; readonly radius: number; readonly max: number } | null = null;
+  /** いまの技（複数の技を持つ敵は、攻撃に入るたびに選び直す。ほかは def.attack のまま）と、直前の技 */
+  private move: EnemyAttackDef;
+  private lastMove: EnemyAttackDef | null = null;
+  /** 技の選択に使う乱数（敵の id から決まる種。同じ状況なら同じ選び方 = テストできる） */
+  private rngState: number;
   /** 周回する向き（+1 / −1）。id で決まり、攻撃を終えるたびに逆になる */
   private orbitSide: number;
   /** この攻撃で、もう撃った・地面を叩いたか（攻撃に入るたびに false） */
@@ -98,6 +117,8 @@ export class Enemy {
     this.health = createHealth(def.hp);
     this.poise = def.poise ? new Poise(def.poise) : null;
     this.orbitSide = id % 2 === 0 ? 1 : -1;
+    this.move = def.attack;
+    this.rngState = (Math.imul(id + 1, 2654435761) >>> 0) || 1;
     this.prevX = x;
     this.prevZ = z;
   }
@@ -110,8 +131,70 @@ export class Enemy {
     return this.state === 'dead';
   }
 
+  /** いまの技（予備動作に入るたびに選ばれる。複数の技を持たない敵は常に def.attack） */
   get attackDef(): EnemyAttackDef {
-    return this.def.attack;
+    return this.move;
+  }
+
+  /** 段階（0 始まり。HP の割合が def.phases の hpBelow 以下になるたびに 1 つ上がる） */
+  get phase(): number {
+    const phases = this.def.phases;
+    if (!phases) return 0;
+    const ratio = this.health.hp / this.health.max;
+    let n = 0;
+    for (const p of phases) if (ratio <= p.hpBelow) n++;
+    return n;
+  }
+
+  /** 0..1 の乱数（xorshift32） */
+  private random(): number {
+    let x = this.rngState;
+    x ^= x << 13;
+    x >>>= 0;
+    x ^= x >>> 17;
+    x ^= x << 5;
+    x >>>= 0;
+    this.rngState = x || 1;
+    return this.rngState / 4294967296;
+  }
+
+  /**
+   * プレイヤーまで dist のとき、次に使える技を選ぶ（なければ null = まだ攻撃に入らない）。
+   * 複数の技がなければ、攻撃の距離（range）以内のときの def.attack。あれば、段階・距離で選べる技から、重みで選ぶ（直前の技は、ほかに選べる技があれば避ける）
+   */
+  private pickMove(dist: number): EnemyAttackDef | null {
+    const moves = this.def.moves;
+    if (!moves) return dist <= this.def.attack.range ? this.def.attack : null;
+    const phase = this.phase;
+    let n = 0;
+    let total = 0;
+    for (const m of moves) {
+      if (!eligible(m, phase, dist)) continue;
+      n++;
+      if (m !== this.lastMove) total += m.weight ?? 1;
+    }
+    if (n === 0) return null;
+    // 選べる技が 1 つだけなら、それ（直前と同じでも）
+    if (n === 1) {
+      for (const m of moves) if (eligible(m, phase, dist)) return m;
+    }
+    // 重み付きの乱数で、直前の技を除いて選ぶ
+    let r = this.random() * total;
+    let pick: EnemyAttackDef | null = null;
+    for (const m of moves) {
+      if (m === this.lastMove || !eligible(m, phase, dist)) continue;
+      pick = m;
+      r -= m.weight ?? 1;
+      if (r <= 0) break;
+    }
+    return pick;
+  }
+
+  /** 倒されずに消える（ボスが倒れたときの手下。倒した数には入らない）。死亡の演出（deathFrames）のあと取り除かれる */
+  vanish(): void {
+    if (this.dead) return;
+    this.body.invulnerable = true;
+    this.setState('dead');
   }
 
   /** 予備動作〜攻撃中か（同時に攻撃できる数の制限＝攻撃権の数え方に使う） */
@@ -126,9 +209,9 @@ export class Enemy {
 
   /** 攻撃の判定が出ているフレームか（ヒット判定の入力）。step() の後に読む */
   get attackActive(): boolean {
-    const a = this.def.attack;
-    // 飛び道具の攻撃に近接の判定は無い（当たるのは撃った弾）
-    return this.state === 'attack' && !a.projectile && isActiveFrame(a.startupFrames, a.activeFrames, this.stateFrame);
+    const a = this.move;
+    // 飛び道具・召喚の攻撃に近接の判定は無い（当たるのは撃った弾）
+    return this.state === 'attack' && !a.projectile && !a.summon && isActiveFrame(a.startupFrames, a.activeFrames, this.stateFrame);
   }
 
   /** 位置と向きを設定する（スポーン直後に補間が前の位置から滑らないよう、前ステップも揃える） */
@@ -176,7 +259,7 @@ export class Enemy {
   /** スーパーアーマー中か（予備動作の後半〜攻撃の終わり。hyperArmor の敵はいつでも）。ev のダメージが armorBreakDamage 未満ならひるまない */
   get armored(): boolean {
     if (this.def.hyperArmor) return true;
-    const a = this.def.attack;
+    const a = this.move;
     return (this.state === 'windup' && this.stateFrame >= a.armorFromFrame) || this.state === 'attack';
   }
 
@@ -185,11 +268,13 @@ export class Enemy {
    * スーパーアーマー中の弱い攻撃は、ダメージとノックバック（小）だけが通り、状態は変わらない（攻撃を続ける）
    */
   takeHit(ev: HitEvent): DamageResult {
+    const phaseBefore = this.phase;
     const r = applyDamage(this.health, ev.damage);
     if (this.dead) return r;
     this.hitSerial++;
     this.lastHit = ev;
-    const armor = this.def.attack;
+    if (!r.killed && this.phase > phaseBefore) this.phaseSerial++;
+    const armor = this.move;
     // 弾かれて動けないあいだは、何度当てても同じ状態のまま（ひるみで状態が上書きされない。ノックバックは反撃の倍率で小さくしてある）
     const staggered = this.held;
     // 体勢ゲージ: 予備動作・攻撃の最中でも減る。崩れたら、そのまま動けない状態（反撃の窓）に入る（死んだ一撃は崩さない）
@@ -219,7 +304,7 @@ export class Enemy {
     this.prevYaw = this.yaw;
 
     const def = this.def;
-    const atk = def.attack;
+    const atk = this.move;
     const dx = targetX - this.body.x;
     const dz = targetZ - this.body.z;
     const dist = Math.hypot(dx, dz);
@@ -256,7 +341,13 @@ export class Enemy {
           moveX = Math.sin(this.yaw) * def.moveSpeed;
           moveZ = Math.cos(this.yaw) * def.moveSpeed;
         }
-        if (dist <= atk.range && this.cooldown <= 0 && canAttack) this.setState('windup');
+        if (this.cooldown <= 0 && canAttack) {
+          const next = this.pickMove(dist);
+          if (next) {
+            this.move = next;
+            this.setState('windup');
+          }
+        }
         break;
       case 'windup':
         if (!targetAlive) {
@@ -286,9 +377,15 @@ export class Enemy {
             this.fired = true;
             this.impactSerial++;
           }
+          if (atk.summon && !this.fired) {
+            this.fired = true;
+            this.summon = atk.summon;
+            this.summonSerial++;
+          }
         }
         if (this.stateFrame >= atk.startupFrames + atk.activeFrames + atk.recoverFrames) {
-          this.cooldown = atk.cooldownFrames;
+          this.cooldown = Math.round(atk.cooldownFrames * this.cooldownScale);
+          this.lastMove = atk;
           this.orbitSide = -this.orbitSide;
           this.setState('chase');
         }
@@ -316,15 +413,27 @@ export class Enemy {
     this.stateFrame++;
   }
 
+  /** いまの段階の、技のあとの待ちの倍率（1 = そのまま） */
+  private get cooldownScale(): number {
+    const phases = this.def.phases;
+    if (!phases) return 1;
+    const p = this.phase;
+    return p > 0 ? (phases[p - 1]?.cooldownScale ?? 1) : 1;
+  }
+
   /** 固定した向きへ飛び道具を撃つ（予備動作で向きを固定してあるので、横へ動けば当たらない） */
   private fire(id: ProjectileId): void {
     this.fired = true;
     const s = this.shot;
+    const atk = this.move;
+    const reach = PROJECTILES[id].muzzle + (atk.muzzleOffset ?? 0);
     s.projectile = id;
     s.dirX = this.lungeDirX;
     s.dirZ = this.lungeDirZ;
-    s.x = this.body.x + this.lungeDirX * PROJECTILES[id].muzzle;
-    s.z = this.body.z + this.lungeDirZ * PROJECTILES[id].muzzle;
+    s.x = this.body.x + this.lungeDirX * reach;
+    s.z = this.body.z + this.lungeDirZ * reach;
+    s.count = atk.projectileCount ?? 1;
+    s.spread = atk.projectileSpread ?? 0;
     this.fireSerial++;
   }
 
