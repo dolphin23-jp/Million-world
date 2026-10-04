@@ -313,9 +313,25 @@ export class Player {
     if (this.state !== 'dead') this.health.hp = Math.min(max, Math.max(1, this.health.hp + Math.max(0, delta)));
   }
 
-  /** 攻撃のダメージ・ノックバックの倍率（STR。AttackerView）。resolvePlayerAttack が読む */
+  /**
+   * 闘気（敵を倒したあとの一時的な攻撃力の加算。パッシブ。KillBuff.bonus。ADR-037）。Game が毎 sim ステップ入れる（0 = なし）。
+   * ダメージの倍率（damageMul）に足される
+   */
+  buffBonus = 0;
+
+  /** 攻撃のダメージ・ノックバックの倍率（STR・パッシブ・闘気。AttackerView）。resolvePlayerAttack が読む */
   get damageMul(): number {
-    return this.mods.damage;
+    return this.mods.damage + this.buffBonus;
+  }
+
+  /** 連携・剣技の 3 発目以降のとき、そのダメージの倍率（パッシブの連撃の心得。連携の履歴 chain が 3 つ以上のとき。それ以外は 1）。AttackerView */
+  get comboMul(): number {
+    return this.chain.length >= 3 ? this.mods.comboDamage : 1;
+  }
+
+  /** 反撃（弾かれた敵・体勢を崩した敵への攻撃）のダメージの倍率（パッシブの追い打ち）。AttackerView */
+  get riposteMul(): number {
+    return this.mods.riposteDamage;
   }
 
   get knockbackMul(): number {

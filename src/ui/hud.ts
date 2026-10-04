@@ -18,6 +18,9 @@ export class Hud {
   private readonly lvNum: HTMLElement;
   private readonly lvFill: HTMLElement;
   private readonly tierBadge: HTMLElement;
+  private readonly buffBadge: HTMLElement;
+  private readonly buffFill: HTMLElement;
+  private buffKey = '';
   /** レベル表示の直近の状態（変化があったときだけ DOM を触る） */
   private lvKey = '';
   private readonly mysticFx: HTMLElement;
@@ -62,6 +65,8 @@ export class Hud {
     this.lvNum = this.lvBox.querySelector('.lv-num') as HTMLElement;
     this.lvFill = this.lvBox.querySelector('.lv-fill') as HTMLElement;
     this.tierBadge = this.lvBox.querySelector('.tier-badge') as HTMLElement;
+    this.buffBadge = this.lvBox.querySelector('.buff-badge') as HTMLElement;
+    this.buffFill = this.buffBadge.querySelector('.buff-fill') as HTMLElement;
     this.mysticFx = document.getElementById('mystical-fx')!;
     this.mysticGauge = document.getElementById('mystical-gauge')!;
     this.mysticFill = this.mysticGauge.querySelector('.mystical-fill') as HTMLElement;
@@ -98,6 +103,21 @@ export class Hud {
   /** 「次の段階へ」を押したときに呼ぶものを登録する */
   onNext(cb: () => void): void {
     this.nextCb = cb;
+  }
+
+  /**
+   * 闘気（パッシブ。ADR-037）の印（レベルの下）。stacks = 重なっている回数（0 で隠す）、percent = いま足されている攻撃力の割合（%）、ratio = 残り時間 0..1。
+   * 文字は重なりが変わったときだけ書き換え、残り時間の細い帯だけ毎回合わせる
+   */
+  setKillBuff(stacks: number, percent: number, ratio: number, max: number): void {
+    const key = `${stacks}:${percent}`;
+    if (key !== this.buffKey) {
+      this.buffKey = key;
+      this.buffBadge.classList.toggle('on', stacks > 0);
+      const label = this.buffBadge.querySelector('.buff-text') as HTMLElement;
+      label.textContent = stacks > 0 ? `闘気 ×${stacks}${stacks >= max ? ' MAX' : ''}  +${percent}%` : '';
+    }
+    if (stacks > 0) this.buffFill.style.width = `${Math.round(ratio * 100)}%`;
   }
 
   /** 敵の段階の印（レベルの下）。戦闘を始めるたびに合わせる（ADR-036） */

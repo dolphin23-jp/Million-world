@@ -51,10 +51,10 @@ src/input/      タッチ（仮想スティック・ボタン・カメラドラ�
 src/render/     レンダラ初期化、トゥーンマテリアル、輪郭線、ポストプロセス、VFX（トレイル・パーティクル・予告の床表示（帯・円）・飛び道具の鬼火）
 src/world/      アリーナ、衝突、環境オブジェクト
 src/character/  キャラクター読込、アニメーション状態機械、リターゲット、手付け攻撃アニメ（ik / rig / pose-solver / authoring。ADR-012）、立ち姿の前傾補正（posture。ADR-024）
-src/combat/     攻撃データ（フレームデータ）、ヒット判定、ダメージ、ロックオン、演出の数値、操作ガイド・技表の表示内容（move-guide / move-tree。純粋関数）、飛び道具の sim（projectile。ADR-026）・体勢ゲージ（poise。ADR-027）・ミスティカルドッジ（mystical。ジャスト回避で敵の時間を間引く純粋なクラス）・アイテム欄（inventory。数・選択・ドロップの抽選と救済。ADR-030）・スキル（skills。剣技 = 専用モーション（SKILL_ATTACKS。多段ヒットの窓・スーパーアーマー・円の当たり）を中心にした技の連なり。SkillBook = レベル・選択・クールダウン。ADR-031 / 032）・成長（growth = 経験値・レベル・ポイント・ステータス・スキルのレベル。modifiers = ステータス等の効果を集計し、戦闘は数値をここからだけ読む。save = セーブの形と版・移行。progress = クリアした敵の段階・選んでいる段階。ADR-033・036）。会心は Modifiers の critRate / critDamage（data/crit.ts。ADR-035）
+src/combat/     攻撃データ（フレームデータ）、ヒット判定、ダメージ、ロックオン、演出の数値、操作ガイド・技表の表示内容（move-guide / move-tree。純粋関数）、飛び道具の sim（projectile。ADR-026）・体勢ゲージ（poise。ADR-027）・ミスティカルドッジ（mystical。ジャスト回避で敵の時間を間引く純粋なクラス）・アイテム欄（inventory。数・選択・ドロップの抽選と救済。ADR-030）・スキル（skills。剣技 = 専用モーション（SKILL_ATTACKS。多段ヒットの窓・スーパーアーマー・円の当たり）を中心にした技の連なり。SkillBook = レベル・選択・クールダウン。ADR-031 / 032）・成長（growth = 経験値・レベル・ポイント・ステータス・スキルのレベル。modifiers = ステータス等の効果を集計し、戦闘は数値をここからだけ読む。save = セーブの形と版・移行。progress = クリアした敵の段階・選んでいる段階。ADR-033・036）。会心は Modifiers の critRate / critDamage（data/crit.ts。ADR-035）。パッシブ（data/passives.ts = 12 種の表・前提・系統・数値。Growth がレベルを持ち、`modifiersFor(family)` で装備の系統込みの Modifiers を返す。buffs = 闘気（撃破で重なる一時の攻撃力）。イベント効果は Game が行う。ADR-037）
 src/ai/         敵の行動（FSM・攻撃権・予告の床表示の幾何 telegraph（帯・円）・距離を取って飛び道具を撃つ遠距離型・ガード不能と体勢ゲージの重装型・攻撃権の重みと周回の群れ・複数の技と段階と召喚のボス。ADR-025〜029）、敵とウェーブの数値（data/）。敵の色違い・強化版の段階（data/tiers.ts = 段階の表、data/enemy-variants.ts = 元の敵から強化版を作る純粋関数 enemyDef(id, tier)。ADR-036）
 src/audio/      効果音（WebAudio 合成のレシピと再生。ADR-017）
-src/ui/         HUD（DOM）: HP バー・Lv と経験値・ダメージ数字・ロックの枠・リザルト・操作ガイド（下の中央）。一時停止メニュー（pause-menu = タブの入れ物。menu/ = ステータス・スキル・技表・設定のタブ。機能が増えたらタブを足す。いまは ステータス・スキル・技表・段階・設定。ADR-033・036）
+src/ui/         HUD（DOM）: HP バー・Lv と経験値・ダメージ数字・ロックの枠・リザルト・操作ガイド（下の中央）。一時停止メニュー（pause-menu = タブの入れ物。menu/ = ステータス・スキル・技表・設定のタブ。機能が増えたらタブを足す。いまは ステータス・スキル（剣技とパッシブ）・技表・段階・設定。ADR-033・036・037）
 src/game/       上記を束ねるシーン・エンティティ管理
 src/debug/      開発用フック（?sfxlab=1 / ?perf=1 / ?motionlab=1。通常起動では読み込まない）
 public/assets/  実行時に読む資産（GLB, テクスチャ, 音）

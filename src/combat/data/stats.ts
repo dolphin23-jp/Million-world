@@ -45,6 +45,6 @@ export const STAT_EFFECTS = {
   agi: { moveSpeed: 0.006, dodgeInvulnFramesPer: 0.125, mysticalFramesPer: 3 },
   /** INT: スキルのクールダウン −0.8%（下限 0.5 倍）/ スキルの威力 +0.6% / 薬瓶の回復 +1% */
   int: { skillCooldown: 0.008, skillCooldownFloor: 0.5, skillPower: 0.006, heal: 0.01 },
-  /** VIT: 最大体力 +2 / 受けるダメージ −0.3%（下限 0.7 倍） */
-  vit: { maxHp: 2, damageTaken: 0.003, damageTakenFloor: 0.7 },
+  /** VIT: 最大体力 +2 / 受けるダメージ −0.3%（VIT だけでは下限 0.7 倍。パッシブの鉄壁を重ねても全体で 0.5 倍まで = damageTakenTotalFloor） */
+  vit: { maxHp: 2, damageTaken: 0.003, damageTakenFloor: 0.7, damageTakenTotalFloor: 0.5 },
 } as const;

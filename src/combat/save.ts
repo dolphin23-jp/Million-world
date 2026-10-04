@@ -1,4 +1,5 @@
 import { SKILL_ORDER, isSkillId, SKILLS, type SkillId } from './data/skills';
+import { PASSIVE_ORDER, type PassiveId } from './data/passives';
 import { STAT_IDS, type StatId } from './data/stats';
 import type { WeaponId } from './data/loadouts';
 import { Growth, type GrowthSnapshot } from './growth';
@@ -7,11 +8,11 @@ import { Progress, type ProgressSnapshot } from './progress';
 /**
  * セーブデータ（M6-2。ADR-033。設計は docs/07 §3.4）の形と、読み書きの変換。純粋関数（localStorage に触るのは src/platform/storage.ts）。
  * バージョン番号 + 移行関数: データの構造を変えても古いセーブを壊さない（MIGRATIONS[n] は version n → n + 1 に変える）。
- * 保存するのは成長（レベル・経験値・ポイント・ステータス・スキルのレベル）とスキル欄の選択、挑戦の進み具合（クリアした段階・選んでいる段階。版 2 から）だけ。
+ * 保存するのは成長（レベル・経験値・ポイント・ステータス・スキルのレベル・パッシブのレベル（版 3 から））とスキル欄の選択、挑戦の進み具合（クリアした段階・選んでいる段階。版 2 から）だけ。
  * 戦闘の途中の状態（敵・体力・アイテム）は保存しない（闘技場は 1 回ごとの挑戦。アイテムの持ち越しはダンジョンができてから）。
  */
 
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 
 export interface SaveData extends GrowthSnapshot {
   version: number;
@@ -25,6 +26,8 @@ export interface SaveData extends GrowthSnapshot {
 const MIGRATIONS: Record<number, (raw: Record<string, unknown>) => Record<string, unknown>> = {
   // 版 1 → 2: 挑戦の進み具合（段階）が加わった。まだ何もクリアしていない扱い
   1: (raw) => ({ ...raw, version: 2, progress: { cleared: 0, tier: 1 } }),
+  // 版 2 → 3: パッシブ（ADR-037）が加わった。どれも未習得（レベル 0）= スキルポイントは変えない（パッシブに使ったポイントは無い）
+  2: (raw) => ({ ...raw, version: 3, passives: {} }),
 };
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -53,6 +56,9 @@ export function parseSave(raw: unknown): SaveData | null {
   const skills = {} as Record<SkillId, number>;
   const rawSkills = isRecord(cur.skills) ? cur.skills : {};
   for (const id of SKILL_ORDER) skills[id] = num(rawSkills[id], 1);
+  const passives = {} as Record<PassiveId, number>;
+  const rawPassives = isRecord(cur.passives) ? cur.passives : {};
+  for (const id of PASSIVE_ORDER) passives[id] = num(rawPassives[id], 0);
   const selected: Partial<Record<WeaponId, SkillId>> = {};
   const rawSel = isRecord(cur.selected) ? cur.selected : {};
   for (const fam of ['sword', 'greatsword'] as const) {
@@ -70,6 +76,7 @@ export function parseSave(raw: unknown): SaveData | null {
     skillPoints: num(cur.skillPoints, 0),
     stats,
     skills,
+    passives,
     selected,
     progress,
   };

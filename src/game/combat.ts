@@ -29,6 +29,9 @@ export interface AttackerView {
   /** 会心率（0..1）と会心ダメージの倍率（DEX・パッシブ。Modifiers。省略 = 会心しない）。命中 1 回ごとに抽選する */
   readonly critRate?: number;
   readonly critDamage?: number;
+  /** 連携・剣技の 3 発目以降のダメージの倍率（パッシブ。いまの攻撃が 3 発目以降なら > 1、それ以外は 1）・反撃のダメージの倍率（パッシブ。省略 = 等倍。ADR-037） */
+  readonly comboMul?: number;
+  readonly riposteMul?: number;
   readonly body: Circle;
   readonly yaw: number;
   readonly hitTracker: HitTracker;
@@ -97,7 +100,7 @@ export function resolvePlayerAttack<T extends CombatTarget>(
     const rate = attacker.critRate ?? 0;
     const crit = rate > 0 && rng() < rate;
     const ev = makeHitEvent(PLAYER_ID, _origin, box, {
-      damage: Math.round(atk.damage * (win?.damageScale ?? 1) * p * (attacker.damageMul ?? 1) * (riposte ? riposte.riposteDamageScale : 1) * (crit ? attacker.critDamage ?? CRIT.baseDamage : 1)),
+      damage: Math.round(atk.damage * (win?.damageScale ?? 1) * p * (attacker.damageMul ?? 1) * (attacker.comboMul ?? 1) * (riposte ? riposte.riposteDamageScale * (attacker.riposteMul ?? 1) : 1) * (crit ? attacker.critDamage ?? CRIT.baseDamage : 1)),
       // ノックバックは威力の半分だけ倍率を掛ける（吹き飛びすぎない）。ヒットストップは威力に比例して伸びる
       knockback: atk.knockback * (win?.knockbackScale ?? 1) * (1 + (p - 1) * 0.5) * (attacker.knockbackMul ?? 1) * (riposte ? riposte.riposteKnockbackScale : 1) * (crit ? CRIT.knockbackScale : 1),
       hitStop: Math.min(Math.round(atk.hitStop * (win?.hitStopScale ?? 1) * p) + (crit ? CRIT.hitStopBonus : 0), HIT_FEEDBACK.maxHitStop),

@@ -114,6 +114,66 @@ describe('会心（DEX。ADR-035）', () => {
   });
 });
 
+describe('パッシブ（ADR-037）が Modifiers に足される', () => {
+  const stats = baseStats();
+  it('パッシブが無ければ、これまでと同じ（初期のまま = BASE_MODIFIERS）', () => {
+    expect(computeModifiers(stats, {}, 'sword')).toEqual(BASE_MODIFIERS);
+    expect(computeModifiers(stats, { agile: 0 }, 'greatsword')).toEqual(BASE_MODIFIERS);
+    // 新しいキーの初期値
+    expect(BASE_MODIFIERS.comboDamage).toBe(1);
+    expect(BASE_MODIFIERS.riposteDamage).toBe(1);
+    expect(BASE_MODIFIERS.parryHeal).toBe(0);
+    expect(BASE_MODIFIERS.dropRate).toBe(1);
+    expect(BASE_MODIFIERS.killBuff).toBe(0);
+  });
+  it('ステータスの効きと足し算になる（STR のダメージ + 剣術習熟のダメージ）', () => {
+    const m = computeModifiers({ ...stats, str: STAT_BASE + 10 }, { swordMastery: 3 }, 'sword');
+    expect(m.damage).toBeCloseTo(1 + 0.1 + 0.12, 9);
+  });
+  it('系統つきのパッシブ: 片手剣のあいだは剣術習熟、大剣のあいだは剛力習熟（ダメージとふっ飛ばし）。別の系統の分は効かない', () => {
+    const lv = { swordMastery: 5, greatMastery: 5 };
+    const sword = computeModifiers(stats, lv, 'sword');
+    const great = computeModifiers(stats, lv, 'greatsword');
+    expect(sword.damage).toBeCloseTo(1.2, 9);
+    expect(sword.knockback).toBe(1);
+    expect(great.damage).toBeCloseTo(1.2, 9);
+    expect(great.knockback).toBeCloseTo(1.15, 9);
+    expect(computeModifiers(stats, lv).damage).toBe(1); // 系統が分からなければ効かない
+  });
+  it('会心: 会心の心得が会心率、急所突きが会心ダメージ。DEX と足し算。会心率は上限を超えない', () => {
+    const m = computeModifiers({ ...stats, dex: STAT_BASE + 10 }, { critChance: 5, critPower: 3 }, 'sword');
+    expect(m.critRate).toBeCloseTo(CRIT.baseRate + 0.05 + 0.1, 9);
+    expect(m.critDamage).toBeCloseTo(CRIT.baseDamage + 0.15 + 0.3, 9);
+    const big = computeModifiers({ ...stats, dex: STAT_BASE + 400 }, { critChance: 5 }, 'sword');
+    expect(big.critRate).toBe(CRIT.maxRate);
+  });
+  it('守り: 見切り（回避の無敵 +1f / ミスティカル +12f）・受け流し（パリィ受付 +1f / パリィ成功の回復 +2）・追い打ち（反撃 +6%）・身軽・鉄壁', () => {
+    const m = computeModifiers(stats, { evasion: 3, parryArt: 5, followUp: 3, agile: 5, ironwall: 5 }, 'sword');
+    expect(m.dodgeInvuln).toBe(3);
+    expect(m.mysticalFrames).toBe(36);
+    expect(m.parryFrames).toBe(5);
+    expect(m.parryHeal).toBe(10);
+    expect(m.riposteDamage).toBeCloseTo(1.18, 9);
+    expect(m.moveSpeed).toBeCloseTo(1.1, 9);
+    expect(m.damageTaken).toBeCloseTo(0.85, 9);
+  });
+  it('受けるダメージは、VIT だけでは 0.7 倍まで。鉄壁を重ねても、全体で 0.5 倍より軽くならない', () => {
+    expect(computeModifiers({ ...stats, vit: STAT_BASE + 200 }, {}, 'sword').damageTaken).toBeCloseTo(0.7, 9);
+    expect(computeModifiers({ ...stats, vit: STAT_BASE + 200 }, { ironwall: 5 }, 'sword').damageTaken).toBeCloseTo(0.55, 9);
+    expect(computeModifiers({ ...stats, vit: STAT_BASE + 200 }, { ironwall: 5, agile: 5 }, 'sword').damageTaken).toBeGreaterThanOrEqual(0.5);
+  });
+  it('連撃の心得（3 発目以降 +4%/Lv）・闘気（1 回あたり +2%/Lv）・薬師（回復 +10%/Lv・ドロップ +5%/Lv）', () => {
+    const m = computeModifiers(stats, { comboArt: 5, momentum: 3, apothecary: 5 }, 'greatsword');
+    expect(m.comboDamage).toBeCloseTo(1.2, 9);
+    expect(m.killBuff).toBeCloseTo(0.06, 9);
+    expect(m.heal).toBeCloseTo(1.5, 9);
+    expect(m.dropRate).toBeCloseTo(1.25, 9);
+  });
+  it('パッシブのレベルが最大を超えていても、最大に丸める（書き換えられたセーブでも効きが暴走しない）', () => {
+    expect(computeModifiers(stats, { agile: 999 }, 'sword').moveSpeed).toBeCloseTo(1.1, 9);
+  });
+});
+
 describe('画面の説明', () => {
   it('ステータスごとの効果の文章に、集計した数値が入る', () => {
     const m = computeModifiers({ ...baseStats(), str: STAT_BASE + 12, dex: STAT_BASE + 20, vit: STAT_BASE + 10 });
