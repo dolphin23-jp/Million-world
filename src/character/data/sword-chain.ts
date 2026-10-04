@@ -31,7 +31,7 @@ const RETURN = {
 // ---------------------------------------------------------------- 返し薙ぎ（横薙ぎの受付で攻撃）
 
 /** 巻き込み: 横薙ぎで左へ抜けた剣を、さらに左へ引き込んで水平に寝かせる */
-const BACK_COIL = {
+export const BACK_COIL = {
   hips: { yaw: -26, pitch: 8, z: 0.02, y: -0.16 },
   chest: { yaw: -44, pitch: 10 },
   head: { yaw: -16 },
@@ -43,7 +43,7 @@ const BACK_COIL = {
 };
 
 /** 薙ぎの途中（体の前を通る最高速）: 左から前を通って右へ */
-const BACK_PASS = {
+export const BACK_PASS = {
   hips: { yaw: 0, pitch: 6, z: 0.05, y: -0.16 },
   chest: { yaw: 0, pitch: 9 },
   head: { yaw: 0 },
@@ -55,7 +55,7 @@ const BACK_PASS = {
 };
 
 /** 振り抜きの終わり: 剣は右へ抜け、体は右へひねり切る（横薙ぎの溜めの姿勢に近い） */
-const BACK_FOLLOW = {
+export const BACK_FOLLOW = {
   hips: { yaw: 18, pitch: 8, z: 0.05, y: -0.14 },
   chest: { yaw: 32, pitch: 10 },
   head: { yaw: 14 },
@@ -101,7 +101,7 @@ export const SWEEP_BACK: AuthoredAttack = {
 // ---------------------------------------------------------------- 抜き払い（踏み込み突きの受付で攻撃）
 
 /** 引き寄せ: 突き切った剣を右腰へ引いて、体を右へひねる（足は深く踏み込んだまま） */
-const SLASH_COIL = {
+export const SLASH_COIL = {
   hips: { yaw: 20, pitch: 4, z: -0.03, y: -0.18 },
   chest: { yaw: 36, pitch: 4 },
   head: { yaw: 10 },
@@ -112,7 +112,7 @@ const SLASH_COIL = {
   ...OFFHAND.guard,
 };
 
-const SLASH_PASS = {
+export const SLASH_PASS = {
   hips: { yaw: 0, pitch: 6, z: 0.05, y: -0.18 },
   chest: { yaw: 0, pitch: 9 },
   head: { yaw: 0 },

@@ -20,7 +20,7 @@ const R = 70;
  * 0.17 → 0.28 振り上げて体を反らせる / 0.28 → 0.4 保つ / 0.4 → 0.62 戻り。
  * 踏み込み: ルートは 0.05 から加速して 0.17 までに 0.45 m、減速して 0.32 までに 0.85 m。
  */
-const GATHER = {
+export const GATHER = {
   hips: { yaw: 18, pitch: 14, z: -0.02, y: -0.3 },
   chest: { yaw: 30, pitch: 18 },
   head: { yaw: 8 },
@@ -31,7 +31,7 @@ const GATHER = {
   ...OFFHAND.guard,
 };
 
-const RISE = {
+export const RISE = {
   hips: { yaw: -8, pitch: -8, z: 0.04, y: -0.08 },
   chest: { yaw: -10, pitch: -14 },
   head: { yaw: -4 },

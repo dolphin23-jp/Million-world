@@ -904,7 +904,7 @@ try {
   await page.mouse.down();
   await sleep(400);
   await page.mouse.move(scx, scy - 40, { steps: 4 });
-  const skillTo = slotPos(3, 1); // 五月雨突き = 3 個のうち 2 番目
+  const skillTo = slotPos(5, 1); // 五月雨突き = 内側の輪の 5 個のうち 2 番目（片手剣のスキルは 6 個: 5 個が内側、6 個目 = 疾風連斬 が外側の輪。ADR-038）
   await page.mouse.move(scx + skillTo.x, scy + skillTo.y, { steps: 6 });
   await sleep(150);
   await page.screenshot({ path: 'artifacts/shot-skill-menu.png' });
@@ -1021,6 +1021,69 @@ try {
     g.applyGrowth(); // 後の撮影シーンにレベルを持ち越さない
   });
 
+  // 剣技の第 2 弾（ADR-038）: 6 本を Lv7 にして撃ち、それぞれの見せ場の絵を撮る（居合の袈裟・十字斬りの 3 つ目の突き立て・疾風連斬の駆け抜け・大渦の回転・剣山の輪・飛竜落としの着地）
+  const EX = [
+    { id: 'iai', loadout: 'sword', attack: 'skIai7', dist: 4.2, frames: 62, stopImpacts: 0 },
+    { id: 'juji', loadout: 'sword', attack: 'skCross3', dist: 1.7, frames: 190, stopImpacts: 3 },
+    { id: 'hayate', loadout: 'sword', attack: 'skGale8', dist: 2.4, frames: 70, stopImpacts: 0 },
+    { id: 'ouzu', loadout: 'greatsword', attack: 'skOuzu4', dist: 1.5, frames: 80, stopImpacts: 0 },
+    { id: 'kenzan', loadout: 'greatsword', attack: 'skKenzan5', dist: 1.5, frames: 200, stopImpacts: 3 },
+    { id: 'hiryu', loadout: 'greatsword', attack: 'skHiryu7', dist: 2.8, frames: 200, stopImpacts: 2 },
+  ];
+  for (const ex of EX) {
+    const r = await page.evaluate(
+      ({ solo, e }) => {
+        const g = window.__mw.game;
+        g.growth.reset();
+        g.growth.addXp(660); // Lv7 = スキルポイント 6
+        for (let i = 0; i < 6; i++) g.growth.addSkill(e.id);
+        g.applyGrowth(); // private だが実行時は呼べる
+        g.restart({ ...solo, maxAttackers: 0 });
+        g.setLoadout(e.loadout);
+        g.skills.select(e.id);
+        g.stepNow(1);
+        g.player.body.x = 0;
+        g.player.body.z = 0;
+        g.player.yaw = 0;
+        g.cam.yaw = Math.PI;
+        const en = g.enemies[0].enemy;
+        en.place(0, e.dist, Math.PI);
+        en.health.hp = en.health.max = 99999;
+        g.inject({ lockPressed: true });
+        g.stepNow(1);
+        g.inject({ skillPressed: true });
+        g.stepNow(1);
+        const seq = [];
+        let last = null;
+        const impact0 = g.player.impactSerial;
+        for (let i = 0; i < e.frames; i++) {
+          g.stepNow(1);
+          const id = g.player.attack?.id ?? null;
+          if (id !== last) {
+            last = id;
+            if (id) seq.push(id);
+          }
+          if (e.stopImpacts > 0 && g.player.impactSerial - impact0 >= e.stopImpacts) break;
+        }
+        g.renderNow(6);
+        return { seq, level: g.skills.level(e.id), impacts: g.player.impactSerial - impact0, dmg: 99999 - en.health.hp };
+      },
+      { solo: SOLO, e: ex },
+    );
+    console.log(`[skill-ex] ${ex.id} ${JSON.stringify(r)}`);
+    if (r.level !== 7 || r.seq.join() !== ex.attack || r.dmg <= 0 || r.impacts < ex.stopImpacts) {
+      console.error(`[skill-ex] ${ex.id} Lv7 が出ていない（${ex.attack} の連なり・当たり・地面の演出）`);
+      process.exitCode = 3;
+    }
+    await sleep(150);
+    await page.screenshot({ path: `artifacts/shot-skill-ex-${ex.id}.png` });
+  }
+  await page.evaluate(() => {
+    const g = window.__mw.game;
+    g.growth.reset();
+    g.applyGrowth(); // 後の撮影シーンにレベルを持ち越さない
+  });
+
   // 操作ガイド（ADR-024）: ロックして 1 段目を出し、次段の受付が開いた絵（連携の履歴・続けられる技・受付の帯）と、右上の「技表」を開いた絵
   await page.evaluate((solo) => {
     const g = window.__mw.game;
@@ -1079,7 +1142,7 @@ try {
   await sleep(150);
   const kPlus = page.locator('.sk-card').nth(0).locator('.st-btn.plus');
   for (let i = 0; i < 3; i++) await kPlus.click();
-  await page.locator('.sk-card').nth(3).locator('.st-btn.plus').click();
+  await page.locator('.sk-card').nth(6).locator('.st-btn.plus').click(); // 6 番目 = 大剣の最初（崩山）。片手剣のスキルが 6 個（ADR-038）
   await sleep(100);
   await page.screenshot({ path: 'artifacts/shot-menu-skills.png' });
   const menuInfo2 = await page.evaluate(() => {

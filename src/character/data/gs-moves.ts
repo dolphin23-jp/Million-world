@@ -160,7 +160,7 @@ export const GS_RETREAT: AuthoredAttack = {
 // ---------------------------------------------------------------- 大回転斬り（ロック中にスティック横）
 
 /** 巻き込み: 右へ大きくひねって、剣を右後ろへ水平に引く。腰を深く沈める（跳び上がる前の溜め） */
-const SPIN_COIL = {
+export const SPIN_COIL = {
   hips: { yaw: 26, pitch: 8, z: 0, y: -0.26 },
   chest: { yaw: 52, pitch: 8 },
   head: { yaw: 12 },
@@ -171,7 +171,7 @@ const SPIN_COIL = {
 };
 
 /** 回転中の腕と剣（胸の座標で一定）: 剣は体の右前へ水平に伸びる。体が回るあいだ、世界では剣が円を描く */
-const SPIN_ARMS = {
+export const SPIN_ARMS = {
   grip: [6, 2, 0.42] as V3,
   ...plane(62, 0),
   roll: -75,
