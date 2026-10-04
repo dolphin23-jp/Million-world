@@ -21,7 +21,8 @@ export default defineConfig({
     chunkSizeWarningLimit: 1200,
   },
   test: {
-    include: ['src/**/*.test.ts'],
+    // tools/lib の純粋関数（アセット加工）のテストも含める。実際の資産への効果は src/character/hero-asset.test.ts
+    include: ['src/**/*.test.ts', 'tools/**/*.test.mjs'],
     environment: 'node',
   },
 });
