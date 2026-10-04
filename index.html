@@ -52,16 +52,16 @@
       <div id="debug"></div>
       <!-- 操作ガイド（攻撃ボタンとスティックの向きで何が出るか）。中身は src/ui/move-guide.ts が作る -->
       <div id="move-guide" data-mode="hidden"></div>
-      <!-- 技表を開くボタン（装備の切替の下）。押している間は pointer を受ける -->
-      <button id="btn-moves" type="button">技表</button>
+      <!-- メニュー（一時停止。ステータス・スキル・技表・設定）を開くボタン（装備の切替の下）。未使用のポイントがあると金の点が付く（src/ui/pause-menu.ts） -->
+      <button id="btn-menu" type="button">メニュー</button>
     </div>
 
-    <!-- 技表（装備の技の一覧）。開いているあいだは戦闘を止める。中身は src/ui/move-list.ts が作る -->
-    <div id="moves-overlay" class="hidden">
-      <div class="ml-card">
-        <div class="ml-head"><span class="ml-title"></span><button class="ml-close" type="button">閉じる</button></div>
-        <div class="ml-body"></div>
-        <label class="ml-guide"><input type="checkbox" checked /> 画面の下に操作ガイドを出す</label>
+    <!-- 一時停止メニュー（ADR-033）。開いているあいだは戦闘を止める。タブ（ステータス・スキル・技表・設定）の中身は src/ui/menu/*.ts が作る。機能が増えたらタブを足す -->
+    <div id="menu-overlay" class="hidden">
+      <div class="menu-card">
+        <div class="menu-head"><span class="menu-title">メニュー</span><button class="menu-close" type="button">閉じる</button></div>
+        <div class="menu-tabs"></div>
+        <div class="menu-body" data-scroll></div>
       </div>
     </div>
 

@@ -36,6 +36,18 @@ export function skillSteps(def: SkillDef, level: number): SkillRunStep[] {
   return out;
 }
 
+/** 画面に出す、あるレベルのスキルの数値（威力の倍率・クールダウン秒・連なりの段数。INT などの Modifiers は含めない = スキル自体の数値） */
+export interface SkillInfo {
+  level: number;
+  power: number;
+  cooldownSec: number;
+  steps: number;
+}
+
+export function skillInfo(def: SkillDef, level: number): SkillInfo {
+  return { level, power: skillPower(def, level), cooldownSec: skillCooldown(def, level) / 60, steps: skillSteps(def, level).length };
+}
+
 export class SkillBook {
   private readonly levels: Record<SkillId, number>;
   /** 武器の系統ごとの、スキルボタンで使う（選んでいる）スキル。未選択ならその系統の最初の使えるスキル */
@@ -75,6 +87,12 @@ export class SkillBook {
   /** 武器の系統ごとに選んでいるスキル（セーブ用。選んでいない系統は含まない） */
   selection(): Partial<Record<WeaponId, SkillId>> {
     return { ...this.selected };
+  }
+
+  /** 選択を全部外す（「最初から」）。使えるスキルの最初のものに戻る */
+  clearSelection(): void {
+    for (const k of Object.keys(this.selected) as WeaponId[]) delete this.selected[k];
+    this.serial++;
   }
 
   /** セーブから選択を戻す（使えない・系統が合わないものは無視する） */

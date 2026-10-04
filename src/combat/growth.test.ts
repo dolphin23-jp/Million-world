@@ -292,3 +292,19 @@ describe('保存したものから戻す（壊れていても動く）', () => {
     expectInvariant(g);
   });
 });
+
+describe('最初から（reset）', () => {
+  it('レベル・経験値・ポイント・ステータス・スキルのレベルが初期に戻る', () => {
+    const g = new Growth();
+    g.addXp(totalXpTo(9) + 5);
+    g.addStat('str');
+    g.addSkill('issen');
+    g.beginEdit();
+    g.addStat('dex');
+    g.reset();
+    expect(g.toSnapshot()).toEqual(new Growth().toSnapshot());
+    expectInvariant(g);
+    // 編集の途中でも、戻せる起点は初期の状態になる（さらに戻せない）
+    expect(g.canRemoveStat('dex')).toBe(false);
+  });
+});

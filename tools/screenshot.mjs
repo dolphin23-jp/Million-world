@@ -947,11 +947,74 @@ try {
   }, SOLO);
   await sleep(120);
   await page.screenshot({ path: 'artifacts/shot-guide.png' });
-  await page.click('#btn-moves');
+
+  // 一時停止メニュー（ADR-033）: レベル 7（ステータスポイント 18・スキルポイント 6）にして開き、ステータスを振る・スキルを上げる・技表・設定を撮る。
+  // 振り分けが戦闘の数値・セーブに届いていること、− が開いてから振った分までしか戻せないこと、閉じると再開することも確かめる
+  await page.evaluate(() => {
+    const g = window.__mw.game;
+    g.growth.reset();
+    g.growth.addXp(660);
+    g.stepNow(1);
+  });
+  const menuInfo0 = await page.evaluate(() => {
+    const g = window.__mw.game;
+    return { level: g.growth.level, sp: g.growth.statPoints, kp: g.growth.skillPoints, dot: document.querySelector('#btn-menu .menu-dot')?.classList.contains('on') };
+  });
+  console.log(`[menu] 開く前 ${JSON.stringify(menuInfo0)}`);
+  await page.click('#btn-menu');
   await sleep(250);
-  await page.screenshot({ path: 'artifacts/shot-moves.png' });
-  await page.click('.ml-close');
+  await page.screenshot({ path: 'artifacts/shot-menu-status.png' });
+  const strPlus = page.locator('.st-row').nth(0).locator('.st-btn.plus');
+  for (let i = 0; i < 3; i++) await strPlus.click();
+  const vitPlus = page.locator('.st-row').nth(4).locator('.st-btn.plus');
+  for (let i = 0; i < 5; i++) await vitPlus.click();
+  await page.locator('.st-row').nth(4).locator('.st-btn').first().click(); // VIT − を 1 回（開いてから振った分）
+  const dexMinusDisabled = await page.locator('.st-row').nth(1).locator('.st-btn').first().isDisabled(); // DEX は振っていないので − は押せない
+  const menuInfo1 = await page.evaluate(() => {
+    const g = window.__mw.game;
+    return { str: g.growth.stat('str'), vit: g.growth.stat('vit'), dex: g.growth.stat('dex'), sp: g.growth.statPoints, maxHp: g.player.health.max, dmg: g.player.mods.damage };
+  });
+  console.log(`[menu] ステータスを振った ${JSON.stringify(menuInfo1)}`);
+  if (!dexMinusDisabled || menuInfo1.str !== 8 || menuInfo1.vit !== 9 || menuInfo1.dex !== 5 || menuInfo1.sp !== 11 || menuInfo1.maxHp !== 100 + 8 || Math.abs(menuInfo1.dmg - 1.03) > 1e-9) {
+    console.error('[menu] ステータスの振り分けが数値に届いていない（＋ / − / 最大体力 / ダメージ）');
+    process.exitCode = 3;
+  }
+  await page.screenshot({ path: 'artifacts/shot-menu-status2.png' });
+  await page.locator('.menu-tab').nth(1).click();
   await sleep(150);
+  const kPlus = page.locator('.sk-card').nth(0).locator('.st-btn.plus');
+  for (let i = 0; i < 3; i++) await kPlus.click();
+  await page.locator('.sk-card').nth(3).locator('.st-btn.plus').click();
+  await sleep(100);
+  await page.screenshot({ path: 'artifacts/shot-menu-skills.png' });
+  const menuInfo2 = await page.evaluate(() => {
+    const g = window.__mw.game;
+    return { yotsuba: g.growth.skillLevel('yotsuba'), houzan: g.growth.skillLevel('houzan'), kp: g.growth.skillPoints, book: g.skills.level('yotsuba') };
+  });
+  console.log(`[menu] スキルを上げた ${JSON.stringify(menuInfo2)}`);
+  if (menuInfo2.yotsuba !== 4 || menuInfo2.houzan !== 2 || menuInfo2.kp !== 2 || menuInfo2.book !== 4) {
+    console.error('[menu] スキルのレベル上げが SkillBook に届いていない');
+    process.exitCode = 3;
+  }
+  await page.locator('.menu-tab').nth(2).click();
+  await sleep(150);
+  await page.screenshot({ path: 'artifacts/shot-moves.png' });
+  await page.locator('.menu-tab').nth(3).click();
+  await sleep(150);
+  await page.screenshot({ path: 'artifacts/shot-menu-settings.png' });
+  await page.click('.menu-close');
+  await sleep(150);
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('mw.save') ?? 'null'));
+  console.log(`[menu] セーブ ${JSON.stringify(saved && { level: saved.level, stats: saved.stats, skills: saved.skills.yotsuba })}`);
+  if (!saved || saved.level !== 7 || saved.stats.str !== 8 || saved.skills.yotsuba !== 4) {
+    console.error('[menu] 閉じたときにセーブされていない');
+    process.exitCode = 3;
+  }
+  await page.evaluate(() => {
+    const g = window.__mw.game;
+    g.growth.reset();
+    g.applyGrowth(); // private だが実行時は呼べる（後の撮影シーンに振り分けを持ち越さない）
+  });
 
   // 12〜13. リザルト: 勝ち（敵を倒しきる）と負け（プレイヤーを倒す）。CSS アニメはループを止めると進まないので、止めて撮る
   await page.addStyleTag({ content: '*, *::before, *::after { animation: none !important; }' });

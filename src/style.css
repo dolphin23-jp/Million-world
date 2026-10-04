@@ -1204,17 +1204,17 @@ body {
   opacity: 0.75;
 }
 
-/* ---------- 技表（src/ui/move-list.ts）---------- */
-#btn-moves {
-  /* 装備の切替の下。小さく、端に置く */
+/* ---------- 一時停止メニュー（src/ui/pause-menu.ts・src/ui/menu/*.ts。ADR-033）---------- */
+#btn-menu {
+  /* 装備の切替の下。小さく、端に置く。未使用のポイントがあると金の点（.menu-dot.on） */
   position: absolute;
   right: calc(16px + var(--safe-right));
   top: calc(60px + var(--safe-top));
   pointer-events: auto;
   touch-action: none;
-  height: 32px;
+  height: 34px;
   padding: 0 14px;
-  border-radius: 16px;
+  border-radius: 17px;
   font: 700 12px var(--ui-font);
   letter-spacing: 0.06em;
   color: rgba(255, 255, 255, 0.85);
@@ -1224,52 +1224,367 @@ body {
   -webkit-backdrop-filter: blur(6px);
   -webkit-tap-highlight-color: transparent;
 }
-#moves-overlay {
+.menu-dot {
+  display: none;
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid #1a1400;
+  box-shadow: 0 0 8px rgba(255, 211, 106, 0.9);
+  animation: menu-dot 1.4s ease-in-out infinite;
+}
+.menu-dot.on {
+  display: block;
+}
+@keyframes menu-dot {
+  50% { transform: scale(1.25); }
+}
+#menu-overlay {
   position: fixed;
   inset: 0;
   z-index: 30;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(6, 8, 20, 0.55);
+  background: rgba(6, 8, 20, 0.6);
   touch-action: none;
 }
-#moves-overlay.hidden {
+#menu-overlay.hidden {
   display: none;
 }
-.ml-card {
-  width: min(86vw, 640px);
-  max-height: 86vh;
+.menu-card {
+  width: min(94vw, 780px);
+  height: min(90vh, 640px);
   display: flex;
   flex-direction: column;
   border-radius: 16px;
-  background: rgba(16, 18, 42, 0.92);
+  background: rgba(16, 18, 42, 0.94);
   border: 2px solid rgba(255, 255, 255, 0.35);
   box-shadow: 0 8px 40px rgba(0, 0, 0, 0.55);
   color: #fff;
+  overflow: hidden;
 }
-.ml-head {
+.menu-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 18px 8px;
+  padding: 12px 18px 6px;
   font-size: 18px;
   font-weight: 800;
   letter-spacing: 0.08em;
 }
-.ml-close {
+.menu-close,
+.menu-btn {
   font: 700 13px var(--ui-font);
-  padding: 7px 16px;
+  padding: 9px 18px;
   border-radius: 14px;
   color: #fff;
   background: rgba(255, 255, 255, 0.12);
   border: 1.5px solid rgba(255, 255, 255, 0.4);
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
-.ml-body {
+.menu-btn.danger {
+  border-color: rgba(255, 140, 140, 0.55);
+}
+.menu-btn[data-armed='1'] {
+  background: rgba(255, 90, 90, 0.5);
+  border-color: #ff9a9a;
+}
+.menu-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 4px 14px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+}
+.menu-tab {
+  position: relative;
+  flex: 1;
+  font: 700 14px var(--ui-font);
+  letter-spacing: 0.06em;
+  padding: 10px 6px;
+  border-radius: 12px 12px 0 0;
+  color: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1.5px solid rgba(255, 255, 255, 0.2);
+  border-bottom: none;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.menu-tab.active {
+  color: #1a1400;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.menu-body {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   touch-action: pan-y;
   -webkit-overflow-scrolling: touch;
-  padding: 4px 18px 10px;
+  padding: 10px 18px 14px;
+}
+.menu-pane {
+  display: none;
+}
+.menu-pane.active {
+  display: block;
+}
+.menu-foot {
+  display: flex;
+  justify-content: flex-end;
+  padding: 14px 0 4px;
+}
+/* ステータス */
+.st-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 22px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+.st-lv {
+  font-size: 30px;
+  font-weight: 800;
+  color: var(--accent);
+  letter-spacing: 0.04em;
+}
+.st-xp {
+  flex: 1;
+  min-width: 160px;
+}
+.st-xp-text {
+  font-size: 12px;
+  opacity: 0.8;
+  margin-bottom: 4px;
+}
+.st-xp-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+.st-xp-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #ffe38a, #ffb347);
+}
+.st-pts {
+  display: flex;
+  gap: 16px;
+}
+.st-pt {
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  opacity: 0.85;
+}
+.st-pt b {
+  font-size: 24px;
+  line-height: 1;
+}
+.st-pt.has b {
+  color: var(--accent);
+  text-shadow: 0 0 10px rgba(255, 211, 106, 0.6);
+}
+.st-row {
+  display: grid;
+  grid-template-columns: 76px 150px 1fr;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.st-name b {
+  display: block;
+  font-size: 17px;
+}
+.st-name small {
+  opacity: 0.55;
+  letter-spacing: 0.1em;
+}
+.st-ctrl {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.st-val {
+  min-width: 34px;
+  text-align: center;
+  font-size: 22px;
+  font-weight: 800;
+}
+.st-val.raised {
+  color: var(--accent);
+}
+.st-btn {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  font: 800 22px var(--ui-font);
+  line-height: 1;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.14);
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.st-btn.plus {
+  background: rgba(255, 211, 106, 0.3);
+  border-color: var(--accent);
+}
+.st-btn:disabled {
+  opacity: 0.28;
+}
+.st-eff {
+  font-size: 13px;
+}
+.st-note {
+  display: block;
+  opacity: 0.55;
+  font-size: 11px;
+  margin-top: 2px;
+}
+/* スキル */
+.sk-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-bottom: 8px;
+}
+.sk-hint {
+  font-size: 12px;
+  opacity: 0.7;
+}
+.sk-fam {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 12px 0 6px;
+  padding-bottom: 4px;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.2);
+  font-size: 16px;
+}
+.sk-equipped {
+  display: none;
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 8px;
+  color: #1a1400;
+  background: var(--accent);
+}
+.sk-fam.current .sk-equipped {
+  display: inline;
+}
+.sk-card {
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+.sk-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.sk-name b {
+  font-size: 17px;
+  margin-right: 12px;
+}
+.sk-lv {
+  font-size: 13px;
+  color: var(--accent);
+  font-weight: 700;
+}
+.sk-top .st-ctrl .st-btn {
+  width: 42px;
+  height: 42px;
+}
+.sk-pips {
+  display: flex;
+  gap: 4px;
+  margin: 6px 0;
+}
+.sk-pip {
+  width: 22px;
+  height: 7px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.16);
+}
+.sk-pip.on {
+  background: linear-gradient(90deg, #ffe38a, #ffb347);
+}
+.sk-pip.evo {
+  height: 11px;
+  margin-top: -2px;
+  border: 1.5px solid rgba(255, 211, 106, 0.8);
+  box-sizing: border-box;
+}
+.sk-detail {
+  font-size: 12px;
+  opacity: 0.8;
+}
+.sk-stat {
+  font-size: 12px;
+  margin-top: 4px;
+  opacity: 0.95;
+}
+.sk-evo {
+  display: flex;
+  gap: 10px;
+  margin-top: 4px;
+  font-size: 12px;
+  opacity: 0.5;
+}
+.sk-evo b {
+  flex: none;
+  color: var(--accent);
+}
+.sk-evo.on {
+  opacity: 1;
+}
+/* 設定 */
+.set-title {
+  margin: 10px 0 4px;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+}
+.set-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  font-size: 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.set-row.col {
+  flex-direction: column;
+  align-items: flex-start;
+}
+.set-row input[type='checkbox'] {
+  width: 22px;
+  height: 22px;
+}
+.set-note {
+  font-size: 12px;
+  opacity: 0.7;
+}
+/* 技表（装備の技の一覧） */
+.ml-title {
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  margin-bottom: 6px;
 }
 .ml-node {
   margin-top: 2px;
@@ -1304,10 +1619,4 @@ body {
 }
 .ml-line small {
   opacity: 0.6;
-}
-.ml-guide {
-  padding: 8px 18px 14px;
-  font-size: 13px;
-  opacity: 0.85;
-  border-top: 1px solid rgba(255, 255, 255, 0.12);
 }

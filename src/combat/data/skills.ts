@@ -12,6 +12,12 @@ export type SkillId = 'yotsuba' | 'samidare' | 'tatsumaki' | 'houzan' | 'issen';
 
 export const SKILL_LEVEL_MAX = 10;
 
+/** 画面に出す進化の説明（どのレベルで何が変わるか） */
+export interface SkillEvolutionInfo {
+  level: number;
+  text: string;
+}
+
 export interface SkillStepDef {
   /** 攻撃 id（ATTACKS か SKILL_ATTACKS のキー。findAttack で探す）。前の段の受付時点の姿勢から続くこと（クリップの continueFrom がそうなっているのをテストする） */
   attack: string;
@@ -30,6 +36,8 @@ export interface SkillDef {
   detail: string;
   /** 使える武器の系統（片手剣・盾付きの片手剣は 'sword'） */
   family: WeaponId;
+  /** モーションが進化するレベル（Lv4 と Lv7。M6-3b）と、画面に出す説明。レベルが上がると連なり・動きが変わる（steps の minLevel / evolve） */
+  evolutions?: readonly SkillEvolutionInfo[];
   steps: readonly SkillStepDef[];
   /** 威力の倍率（Lv1）と、1 レベルごとの加算。ダメージ・ノックバック・ヒットストップに掛かる（AttackerView.attackPower） */
   power: number;

@@ -23,7 +23,7 @@ import { SkillBook } from '../combat/skills';
 import { SKILLS, SKILL_ORDER, isSkillId, type SkillDef } from '../combat/data/skills';
 import { Growth } from '../combat/growth';
 import { makeSave, parseSave } from '../combat/save';
-import { readSave, writeSave } from '../platform/storage';
+import { clearSave, readSave, writeSave } from '../platform/storage';
 import { ITEMS, ITEM_ORDER, ITEM_RULES, type ItemId } from '../combat/data/items';
 import { MYSTICAL } from '../combat/data/mystical';
 import { Enemy } from '../ai/enemy';
@@ -55,7 +55,11 @@ import type { DamageResult } from '../combat/health';
 import { ThirdPersonCamera } from './camera';
 import { Hud } from '../ui/hud';
 import { MoveGuide } from '../ui/move-guide';
-import { MoveList } from '../ui/move-list';
+import { PauseMenu } from '../ui/pause-menu';
+import { StatusTab } from '../ui/menu/status-tab';
+import { SkillsTab } from '../ui/menu/skills-tab';
+import { MovesTab } from '../ui/menu/moves-tab';
+import { SettingsTab } from '../ui/menu/settings-tab';
 import { buildGuide, type GuideContext } from '../combat/move-guide';
 import { buildMoveTree } from '../combat/move-tree';
 import { onVisibility } from '../platform/safari';
@@ -229,9 +233,10 @@ export class Game {
   readonly input = new InputAggregator();
   readonly touch: TouchInput;
   readonly hud: Hud;
-  /** 操作ガイド（下の帯）と技表（ADR-024）。技表を開いているあいだは戦闘を止める */
+  /** 操作ガイド（下の帯。ADR-024）と、一時停止メニュー（ステータス・スキル・技表・設定。ADR-033）。メニューを開いているあいだは戦闘を止める */
   private readonly moveGuide: MoveGuide;
-  private readonly moveList: MoveList;
+  private readonly menu: PauseMenu;
+  private readonly movesTab: MovesTab;
   private paused = false;
   private readonly guideCtx: GuideContext = {
     state: 'idle', moveset: LOADOUTS[DEFAULT_LOADOUT].moveset, chargeId: LOADOUTS[DEFAULT_LOADOUT].charge, attackId: null, trail: [], frame: 0, cancelFrame: 0, total: 0,
@@ -254,9 +259,8 @@ export class Game {
     this.hud = new Hud();
     this.hud.setDebugVisible(opts.debug ?? true);
     this.moveGuide = new MoveGuide(document.getElementById('move-guide')!);
-    this.moveList = new MoveList();
-    this.moveList.onGuideVisible((on) => this.moveGuide.setVisible(on));
-    this.moveList.onOpen((open) => (this.paused = open));
+    this.menu = new PauseMenu();
+    this.movesTab = new MovesTab();
     this.damageNumbers = new DamageNumbers(document.getElementById('fx-layer')!);
     this.enemyBars = new EnemyBars(document.getElementById('fx-layer')!);
     this.lockMarker = new LockMarker(document.getElementById('fx-layer')!);
@@ -295,6 +299,7 @@ export class Game {
     if (save) this.skills.restoreSelection(save.selected);
     this.levelAtRunStart = this.growth.level;
     this.applyGrowth();
+    this.setupMenu();
     this.scene.add(this.hitFx.group);
     this.scene.add(this.groundFx.group);
     this.scene.add(this.lanes.group);
@@ -478,6 +483,7 @@ export class Game {
     this.player.setModifiers(this.growth.modifiers);
     this.hud.setPlayerHp(this.player.health.hp, this.player.health.max);
     this.syncGrowthUi();
+    this.menu.refreshMarks();
   }
 
   /** HUD のレベル・経験値を合わせる。毎ステップ呼んでよい（変わったときだけ触る） */
@@ -504,8 +510,52 @@ export class Game {
       this.hitFx.burst(p.body.x, HIT_FEEDBACK.playerImpactHeight, p.body.z, 0, 0, 0.9, FX_TINT.poise);
       this.sfx.play('levelUp');
       this.hud.flashLevelUp();
+      this.menu.refreshMarks();
       this.persist();
     }
+  }
+
+  /** 一時停止メニューのタブを作る（ステータス・スキル・技表・設定。機能が増えたらここへタブを足す） */
+  private setupMenu(): void {
+    const onChange = (): void => {
+      // 振り分けが変わった: 戦闘の数値・スキルのレベルを合わせ、保存して、画面を更新する
+      this.applyGrowth();
+      this.persist();
+      this.sfx.play('ui');
+      this.menu.refresh();
+    };
+    this.menu.addTab(new StatusTab({ growth: this.growth, onChange }));
+    this.menu.addTab(new SkillsTab({ growth: this.growth, book: this.skills, currentFamily: () => this.player.loadout.weapon, onChange }));
+    this.menu.addTab(this.movesTab);
+    this.menu.addTab(
+      new SettingsTab({
+        onGuideVisible: (on) => this.moveGuide.setVisible(on),
+        onResetProgress: () => this.resetProgress(),
+      }),
+    );
+    this.menu.select('status');
+    this.menu.onOpen((open) => {
+      this.paused = open;
+      if (open) {
+        this.growth.beginEdit();
+        this.sfx.play('ui');
+      } else {
+        this.growth.endEdit();
+        this.persist();
+      }
+    });
+    this.menu.refreshMarks();
+  }
+
+  /** 「最初から」: 成長・スキルのレベルと選択・セーブを消す（戦闘はそのまま続く） */
+  private resetProgress(): void {
+    this.growth.reset();
+    this.skills.clearSelection();
+    clearSave();
+    this.applyGrowth();
+    this.persist();
+    this.menu.refresh();
+    this.sfx.play('ui');
   }
 
   /** 成長とスキル欄の選択を保存する（レベルアップ・振り分け・スキルの選択・戦闘の終わり・タブを離れるとき）。できなくても続ける */
@@ -779,7 +829,7 @@ export class Game {
   /** 技表を、いまの装備の技で作り直す */
   private refreshMoveList(): void {
     const l = this.player.loadout;
-    this.moveList.setMoves(l.name, buildMoveTree(l.moveset, l.charge));
+    this.movesTab.setMoves(l.name, buildMoveTree(l.moveset, l.charge));
   }
 
   /** ミスティカルドッジの画面の色・ゲージ（発動中は残り、切れたあとは次までの溜まり具合） */

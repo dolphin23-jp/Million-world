@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SKILLS, SKILL_LEVEL_MAX, SKILL_ORDER, type SkillDef, type SkillId } from './data/skills';
-import { SkillBook, skillCooldown, skillPower, skillSteps } from './skills';
+import { SkillBook, skillCooldown, skillInfo, skillPower, skillSteps } from './skills';
 import { resolveAttack } from './data/attacks';
 import { findAttack } from './data/skill-attacks';
 
@@ -243,5 +243,38 @@ describe('SkillBook', () => {
     expect(b.ready(id)).toBe(true);
     expect(b.level(id)).toBe(4);
     expect(b.selectedFor('sword')!.id).toBe(id);
+  });
+});
+
+describe('画面に出すスキルの数値（skillInfo）と選択のクリア', () => {
+  it('レベルが上がるほど威力が伸び、クールダウンが縮み、連なりは伸びる（または同じ）', () => {
+    for (const id of SKILL_ORDER) {
+      const def = SKILLS[id];
+      let prev = skillInfo(def, 1);
+      for (let lv = 2; lv <= SKILL_LEVEL_MAX; lv++) {
+        const cur = skillInfo(def, lv);
+        expect(cur.power, `${id} Lv${lv}`).toBeGreaterThan(prev.power);
+        expect(cur.cooldownSec, `${id} Lv${lv}`).toBeLessThan(prev.cooldownSec);
+        expect(cur.steps, `${id} Lv${lv}`).toBeGreaterThanOrEqual(prev.steps);
+        prev = cur;
+      }
+    }
+  });
+  it('数値はなめらかに伸びる（Lv10 でも威力 +45%・クールダウン −31.5% 前後）', () => {
+    const def = SKILLS.yotsuba;
+    const a = skillInfo(def, 1);
+    const b = skillInfo(def, SKILL_LEVEL_MAX);
+    expect(b.power / a.power).toBeGreaterThan(1.3);
+    expect(b.power / a.power).toBeLessThan(1.5);
+    expect(b.cooldownSec / a.cooldownSec).toBeGreaterThan(0.6);
+    expect(b.cooldownSec / a.cooldownSec).toBeLessThan(0.75);
+  });
+  it('選択をクリアすると、系統の最初のスキルに戻る', () => {
+    const b = new SkillBook();
+    b.select('tatsumaki');
+    expect(b.selectedFor('sword')!.id).toBe('tatsumaki');
+    b.clearSelection();
+    expect(b.selectedFor('sword')!.id).toBe(SKILL_ORDER.find((id) => SKILLS[id].family === 'sword'));
+    expect(b.selection()).toEqual({});
   });
 });

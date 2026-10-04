@@ -82,6 +82,18 @@ export class Growth {
     this.serial++;
   }
 
+  /** 最初から（セーブの消去）。レベル 1・経験値 0・ポイント 0・ステータスは初期・スキルは Lv1 */
+  reset(): void {
+    this.level = 1;
+    this.xp = 0;
+    this.statPoints = 0;
+    this.skillPoints = 0;
+    for (const id of STAT_IDS) this.stats[id] = STAT_BASE;
+    for (const id of SKILL_ORDER) this.skills[id] = 1;
+    if (this.edit) this.edit = { stats: { ...this.stats }, skills: { ...this.skills } };
+    this.serial++;
+  }
+
   toSnapshot(): GrowthSnapshot {
     return { level: this.level, xp: this.xp, statPoints: this.statPoints, skillPoints: this.skillPoints, stats: { ...this.stats }, skills: { ...this.skills } };
   }
