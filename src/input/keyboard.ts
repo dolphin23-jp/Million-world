@@ -1,7 +1,7 @@
 import type { InputIntent, InputSource } from './intent';
 
 /**
- * 開発用キーボード入力。WASD/矢印: 移動, J: 攻撃（押し続けると溜め）, K: 回避, H: ガード（押している間）, G: 装備の切替, U: アイテムを使う, I: アイテムの選択を次へ, L: ロックオン, Q/E: 対象切替, 矢印(Shift): カメラ。
+ * 開発用キーボード入力。WASD/矢印: 移動, J: 攻撃（押し続けると溜め）, K: 回避, H: ガード（押している間）, G: 装備の切替, U: アイテムを使う, I: アイテムの選択を次へ, O: スキルを使う, P: スキルの選択を次へ, L: ロックオン, Q/E: 対象切替, 矢印(Shift): カメラ。
  * 製品の操作系はタッチ専用（ADR-006）。これは PC での動作確認のためだけに存在する。
  */
 export class KeyboardInput implements InputSource {
@@ -13,6 +13,8 @@ export class KeyboardInput implements InputSource {
   private lockEdge = false;
   private itemEdge = false;
   private itemCycle = 0;
+  private skillEdge = false;
+  private skillCycle = 0;
   private lockSwitch = 0;
 
   constructor(target: Window = window) {
@@ -40,6 +42,12 @@ export class KeyboardInput implements InputSource {
           break;
         case 'KeyI':
           this.itemCycle = 1;
+          break;
+        case 'KeyO':
+          this.skillEdge = true;
+          break;
+        case 'KeyP':
+          this.skillCycle = 1;
           break;
         case 'KeyQ':
           this.lockSwitch = -1;
@@ -77,6 +85,8 @@ export class KeyboardInput implements InputSource {
     if (this.lockEdge) intent.lockPressed = true;
     if (this.itemEdge) intent.itemPressed = true;
     if (this.itemCycle !== 0) intent.itemCycle = this.itemCycle;
+    if (this.skillEdge) intent.skillPressed = true;
+    if (this.skillCycle !== 0) intent.skillCycle = this.skillCycle;
     if (this.lockSwitch !== 0) intent.lockSwitch = this.lockSwitch;
   }
 
@@ -88,6 +98,8 @@ export class KeyboardInput implements InputSource {
     this.lockEdge = false;
     this.itemEdge = false;
     this.itemCycle = 0;
+    this.skillEdge = false;
+    this.skillCycle = 0;
     this.lockSwitch = 0;
   }
 }

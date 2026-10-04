@@ -8,6 +8,8 @@ import { afterDodgeOf, classifyStick, pickAttack, pickChargeRelease, pickFollowU
 import { applyDamage, createHealth, type DamageResult } from '../combat/health';
 import { HitTracker, isActiveFrame, type HitEvent, type Hurtbox } from '../combat/hit';
 import { Knockback } from '../combat/knockback';
+import type { SkillRun } from '../combat/skills';
+import type { SkillId } from '../combat/data/skills';
 import { angleDelta, approach, lerp, lerpAngle, rotateTowards } from '../core/math';
 import { PLAYER_ID } from './combat';
 import type { CharacterAsset } from '../character/loader';
@@ -51,6 +53,14 @@ export class Player {
   private hurtInvuln = 0;
   /** ミスティカルドッジの間か（Game が setMystical で設定する）。true の間は無敵 */
   private mystical = false;
+  /**
+   * 剣技（ADR-031）。requestSkill で頼まれた連なり（1 ステップだけ有効 = step の終わりで捨てる。始められたかは skillSerial の増加で分かる）、
+   * 実行中の連なりと進み具合、始めたたびに増える合図と直近のスキル（Game が演出・クールダウンを起こすのに読む）
+   */
+  private pendingSkill: SkillRun | null = null;
+  private skillRun: { run: SkillRun; i: number } | null = null;
+  skillSerial = 0;
+  lastSkill: SkillId | null = null;
   private attackBuffered = false;
   /** 直近の sim ステップでのスティックの向き（対象に対して。ロックなしは倒していれば前）。操作ガイドが読む（ADR-024） */
   stickDir: StickDir = 'none';
@@ -159,6 +169,8 @@ export class Player {
         this.stepLocomotion(dt, mx, mz, mLen);
         if (intent.dodgePressed) {
           this.beginDodge(mx, mz, mLen);
+        } else if (this.pendingSkill) {
+          this.beginSkill(this.pendingSkill, mx, mz, mLen);
         } else if (this.canGuard()) {
           this.beginGuard();
         } else if (this.attackBuffered) {
@@ -175,7 +187,7 @@ export class Player {
         this.stepGuard(dt, mx, mz, mLen, intent);
         break;
       case 'dodge':
-        this.stepDodge(dt, intent);
+        this.stepDodge(dt, mx, mz, mLen, intent);
         break;
       case 'hit':
         // ひるみ: 操作できない。ノックバックの速度で動き、終わったら待機へ（先行入力は残る）
@@ -196,7 +208,16 @@ export class Player {
     this.speed = Math.hypot(this.velX, this.velZ);
     this.stateFrame++;
     if (this.hurtInvuln > 0) this.hurtInvuln--;
+    this.pendingSkill = null;
     this.refreshHurtbox();
+  }
+
+  /**
+   * 剣技を頼む（ADR-031）。次の step() で、始められる状態（立っている・走っている・攻撃 / 回避の次段の受付）なら始まる。
+   * 始まったかは skillSerial が増えたかで分かる（始められない状態では何も起こらず、頼みは次の step の終わりで捨てる）
+   */
+  requestSkill(run: SkillRun): void {
+    this.pendingSkill = run;
   }
 
   /**
@@ -210,6 +231,7 @@ export class Player {
     this.attack = null;
     this.attackFrames = null;
     this.attackBuffered = false;
+    this.skillRun = null;
     this.charge = null;
     this.chargeLevel = 0;
     this.guard = null;
@@ -261,6 +283,8 @@ export class Player {
     this.framesSinceDodge = 9999;
     this.hurtInvuln = 0;
     this.mystical = false;
+    this.skillRun = null;
+    this.pendingSkill = null;
     this.knockback.cancel();
     this.velX = 0;
     this.velZ = 0;
@@ -317,6 +341,8 @@ export class Player {
 
   private beginAttack(def: AttackDef, mx: number, mz: number, mLen: number, power = 1, continuing = false): void {
     this.attackBuffered = false;
+    // 剣技の連なりは、剣技として始めた攻撃（beginSkill・連なりの次段）だけが持つ。ふつうの攻撃を始めたら連なりは終わり
+    this.skillRun = null;
     // 連携の履歴: 次段の受付から続けた技は足す（長さは MAX_CHAIN まで）。そうでなければ、この技だけから始める
     if (continuing) {
       this.chain.push(def.id);
@@ -340,6 +366,18 @@ export class Player {
     }
     this.velX = 0;
     this.velZ = 0;
+  }
+
+  /** 剣技を始める（連なりの 1 段目）。以降の段は stepAttack が受付のたびに自動で続ける。始めたことを skillSerial / lastSkill で知らせる */
+  private beginSkill(run: SkillRun, mx: number, mz: number, mLen: number): void {
+    const first = run.steps[0]!;
+    this.beginAttack(ATTACKS[first.attack]!, mx, mz, mLen, first.power);
+    // 攻撃ボタンの長押しで溜めに移らない（剣技はスキルボタンから始めた）
+    this.heldSinceBegin = false;
+    this.skillRun = { run, i: 0 };
+    this.skillSerial++;
+    this.lastSkill = run.skill;
+    this.pendingSkill = null;
   }
 
   private stepAttack(dt: number, mx: number, mz: number, mLen: number, intent: InputIntent): void {
@@ -389,6 +427,20 @@ export class Player {
     if (f >= activeEnd && this.canGuard()) {
       this.beginGuard();
       return;
+    }
+    // 剣技: 受付が開いたら、押さなくても連なりの次の段へ自動で続く（向きはスティック・ロック対象）。受付のあいだに別のスキルを頼まれたら、そちらを始める
+    if (this.pendingSkill && f >= fr.cancelFrame) {
+      this.beginSkill(this.pendingSkill, mx, mz, mLen);
+      return;
+    }
+    const sk = this.skillRun;
+    if (sk && f >= fr.cancelFrame) {
+      const next = sk.run.steps[sk.i + 1];
+      if (next) {
+        this.beginAttack(ATTACKS[next.attack]!, mx, mz, mLen, next.power, true);
+        this.skillRun = { run: sk.run, i: sk.i + 1 };
+        return;
+      }
     }
     // 次段キャンセル（押した瞬間のスティックの向きで続く技が変わる。AttackDef.branches）
     if (this.attackBuffered && f >= fr.cancelFrame && (a.next || a.branches)) {
@@ -488,7 +540,7 @@ export class Player {
     this.setState('dodge', true);
   }
 
-  private stepDodge(_dt: number, intent: InputIntent): void {
+  private stepDodge(_dt: number, mx: number, mz: number, mLen: number, intent: InputIntent): void {
     const f = this.stateFrame;
     const def = DODGES[this.dodgeKind];
     // 手付けの回避: 攻撃（stepAttack）と同じく、1 フレーム先にそろえた rootZ の差分で、向き（yaw）の前後へ進む（後ろステップは負）
@@ -496,6 +548,12 @@ export class Player {
     this.velX = Math.sin(this.yaw) * v;
     this.velZ = Math.cos(this.yaw) * v;
     if (intent.attackPressed) this.attackBuffered = true;
+    if (f >= def.cancelFrame && this.pendingSkill) {
+      // 回避の途中からの剣技（連なりの 1 段目から。回避直後の攻撃ではなく、剣技として始める）
+      this.framesSinceDodge = 9999;
+      this.beginSkill(this.pendingSkill, mx, mz, mLen);
+      return;
+    }
     if (f >= def.cancelFrame && this.attackBuffered) {
       // この攻撃自体がダッシュ。回避は終わったことにして、あとの攻撃を「回避直後」にしない
       this.framesSinceDodge = 9999;

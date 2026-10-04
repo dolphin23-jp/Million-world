@@ -21,6 +21,7 @@ interface Elements {
   btnEquip: HTMLElement;
   btnLock: HTMLElement;
   btnItem: HTMLElement;
+  btnSkill: HTMLElement;
 }
 
 function q<T extends HTMLElement>(id: string): T {
@@ -61,6 +62,7 @@ export class TouchInput implements InputSource {
   private equipEdge = false;
   private lockEdge = false;
   private itemEdge = false;
+  private skillEdge = false;
   /**
    * アイテム欄（ADR-030）。タップは使用の入力（itemPressed）、一覧から選ぶのは UI の操作なので onChoose で呼ぶ側へ直接知らせる。
    * 表示（setFace）と一覧（setOptions）は Game が教える。スキル欄を足すときは、同じ SlotButton をもう 1 つ作る
@@ -68,6 +70,9 @@ export class TouchInput implements InputSource {
   readonly item: SlotButton;
   /** 一覧から選んだ（アイテムの id） */
   onItemChoose: ((id: string) => void) | null = null;
+  /** スキル欄（ADR-031）。アイテム欄と同じ部品。タップは使用の入力（skillPressed）、一覧から選ぶのは onSkillChoose */
+  readonly skill: SlotButton;
+  onSkillChoose: ((id: string) => void) | null = null;
 
   constructor() {
     this.el = {
@@ -82,6 +87,7 @@ export class TouchInput implements InputSource {
       btnEquip: q('btn-equip'),
       btnLock: q('btn-lock'),
       btnItem: q('btn-item'),
+      btnSkill: q('btn-skill'),
     };
     this.bindStick();
     this.bindCamera();
@@ -111,6 +117,11 @@ export class TouchInput implements InputSource {
       onTap: () => (this.itemEdge = true),
       onChoose: (id) => this.onItemChoose?.(id),
     });
+    this.skill = new SlotButton({
+      el: this.el.btnSkill,
+      onTap: () => (this.skillEdge = true),
+      onChoose: (id) => this.onSkillChoose?.(id),
+    });
   }
 
   /** 装備の切替ボタンの表示を今の装備名にする（入力層はロジックを知らないので外から教える） */
@@ -139,6 +150,7 @@ export class TouchInput implements InputSource {
     if (this.equipEdge) intent.equipPressed = true;
     if (this.lockEdge) intent.lockPressed = true;
     if (this.itemEdge) intent.itemPressed = true;
+    if (this.skillEdge) intent.skillPressed = true;
     if (this.switchEdge !== 0) intent.lockSwitch = this.switchEdge;
   }
 
@@ -149,6 +161,7 @@ export class TouchInput implements InputSource {
     this.equipEdge = false;
     this.lockEdge = false;
     this.itemEdge = false;
+    this.skillEdge = false;
     this.switchEdge = 0;
   }
 
