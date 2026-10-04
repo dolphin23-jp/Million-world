@@ -733,6 +733,91 @@ try {
   await sleep(120);
   await page.screenshot({ path: 'artifacts/shot-boss-ring.png' });
 
+  // ミスティカルドッジ（ADR-030）: 暴れ猪の突進を、ロールを押す遅れを変えて試し、無敵で避けて発動した絵（画面の縁の色・残りゲージ・「MYSTICAL」・猪だけ遅い）
+  const BOAR_SOLO = { ...SOLO, waves: [[{ type: 'boar', offset: 0, radius: 6 }]], maxAttackers: 2 };
+  const mystic = await page.evaluate((def) => {
+    const g = window.__mw.game;
+    for (let d = 0; d < 40; d++) {
+      g.restart(def);
+      g.setLoadout('sword');
+      g.stepNow(1);
+      g.player.body.x = 0;
+      g.player.body.z = 0;
+      g.player.yaw = 0;
+      g.cam.yaw = Math.PI;
+      const boar = g.enemies[0].enemy;
+      boar.place(0, 6, Math.PI);
+      let n = 0;
+      while (!(boar.state === 'attack' && boar.stateFrame >= d) && n++ < 600) g.stepNow(1);
+      g.inject({ dodgePressed: true });
+      g.stepNow(1);
+      for (let i = 0; i < 40 && !g.mystical.active; i++) g.stepNow(1);
+      if (g.mystical.active) {
+        g.stepNow(20);
+        g.renderNow(12);
+        return { d, hp: g.player.health.hp, boar: boar.state, remaining: g.mystical.remaining };
+      }
+    }
+    return null;
+  }, BOAR_SOLO);
+  console.log(`[mystical] ${JSON.stringify(mystic)}`);
+  if (!mystic || mystic.hp !== 100) {
+    console.error('[mystical] ロールで突進を避けてもミスティカルドッジが発動していません（または被弾しました）');
+    process.exitCode = 3;
+  }
+  await sleep(150);
+  await page.screenshot({ path: 'artifacts/shot-mystical.png' });
+
+  // アイテム欄（ADR-030）: 薬瓶を持たせてボタンの絵 → 長押しして上へすべらせ一覧を開いた絵 → 離して選び替え → タップで使った直後（回復の数字と緑の光）
+  await page.evaluate(() => {
+    const g = window.__mw.game;
+    g.mystical.reset();
+    g.player.setMystical(false);
+    g.inventory.add('potionS', 3);
+    g.inventory.add('potionM', 1);
+    g.player.health.hp = 55;
+    g.hud.setPlayerHp(55, 100);
+    g.renderNow(6);
+  });
+  await sleep(150);
+  await page.screenshot({ path: 'artifacts/shot-item-button.png' });
+  const itemBox = await page.locator('#btn-item').boundingBox();
+  const icx = itemBox.x + itemBox.width / 2;
+  const icy = itemBox.y + itemBox.height / 2;
+  await page.mouse.move(icx, icy);
+  await page.mouse.down();
+  await sleep(400);
+  await page.mouse.move(icx, icy - 40, { steps: 4 });
+  await page.mouse.move(icx, icy - 72 * 2, { steps: 6 });
+  await sleep(150);
+  await page.screenshot({ path: 'artifacts/shot-item-menu.png' });
+  await page.mouse.up();
+  await sleep(100);
+  const picked = await page.evaluate(() => window.__mw.game.inventory.selected);
+  console.log(`[item] 一覧で選んだアイテム: ${picked}`);
+  if (picked !== 'potionM') {
+    console.error('[item] 長押し + スワイプで薬瓶（中）に選び替わっていません');
+    process.exitCode = 3;
+  }
+  await page.mouse.move(icx, icy);
+  await page.mouse.down();
+  await sleep(60);
+  await page.mouse.up();
+  await sleep(100);
+  const used = await page.evaluate(() => {
+    const g = window.__mw.game;
+    g.stepNow(2);
+    g.renderNow(10);
+    return { hp: g.player.health.hp, medium: g.inventory.count('potionM'), small: g.inventory.count('potionS') };
+  });
+  console.log(`[item] タップで使用 ${JSON.stringify(used)}`);
+  if (used.hp <= 55 || used.medium !== 0) {
+    console.error('[item] タップで薬瓶（中）が使われて体力が回復していません');
+    process.exitCode = 3;
+  }
+  await sleep(150);
+  await page.screenshot({ path: 'artifacts/shot-item-used.png' });
+
   // 操作ガイド（ADR-024）: ロックして 1 段目を出し、次段の受付が開いた絵（連携の履歴・続けられる技・受付の帯）と、右上の「技表」を開いた絵
   await page.evaluate((solo) => {
     const g = window.__mw.game;
