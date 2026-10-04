@@ -681,7 +681,7 @@ body {
   opacity: 0.55;
 }
 /* いまのスティックの向きで出る枠（金の縁） */
-#move-guide .mg-chip.sel {
+#move-guide[data-mode] .mg-chip.sel {
   border-color: var(--accent);
   box-shadow: 0 0 12px rgba(255, 211, 106, 0.6);
   background: rgba(70, 58, 20, 0.7);
