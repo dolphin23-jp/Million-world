@@ -67,6 +67,16 @@ export interface PoseInput {
   /** 左手首の位置（左肩から、胸の座標系で）と肘の向き */
   left: Polar;
   leftPole: Vector3;
+  /**
+   * 両手持ち: 右手の握りから、柄の石突き側へこの距離（m）離れたところを左手が握る。あれば（かつ rig.data.gripL があれば）`left` は使わず、
+   * 左手の位置と向きを右手と同じ握り（鏡像）で柄に合わせる。手首は、手のひらの中心が柄の軸の上に来る位置に置く
+   */
+  twoHand?: number;
+  /**
+   * 両手持ちの左手を柄の軸まわりに回す角 ψ（ラジアン）を指定する。省略するとソルバが手首のねじれ・曲がりが小さい ψ を選ぶ（info.rollL に出る）。
+   * 焼き込み（authoring.ts）が、フレーム間で ψ が跳ばないよう変化量を制限するために使う
+   */
+  leftRoll?: number;
   footL: FootTarget;
   footR: FootTarget;
 }
@@ -94,6 +104,11 @@ export interface PoseOutput {
     wristTwist: number;
     /** 右肘の曲がり（上腕と前腕の軸のなす角、ラジアン。0 = 伸び切り） */
     elbowBend: number;
+    /** 両手持ちのときの左手首の曲がり・ねじれ（右と同じ定義。両手持ちでなければ 0） */
+    wristBendL: number;
+    wristTwistL: number;
+    /** 両手持ちの左手を、柄の軸まわりに回した角（ラジアン。右手の握りの鏡像の向きからの差。0 = 鏡像のまま） */
+    rollL: number;
   };
 }
 
@@ -101,7 +116,7 @@ export function createPoseOutput(rig: Rig): PoseOutput {
   return {
     quats: rig.names.map(() => new Quaternion()),
     hipsPos: new Vector3(),
-    info: { armRClamped: false, armLClamped: false, legLClamped: false, legRClamped: false, hipsDrop: 0, gripError: 0, armRElevation: 0, wristBend: 0, wristTwist: 0, elbowBend: 0 },
+    info: { armRClamped: false, armLClamped: false, legLClamped: false, legRClamped: false, hipsDrop: 0, gripError: 0, armRElevation: 0, wristBend: 0, wristTwist: 0, elbowBend: 0, wristBendL: 0, wristTwistL: 0, rollL: 0 },
   };
 }
 
@@ -111,6 +126,27 @@ const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
 
 /** 前腕のねじれのうち、前腕の骨が受け持つ割合（残りは手首）。肘と手首にねじれを分けて、片側だけが潰れるのを避ける */
 const FOREARM_TWIST_SHARE = 0.5;
+
+/**
+ * 両手持ちの左手の「柄の軸まわりの回り方」ψ の選び方（ADR-023）。柄は円柱なので、左手は柄の軸まわりに自由に回して握れる。
+ * 右手の握りの鏡像（ψ = 0）のままだと、剣の面を斬りの面に合わせる右手のロール（最大 ±180°）に左手が引きずられて、
+ * 左手首が前腕に対して 150° 以上ねじれた（手の甲を貫く・平手が柄に載る）。手首のねじれ・曲がりが小さい ψ を選ぶ。
+ * 費用 = (ねじれ ÷ twistScale)² + (曲がりの超過 ÷ bendScale)² + reg × (ψ ÷ 90°)² + 届かないときの罰。ψ は ±max の範囲で、粗く走査して黄金分割で詰める。
+ * ψ はそのフレームの姿勢だけで決まる（前のフレームに依らない）ので、continueFrom のつなぎ目でも姿勢が一致する
+ */
+const LEFT_ROLL = {
+  max: (120 * Math.PI) / 180,
+  /** 手首のねじれの目安（これで費用 1）。手首の曲がりは BEND_OK を超えた分だけ数える */
+  twistScale: (60 * Math.PI) / 180,
+  bendOk: (80 * Math.PI) / 180,
+  bendScale: (40 * Math.PI) / 180,
+  /** 鏡像（ψ = 0）から離れることへの弱い罰。同じくらい楽な向きが複数あるとき、鏡像に近いほうを選ぶ */
+  reg: 0.35,
+  /** 腕が届かない（伸び切る）向きへの罰 */
+  clampPenalty: 6,
+  coarse: 13,
+  refineIters: 14,
+} as const;
 
 export class PoseSolver {
   private readonly R: Quaternion[];
@@ -134,6 +170,20 @@ export class PoseSolver {
   private readonly dirU = new Vector3();
   private readonly dirF = new Vector3();
   private readonly hipsWorld = new Vector3();
+  /** 右腕の計算で求めた、世界の剣の回転と柄の位置・刃の向き（両手持ちの左手が使う） */
+  private readonly swordQ = new Quaternion();
+  private readonly gripWorld = new Vector3();
+  private readonly bladeWorld = new Vector3();
+  private readonly handLQ = new Quaternion();
+  private readonly handL0 = new Quaternion();
+  private readonly palmL = new Vector3();
+  private readonly poleL = new Vector3();
+  private readonly wristT = new Vector3();
+  /** solve() の間だけ有効な out.info への参照（leftTwoHand が診断値を書く） */
+  private infoRef: PoseOutput['info'] | null = null;
+  private lastTwistL = 0;
+  private lastBendL = 0;
+  private lastClampedL = false;
 
   constructor(private readonly rig: Rig) {
     this.R = rig.names.map(() => new Quaternion());
@@ -147,6 +197,7 @@ export class PoseSolver {
     const { rig, R, P, ix } = this;
     const n = rig.names.length;
     const info = out.info;
+    this.infoRef = info;
 
     // ---- 体幹: idle の回転に、キャラ基準の差分回転を掛ける ----
     const dP = eulerYPR(inp.hips.yaw, inp.hips.pitch, inp.hips.roll, new Quaternion());
@@ -204,6 +255,9 @@ export class PoseSolver {
       const chest = dC; // 胸の座標系
       const G = polarToVector(inp.grip.az, inp.grip.el, inp.grip.r, this.vc).applyQuaternion(chest).add(S);
       const qSword = swordRotation(inp.blade, inp.face, this.qa).premultiply(chest);
+      this.swordQ.copy(qSword);
+      this.gripWorld.copy(G);
+      this.bladeWorld.set(0, 1, 0).applyQuaternion(qSword);
       const Rhand = this.qb.copy(qSword).multiply(this.qc.copy(rig.data.grip.quat).invert());
       const Wt = this.vd.copy(rig.data.grip.pos).applyQuaternion(Rhand).multiplyScalar(-1).add(G);
       const pole = this.va.copy(inp.pole).applyQuaternion(chest);
@@ -235,20 +289,28 @@ export class PoseSolver {
       R[ix.handR]!.copy(Rhand);
     }
 
-    // ---- 左腕: 手首の位置だけ指定。手は前腕に対して idle の相対姿勢のまま ----
+    // ---- 左腕: 手首の位置を指定（手は前腕に対して idle の相対姿勢のまま）。両手持ちは、右手と同じ握りで柄に合わせる ----
     {
       const S = P[ix.armL]!;
       const chest = dC;
-      const Wt = polarToVector(inp.left.az, inp.left.el, inp.left.r, this.vc).applyQuaternion(chest).add(S);
-      const pole = this.va.copy(inp.leftPole).applyQuaternion(chest);
-      const l1 = rig.length(BONE.armL, BONE.foreL);
-      const l2 = rig.length(BONE.foreL, BONE.handL);
-      const res = solveTwoBone(S, Wt, l1, l2, pole, this.elbow, this.wrist, this.hinge);
-      info.armLClamped = res.clamped;
-      this.limb(ix.armL, ix.foreL, S, this.elbow, this.wrist, rig.data.hinges.armL);
-      P[ix.foreL]!.copy(this.elbow);
-      P[ix.handL]!.copy(this.wrist);
-      R[ix.handL]!.copy(R[ix.foreL]!).multiply(rig.idleLocal[ix.handL]!);
+      const gl = rig.data.gripL;
+      if (inp.twoHand !== undefined && gl !== undefined) {
+        this.leftTwoHand(inp.twoHand, inp.leftRoll, gl, S, inp.leftPole, chest);
+      } else {
+        const Wt = polarToVector(inp.left.az, inp.left.el, inp.left.r, this.vc).applyQuaternion(chest).add(S);
+        const pole = this.va.copy(inp.leftPole).applyQuaternion(chest);
+        const l1 = rig.length(BONE.armL, BONE.foreL);
+        const l2 = rig.length(BONE.foreL, BONE.handL);
+        const res = solveTwoBone(S, Wt, l1, l2, pole, this.elbow, this.wrist, this.hinge);
+        info.armLClamped = res.clamped;
+        this.limb(ix.armL, ix.foreL, S, this.elbow, this.wrist, rig.data.hinges.armL);
+        P[ix.foreL]!.copy(this.elbow);
+        P[ix.handL]!.copy(this.wrist);
+        info.wristBendL = 0;
+        info.wristTwistL = 0;
+        info.rollL = 0;
+        R[ix.handL]!.copy(R[ix.foreL]!).multiply(rig.idleLocal[ix.handL]!);
+      }
     }
 
     // ---- 脚 ----
@@ -272,6 +334,96 @@ export class PoseSolver {
     }
     out.hipsPos.copy(hipsBase);
     out.hipsPos.z -= inp.rootZ;
+  }
+
+  /**
+   * 両手持ちの左手（ADR-023）。左手の向き = 剣の向き × 左手の握りの逆（右手の Rhand と同じ作り）を、柄の軸まわりに ψ だけ回したもの。
+   * 手のひらの中心を、右手の握りから石突き側へ twoHand（m）の柄の軸の上に置き、そこから手首を逆算して 2 ボーン IK で腕を解く。
+   * ψ は手首のねじれ・曲がりが小さくなる向きを選ぶ（LEFT_ROLL）。前腕のねじれは肘と手首で分ける（右腕と同じ）。
+   */
+  private leftTwoHand(offset: number, inpRoll: number | undefined, gl: { pos: Vector3; quat: Quaternion }, S: Vector3, leftPole: Vector3, chest: Quaternion): void {
+    const { rig, R, P, ix } = this;
+    const info = this.infoRef!;
+    this.handL0.copy(this.swordQ).multiply(this.qc.copy(gl.quat).invert());
+    this.palmL.copy(this.gripWorld).addScaledVector(this.bladeWorld, -offset);
+    this.poleL.copy(leftPole).applyQuaternion(chest);
+    const l1 = rig.length(BONE.armL, BONE.foreL);
+    const l2 = rig.length(BONE.foreL, BONE.handL);
+    const finger = rig.data.handFingerL ?? _Y;
+    const attempt = (psi: number): number => {
+      this.handLQ.setFromAxisAngle(this.bladeWorld, psi).multiply(this.handL0);
+      this.wristT.copy(gl.pos).applyQuaternion(this.handLQ).multiplyScalar(-1).add(this.palmL);
+      const res = solveTwoBone(S, this.wristT, l1, l2, this.poleL, this.elbow, this.wrist, this.hinge);
+      this.limb(ix.armL, ix.foreL, S, this.elbow, this.wrist, rig.data.hinges.armL);
+      const delta = this.qd.copy(R[ix.foreL]!).invert().multiply(this.handLQ);
+      swingTwist(delta, _Y, this.qe, this.qb);
+      let twist = 2 * Math.atan2(this.qb.y, this.qb.w);
+      if (twist > Math.PI) twist -= 2 * Math.PI;
+      else if (twist < -Math.PI) twist += 2 * Math.PI;
+      const fingerDir = this.vb.copy(finger).applyQuaternion(this.handLQ);
+      const foreDir = this.vd.copy(_Y).applyQuaternion(R[ix.foreL]!);
+      const bend = Math.acos(Math.max(-1, Math.min(1, fingerDir.dot(foreDir))));
+      this.lastTwistL = twist;
+      this.lastBendL = bend;
+      this.lastClampedL = res.clamped;
+      const over = Math.max(0, bend - LEFT_ROLL.bendOk) / LEFT_ROLL.bendScale;
+      return (
+        (twist / LEFT_ROLL.twistScale) ** 2 + over * over + LEFT_ROLL.reg * (psi / (Math.PI / 2)) ** 2 + (res.clamped ? LEFT_ROLL.clampPenalty : 0)
+      );
+    };
+    // 指定があればそれを使う。無ければ、粗く走査して最良の周りを黄金分割で詰める（ψ の跳びは焼き込み側が変化量の制限で均す）
+    let psi = inpRoll ?? 0;
+    if (inpRoll === undefined) {
+      const { max, coarse } = LEFT_ROLL;
+      let best = 0;
+      let bestCost = Infinity;
+      for (let k = 0; k < coarse; k++) {
+        const cand = -max + (2 * max * k) / (coarse - 1);
+        const c = attempt(cand);
+        if (c < bestCost) {
+          bestCost = c;
+          best = cand;
+        }
+      }
+      const step = (2 * max) / (coarse - 1);
+      let lo = Math.max(-max, best - step);
+      let hi = Math.min(max, best + step);
+      const g = 0.6180339887;
+      let x1 = hi - g * (hi - lo);
+      let x2 = lo + g * (hi - lo);
+      let f1 = attempt(x1);
+      let f2 = attempt(x2);
+      for (let i = 0; i < LEFT_ROLL.refineIters; i++) {
+        if (f1 < f2) {
+          hi = x2;
+          x2 = x1;
+          f2 = f1;
+          x1 = hi - g * (hi - lo);
+          f1 = attempt(x1);
+        } else {
+          lo = x1;
+          x1 = x2;
+          f1 = f2;
+          x2 = lo + g * (hi - lo);
+          f2 = attempt(x2);
+        }
+      }
+      psi = (lo + hi) / 2;
+    }
+    attempt(psi); // 最終の値で R・肘・手首・診断値を確定する
+    const info2 = info;
+    info2.armLClamped = this.lastClampedL;
+    info2.wristBendL = this.lastBendL;
+    info2.wristTwistL = this.lastTwistL;
+    info2.rollL = psi;
+    P[ix.foreL]!.copy(this.elbow);
+    P[ix.handL]!.copy(this.wrist);
+    // 前腕のねじれを肘と手首で分ける
+    const delta = this.qd.copy(R[ix.foreL]!).invert().multiply(this.handLQ);
+    swingTwist(delta, _Y, this.qe, this.qc);
+    this.qc.slerp(IDENTITY, 1 - FOREARM_TWIST_SHARE);
+    R[ix.foreL]!.multiply(this.qc);
+    R[ix.handL]!.copy(this.handLQ);
   }
 
   private isSolved(i: number): boolean {

@@ -421,7 +421,10 @@ export class AuthoredSampler {
     out.blade.set(0, 1, 0).applyQuaternion(_q);
     out.face.set(0, 0, 1).applyQuaternion(_q);
     if (this.twoHand) {
+      // 左手の向きと手首は、リグに左手の握り（gripL）があればソルバが右手の握りと剣の向きから導く（PoseInput.twoHand）。
+      // 無い合成リグなどのために、左手首の位置だけ極座標でも渡しておく:
       // 左手首 = 右手の握りの位置（右肩から → 左肩から）+ 石突き側（−刃の向き）へ offset。極座標（左肩基準）に直して渡す
+      out.twoHand = this.twoHand.offset;
       polarToVector(out.grip.az, out.grip.el, out.grip.r, _lv).add(this.shoulderDelta).addScaledVector(out.blade, -this.twoHand.offset);
       const lp = vectorToPolar(_lv);
       out.left.az = lp.az;
@@ -496,6 +499,11 @@ export interface FrameTrace {
   elbowBend: number;
   wristBend: number;
   wristTwist: number;
+  /** 両手持ちのときの左手首の曲がり・ねじれ（両手持ちでなければ 0） */
+  wristBendL: number;
+  wristTwistL: number;
+  /** 両手持ちの左手を柄の軸まわりに回した角（度。0 = 右手の握りの鏡像のまま） */
+  rollL: number;
   hipsDrop: number;
   gripError: number;
 }
@@ -513,7 +521,13 @@ export interface BakeStats {
   maxWristBendDeg: number;
   maxWristTwistDeg: number;
   minElbowBendDeg: number;
+  /** 両手持ちの左手首の最大の曲がり・ねじれ（度。両手持ちでなければ 0） */
+  maxWristBendLDeg: number;
+  maxWristTwistLDeg: number;
 }
+
+/** 両手持ちの左手の柄まわりの回り方 ψ が 1 フレーム（1/60 秒）に動ける上限（ラジアン。10° = 600°/s） */
+const LEFT_ROLL_STEP = (10 * Math.PI) / 180;
 
 /** 手付けアニメを AnimationClip に焼く。トラックは全ボーンの quaternion と Hips の position（cm） */
 export function bakeAttack(
@@ -531,14 +545,26 @@ export function bakeAttack(
   const times = new Float32Array(frames);
   const qv = rig.names.map(() => new Float32Array(frames * 4));
   const hv = new Float32Array(frames * 3);
-  const stats: BakeStats = { frames, armRClampedFrames: 0, armLClampedFrames: 0, legClampedFrames: 0, maxHipsDrop: 0, maxGripError: 0, maxArmElevationDeg: 0, maxWristBendDeg: 0, maxWristTwistDeg: 0, minElbowBendDeg: 180 };
+  const stats: BakeStats = { frames, armRClampedFrames: 0, armLClampedFrames: 0, legClampedFrames: 0, maxHipsDrop: 0, maxGripError: 0, maxArmElevationDeg: 0, maxWristBendDeg: 0, maxWristTwistDeg: 0, minElbowBendDeg: 180, maxWristBendLDeg: 0, maxWristTwistLDeg: 0 };
   const prev = rig.names.map(() => new THREE.Quaternion());
   const trace: FrameTrace[] = [];
+  let prevRoll: number | null = null;
   for (let f = 0; f < frames; f++) {
     const t = Math.min(def.duration, f / fps);
     times[f] = t;
     sampler.sample(t, inp);
+    delete inp.leftRoll;
     solver.solve(inp, out);
+    // 両手持ちの左手の柄まわりの回り方 ψ はフレームごとに最良を探すので、谷が入れ替わるときに跳ぶ。1 フレームの変化量を制限して連続にする
+    // （最初のフレームは最良のまま。姿勢だけで決まるので、continueFrom のつなぎ目の姿勢は前の技の同じ姿勢と一致する）
+    if (inp.twoHand !== undefined && rig.data.gripL) {
+      const raw = out.info.rollL;
+      if (prevRoll !== null && Math.abs(raw - prevRoll) > LEFT_ROLL_STEP) {
+        inp.leftRoll = prevRoll + Math.sign(raw - prevRoll) * LEFT_ROLL_STEP;
+        solver.solve(inp, out);
+      }
+      prevRoll = out.info.rollL;
+    }
     for (let i = 0; i < rig.names.length; i++) {
       const q = out.quats[i]!;
       // 前フレームと符号を揃える（補間が遠回りしない）
@@ -558,12 +584,17 @@ export function bakeAttack(
     stats.maxWristBendDeg = Math.max(stats.maxWristBendDeg, out.info.wristBend / DEG);
     stats.maxWristTwistDeg = Math.max(stats.maxWristTwistDeg, Math.abs(out.info.wristTwist) / DEG);
     stats.minElbowBendDeg = Math.min(stats.minElbowBendDeg, out.info.elbowBend / DEG);
+    stats.maxWristBendLDeg = Math.max(stats.maxWristBendLDeg, out.info.wristBendL / DEG);
+    stats.maxWristTwistLDeg = Math.max(stats.maxWristTwistLDeg, Math.abs(out.info.wristTwistL) / DEG);
     trace.push({
       t,
       armElevation: out.info.armRElevation / DEG,
       elbowBend: out.info.elbowBend / DEG,
       wristBend: out.info.wristBend / DEG,
       wristTwist: out.info.wristTwist / DEG,
+      wristBendL: out.info.wristBendL / DEG,
+      wristTwistL: out.info.wristTwistL / DEG,
+      rollL: out.info.rollL / DEG,
       hipsDrop: out.info.hipsDrop,
       gripError: out.info.gripError,
     });

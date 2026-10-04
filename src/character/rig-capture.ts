@@ -2,6 +2,7 @@ import { Quaternion, Vector3, type AnimationClip, type Interpolant, type Object3
 import { trackInterpolant } from './animator';
 import type { CharacterAsset } from './loader';
 import { BONE, Rig, type BoneDesc, type ExtraBone, type HingeAxes, type RigData } from './rig';
+import { mirrorGrip, type HandFrame } from './mirror-grip';
 
 /**
  * 読み込んだキャラ資産（GLB）から、手付けアニメ用の Rig を作る。
@@ -20,6 +21,15 @@ export interface CaptureOptions {
   handFinger: readonly [number, number, number];
   /** 剣のグリップ（HERO.sword）。手ボーンのローカルの位置 cm と、剣 → 手ボーンの回転 xyzw */
   grip: { posCm: readonly [number, number, number]; quat: readonly [number, number, number, number] };
+  /** 両手のメッシュの座標系（HERO.handFrames。center は cm）。あれば、両手持ちの左手の握りを右手の握りの鏡像として作る */
+  handFrames?: { right: HandFrameSpec; left: HandFrameSpec };
+}
+
+export interface HandFrameSpec {
+  center: readonly [number, number, number];
+  f: readonly [number, number, number];
+  t: readonly [number, number, number];
+  d: readonly [number, number, number];
 }
 
 export interface CaptureReport {
@@ -122,6 +132,18 @@ export function captureRig(asset: CharacterAsset, opts: CaptureOptions): Capture
       quat: new Quaternion(...opts.grip.quat).normalize(),
     },
   };
+  // 両手持ちの左手の握り: 右手の握りを、両手のメッシュの座標系の対応で鏡像にして左手ボーンのローカルへ（mirror-grip.ts）
+  if (opts.handFrames) {
+    const frame = (h: HandFrameSpec): HandFrame => ({
+      center: new Vector3(...h.center).multiplyScalar(unit),
+      f: new Vector3(...h.f).normalize(),
+      t: new Vector3(...h.t).normalize(),
+      d: new Vector3(...h.d).normalize(),
+    });
+    const m = mirrorGrip(frame(opts.handFrames.right), frame(opts.handFrames.left), data.grip, data.handFinger);
+    data.gripL = { pos: m.pos, quat: m.quat };
+    if (m.finger) data.handFingerL = m.finger;
+  }
   const rig = new Rig(data);
   const hinge = calibrateHinges(rig, hingeClip, unit);
   data.hinges = hinge.axes;

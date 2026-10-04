@@ -77,6 +77,7 @@ export class HeroVisual {
       hingeClip: HERO.clips.run,
       handFinger: HERO.hand.right.f,
       grip: { posCm: HERO.sword.position, quat: HERO.sword.quaternion },
+      handFrames: HERO.handFrames,
     });
     for (const def of Object.values(AUTHORED_ATTACKS)) {
       const { clip, stats, trace } = bakeAttack(this.capture.rig, def, 60, this.capture.extras);

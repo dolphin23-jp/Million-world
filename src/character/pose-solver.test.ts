@@ -98,3 +98,77 @@ function chestQuat(yaw: number, pitch: number, roll: number): Quaternion {
   const qr = new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), roll);
   return qy.multiply(qp).multiply(qr);
 }
+
+describe('PoseSolver: 両手持ち（左手が柄を握る。ADR-023）', () => {
+  const rig = makeRig();
+  // 合成リグの左手の握り: 右手と同じ位置で、剣の軸まわりに半回転した向き（手ボーンの向きは左右で鏡像のため）
+  rig.data.gripL = { pos: new Vector3(0, 0.08, 0), quat: new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), Math.PI / 2) };
+  rig.data.handFingerL = new Vector3(0, 1, 0);
+  const solver = new PoseSolver(rig);
+  const OFFSET = 0.24;
+
+  /** 左手の握りの世界位置（手ボーン + 手の回転 × 握りの位置）と、握りの軸（刃の向き）。右手の握りの世界位置と刃の向き */
+  function measure(inp: ReturnType<typeof zeroInput>) {
+    const out = createPoseOutput(rig);
+    solver.solve(inp, out);
+    const f = fk(rig, out, 0);
+    const handR = f.at(BONE.handR);
+    const handL = f.at(BONE.handL);
+    const G = handR.p.clone().add(rig.data.grip.pos.clone().applyQuaternion(handR.q));
+    const blade = new Vector3(0, 1, 0).applyQuaternion(handR.q.clone().multiply(rig.data.grip.quat));
+    const palmL = handL.p.clone().add(rig.data.gripL!.pos.clone().applyQuaternion(handL.q));
+    const axisL = new Vector3(0, 1, 0).applyQuaternion(rig.data.gripL!.quat).applyQuaternion(handL.q);
+    return { out, G, blade, palmL, axisL };
+  }
+
+  it('左手のひらの中心が、右手の握りから石突き側へ offset の柄の軸の上に来て、握りの軸が刃の向きに合う', () => {
+    const inp = zeroInput();
+    inp.twoHand = OFFSET;
+    inp.chest.yaw = 0.3;
+    inp.grip = { az: 0.3, el: 0.2, r: 0.3 };
+    const m = measure(inp);
+    expect(m.out.info.armLClamped).toBe(false);
+    near(m.palmL, m.G.clone().addScaledVector(m.blade, -OFFSET), 1e-4);
+    expect(m.axisL.angleTo(m.blade)).toBeLessThan(1e-4);
+  });
+
+  it('柄の軸まわりの回り方 ψ（leftRoll）を指定しても、位置と軸は同じ。ψ を指定しなければソルバが選ぶ（info.rollL）', () => {
+    const base = zeroInput();
+    base.twoHand = OFFSET;
+    base.grip = { az: 0.3, el: 0.2, r: 0.3 };
+    for (const roll of [-1, 0, 0.7]) {
+      const inp = zeroInput();
+      inp.twoHand = OFFSET;
+      inp.grip = { az: 0.3, el: 0.2, r: 0.3 };
+      inp.leftRoll = roll;
+      const m = measure(inp);
+      expect(m.out.info.rollL).toBeCloseTo(roll, 9);
+      near(m.palmL, m.G.clone().addScaledVector(m.blade, -OFFSET), 1e-4);
+      expect(m.axisL.angleTo(m.blade)).toBeLessThan(1e-4);
+    }
+    const auto = measure(base);
+    expect(Math.abs(auto.out.info.rollL)).toBeLessThanOrEqual((120 * Math.PI) / 180 + 1e-9);
+    // 選ばれた ψ のねじれは、ψ = 0 のときより大きくない（費用を下げる向きを選ぶ）
+    const zero = zeroInput();
+    zero.twoHand = OFFSET;
+    zero.grip = { az: 0.3, el: 0.2, r: 0.3 };
+    zero.leftRoll = 0;
+    const z = measure(zero);
+    expect(Math.abs(auto.out.info.wristTwistL)).toBeLessThanOrEqual(Math.abs(z.out.info.wristTwistL) + 1e-6);
+  });
+
+  it('握りの鏡像（gripL）が無いリグでは、左手は idle の向きのまま手首を極座標の目標へ置く（従来どおり）', () => {
+    const plain = makeRig();
+    const s = new PoseSolver(plain);
+    const inp = zeroInput();
+    inp.twoHand = OFFSET;
+    const out = createPoseOutput(plain);
+    s.solve(inp, out);
+    expect(out.info.wristBendL).toBe(0);
+    expect(out.info.rollL).toBe(0);
+    const f = fk(plain, out, 0);
+    // 左手の回転 = 前腕の回転 × idle の相対回転
+    const q = f.at(BONE.foreL).q.clone().multiply(plain.idleLocal[plain.mustIndex(BONE.handL)]!);
+    expect(Math.abs(q.dot(f.at(BONE.handL).q))).toBeGreaterThan(0.99999);
+  });
+});

@@ -54,6 +54,12 @@ export interface RigData {
   hinges: { armR: HingeAxes; armL: HingeAxes; legR: HingeAxes; legL: HingeAxes };
   /** 剣のグリップ: 手ボーンのローカルでの柄の位置（m）と、剣のローカル → 手ボーンのローカルの回転 */
   grip: { pos: Vector3; quat: Quaternion };
+  /**
+   * 両手持ちの左手の握り（mirror-grip.ts: 右手の握りの鏡像を左手ボーンのローカルで表したもの）と、左手の指の向き（左手ボーンのローカル）。
+   * 資産のバインド姿勢から rig-capture が作る。無ければ（合成リグなど）左手は idle の向きのまま手首の位置だけ導く
+   */
+  gripL?: { pos: Vector3; quat: Quaternion };
+  handFingerL?: Vector3;
   /** 右手の指が向く方向（手ボーンのローカル、単位ベクトル）。手首の曲がりの診断に使う（手ボーンの Y 軸は指の向きから約 22° ずれている）。省略時は +Y */
   handFinger?: Vector3;
   /** 資産の長さ単位 → m の倍率（GLB の Armature が cm を 0.01 倍で見せているので既定は 0.01）。クリップの位置トラックの換算に使う */
