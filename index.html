@@ -30,6 +30,8 @@
       <div id="btn-dodge" class="tbtn tbtn-mid"><span>回避</span></div>
       <div id="btn-attack" class="tbtn tbtn-big"><span>攻撃</span></div>
       <div id="btn-guard" class="tbtn tbtn-guard"><span>ガード</span></div>
+      <!-- アイテム欄（タップで使う・長押しか上へ払うと一覧）。中身は src/input/slot-button.ts が作る。スキル欄も同じ部品で並べる予定 -->
+      <div id="btn-item" class="tbtn tbtn-item"></div>
       <!-- 装備の切替（次の装備へ）。ラベルは今の装備名（src/input/touch.ts の setEquipLabel） -->
       <div id="btn-equip" class="tbtn tbtn-equip"><span>装備</span></div>
     </div>
@@ -37,6 +39,9 @@
     <div id="hud">
       <div id="fx-layer"></div>
       <div id="hurt-flash"></div>
+      <!-- ミスティカルドッジ（ADR-030）: 発動中の画面の縁の色と、残り時間・再使用のゲージ。値は src/ui/hud.ts の setMystical -->
+      <div id="mystical-fx"></div>
+      <div id="mystical-gauge" data-state="ready"><div class="mystical-fill"></div></div>
       <div id="hp-player" class="hp"><div class="hp-lag"></div><div class="hp-fill"></div></div>
       <div id="hp-boss" class="hp" style="display: none"><div class="hp-lag"></div><div class="hp-fill"></div><div class="poise"><div class="poise-fill"></div></div><span class="hp-name"></span></div>
       <div id="hp-target" class="hp" style="display: none"><div class="hp-lag"></div><div class="hp-fill"></div><div class="poise"><div class="poise-fill"></div></div><span class="hp-name"></span></div>

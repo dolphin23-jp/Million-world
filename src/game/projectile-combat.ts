@@ -36,6 +36,8 @@ export interface ProjectileHandlers {
   onParry?: (ev: HitEvent, p: Projectile, effect: ParryEffectDef) => void;
   /** 弾が消えた（命中・ガード・寿命・縁・斬り落とし） */
   onEnd?: OnEnd;
+  /** 回避の無敵フレームで弾を避けた（無敵がなければ当たっていた）。ジャスト回避の合図（ADR-030）。弾は消えずにすり抜けて飛び続ける */
+  onJustDodge?: (p: Projectile) => void;
 }
 
 /**
@@ -51,7 +53,11 @@ export function resolveProjectilesOnPlayer(
   let total = 0;
   for (const p of system.pool) {
     if (!p.alive || p.team !== 'enemy') continue;
-    if (victim.body.invulnerable) continue; // 回避の無敵フレーム・被弾後の無敵・死亡: すり抜ける（弾は残る）
+    if (victim.body.invulnerable) {
+      // 回避の無敵フレーム・被弾後の無敵・ミスティカル・死亡: すり抜ける（弾は残る）。回避の無敵で避けたなら、ジャスト回避の合図を出す
+      if (victim.dodging && handlers.onJustDodge && segmentHitsCircle(p.prevX, p.prevZ, p.x, p.z, victim.body, p.def.radius)) handlers.onJustDodge(p);
+      continue;
+    }
     if (!segmentHitsCircle(p.prevX, p.prevZ, p.x, p.z, victim.body, p.def.radius, _pt)) continue;
     total++;
     const ev = eventOf(p, p.ownerId, victim.body.id);

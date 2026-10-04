@@ -1,5 +1,6 @@
 import type { InputIntent, InputSource } from './intent';
 import { TOUCH } from './data/touch';
+import { SlotButton } from './slot-button';
 
 /**
  * タッチ入力（docs/04-controls.md）。
@@ -19,6 +20,7 @@ interface Elements {
   btnGuard: HTMLElement;
   btnEquip: HTMLElement;
   btnLock: HTMLElement;
+  btnItem: HTMLElement;
 }
 
 function q<T extends HTMLElement>(id: string): T {
@@ -58,6 +60,14 @@ export class TouchInput implements InputSource {
   private guardHeld = false;
   private equipEdge = false;
   private lockEdge = false;
+  private itemEdge = false;
+  /**
+   * アイテム欄（ADR-030）。タップは使用の入力（itemPressed）、一覧から選ぶのは UI の操作なので onChoose で呼ぶ側へ直接知らせる。
+   * 表示（setFace）と一覧（setOptions）は Game が教える。スキル欄を足すときは、同じ SlotButton をもう 1 つ作る
+   */
+  readonly item: SlotButton;
+  /** 一覧から選んだ（アイテムの id） */
+  onItemChoose: ((id: string) => void) | null = null;
 
   constructor() {
     this.el = {
@@ -71,6 +81,7 @@ export class TouchInput implements InputSource {
       btnGuard: q('btn-guard'),
       btnEquip: q('btn-equip'),
       btnLock: q('btn-lock'),
+      btnItem: q('btn-item'),
     };
     this.bindStick();
     this.bindCamera();
@@ -95,6 +106,11 @@ export class TouchInput implements InputSource {
     );
     this.bindButton(this.el.btnEquip, () => (this.equipEdge = true));
     this.bindButton(this.el.btnLock, () => (this.lockEdge = true));
+    this.item = new SlotButton({
+      el: this.el.btnItem,
+      onTap: () => (this.itemEdge = true),
+      onChoose: (id) => this.onItemChoose?.(id),
+    });
   }
 
   /** 装備の切替ボタンの表示を今の装備名にする（入力層はロジックを知らないので外から教える） */
@@ -122,6 +138,7 @@ export class TouchInput implements InputSource {
     if (this.guardHeld) intent.guardHeld = true;
     if (this.equipEdge) intent.equipPressed = true;
     if (this.lockEdge) intent.lockPressed = true;
+    if (this.itemEdge) intent.itemPressed = true;
     if (this.switchEdge !== 0) intent.lockSwitch = this.switchEdge;
   }
 
@@ -131,6 +148,7 @@ export class TouchInput implements InputSource {
     this.guardEdge = false;
     this.equipEdge = false;
     this.lockEdge = false;
+    this.itemEdge = false;
     this.switchEdge = 0;
   }
 

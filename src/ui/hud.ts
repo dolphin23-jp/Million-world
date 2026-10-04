@@ -10,6 +10,11 @@ export class Hud {
   private readonly hpFill: HTMLElement;
   private readonly hpLag: HTMLElement;
   private readonly hurtFlashEl: HTMLElement;
+  private readonly mysticFx: HTMLElement;
+  private readonly mysticGauge: HTMLElement;
+  private readonly mysticFill: HTMLElement;
+  /** ミスティカルの表示の直近の状態（変化があったときだけ DOM を触る） */
+  private mysticKey = '';
   private readonly targetEl: HTMLElement;
   private readonly targetFill: HTMLElement;
   private readonly targetLag: HTMLElement;
@@ -41,6 +46,9 @@ export class Hud {
     this.hpFill = hp.querySelector('.hp-fill') as HTMLElement;
     this.hpLag = hp.querySelector('.hp-lag') as HTMLElement;
     this.hurtFlashEl = document.getElementById('hurt-flash')!;
+    this.mysticFx = document.getElementById('mystical-fx')!;
+    this.mysticGauge = document.getElementById('mystical-gauge')!;
+    this.mysticFill = this.mysticGauge.querySelector('.mystical-fill') as HTMLElement;
     this.targetEl = document.getElementById('hp-target')!;
     this.targetFill = this.targetEl.querySelector('.hp-fill') as HTMLElement;
     this.targetLag = this.targetEl.querySelector('.hp-lag') as HTMLElement;
@@ -198,6 +206,23 @@ export class Hud {
     const w = `${Math.max(0, Math.min(1, hp / max)) * 100}%`;
     this.hpFill.style.width = w;
     this.hpLag.style.width = w;
+  }
+
+  /**
+   * ミスティカルドッジ（ADR-030）の表示。state = active（発動中。ratio は残り 1 → 0）/ cooling（次まで待ち。ratio は溜まり具合 0 → 1）/ ready（隠す）。
+   * warn は終わりの手前（点滅）。毎フレーム呼んでよい（変化があったときだけ DOM を触る）
+   */
+  setMystical(state: 'active' | 'cooling' | 'ready', ratio: number, warn: boolean): void {
+    const pct = Math.round(Math.max(0, Math.min(1, ratio)) * 200) / 2; // 0.5% 刻み
+    const key = `${state}:${pct}:${warn ? 1 : 0}`;
+    if (key === this.mysticKey) return;
+    this.mysticKey = key;
+    const on = state === 'active';
+    this.mysticFx.classList.toggle('on', on);
+    this.mysticFx.classList.toggle('warn', on && warn);
+    this.mysticGauge.dataset.state = state;
+    this.mysticGauge.classList.toggle('warn', on && warn);
+    this.mysticFill.style.width = `${pct}%`;
   }
 
   /** 被弾の画面フラッシュ（縁が赤くなる）。連続で呼ばれたらアニメーションをやり直す */

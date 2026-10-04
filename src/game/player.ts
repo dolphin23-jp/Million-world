@@ -49,6 +49,8 @@ export class Player {
   private readonly knockback = new Knockback();
   /** 被弾後の無敵の残りフレーム */
   private hurtInvuln = 0;
+  /** ミスティカルドッジの間か（Game が setMystical で設定する）。true の間は無敵 */
+  private mystical = false;
   private attackBuffered = false;
   /** 直近の sim ステップでのスティックの向き（対象に対して。ロックなしは倒していれば前）。操作ガイドが読む（ADR-024） */
   stickDir: StickDir = 'none';
@@ -258,6 +260,7 @@ export class Player {
     this.attackPower = 1;
     this.framesSinceDodge = 9999;
     this.hurtInvuln = 0;
+    this.mystical = false;
     this.knockback.cancel();
     this.velX = 0;
     this.velZ = 0;
@@ -661,12 +664,45 @@ export class Player {
     return this.state === 'dead' ? 0 : this.hurtInvuln;
   }
 
-  /** 無敵中か（敵の攻撃のヒット判定で使う）: 回避の無敵フレーム、被弾後の無敵、死亡後 */
+  /** 無敵中か（敵の攻撃のヒット判定で使う）: 回避の無敵フレーム、被弾後の無敵、ミスティカルドッジの間、死亡後 */
   get invulnerable(): boolean {
-    if (this.state === 'dead' || this.hurtInvuln > 0) return true;
+    if (this.state === 'dead' || this.hurtInvuln > 0 || this.mystical) return true;
+    return this.inDodgeInvuln;
+  }
+
+  /** 回避の無敵フレームの中か（ほかの無敵の理由は問わない） */
+  private get inDodgeInvuln(): boolean {
     if (this.state !== 'dodge') return false;
     const d = DODGES[this.dodgeKind];
     return this.stateFrame >= d.invulnStart && this.stateFrame <= d.invulnEnd;
+  }
+
+  /**
+   * 回避の無敵が「敵の攻撃を避けさせている」状態か: 回避の無敵フレームの中で、被弾後の無敵・ミスティカルドッジなど
+   * ほかの無敵の理由がない。この間に当たるはずだった攻撃が来たらジャスト回避（ミスティカルドッジ。ADR-030）
+   */
+  get dodging(): boolean {
+    return this.state !== 'dead' && this.hurtInvuln <= 0 && !this.mystical && this.inDodgeInvuln;
+  }
+
+  /** ミスティカルドッジの無敵を入れる・切る。当たり判定にもすぐ反映する */
+  setMystical(on: boolean): void {
+    if (this.mystical === on) return;
+    this.mystical = on;
+    this.refreshHurtbox();
+  }
+
+  /** ミスティカルドッジの無敵の最中か（DefenderView.evading） */
+  get evading(): boolean {
+    return this.mystical && this.state !== 'dead';
+  }
+
+  /** 体力を回復する（アイテム）。実際に増えた量を返す。死んでいるときは回復しない */
+  heal(amount: number): number {
+    if (this.state === 'dead') return 0;
+    const before = this.health.hp;
+    this.health.hp = Math.min(this.health.max, before + Math.max(0, Math.round(amount)));
+    return this.health.hp - before;
   }
 
   // ======================= render =======================
