@@ -1,4 +1,4 @@
-import { SKILLS, SKILL_LEVEL_MAX, SKILL_ORDER, type SkillDef, type SkillId } from './data/skills';
+import { SKILLS, SKILL_LEVEL_MAX, SKILL_ORDER, type SkillDef, type SkillId, type SkillStepDef } from './data/skills';
 import type { WeaponId } from './data/loadouts';
 
 /**
@@ -28,11 +28,27 @@ export function skillCooldown(def: SkillDef, level: number, scale = 1): number {
   return Math.max(1, Math.round(def.cooldownFrames * Math.max(0.1, 1 - def.cooldownPerLevel * (lv - 1)) * scale));
 }
 
+/** その段が、レベル level で使う攻撃（進化があれば、満たしている中でいちばん高いレベルのもの。なければ元の攻撃） */
+export function stepAttackAt(step: SkillStepDef, level: number): string {
+  let best = step.attack;
+  let bestLevel = 0;
+  for (const e of step.evolve ?? []) {
+    if (e.minLevel <= level && e.minLevel > bestLevel) {
+      best = e.attack;
+      bestLevel = e.minLevel;
+    }
+  }
+  return best;
+}
+
 /** レベル level で解放されている連なり（minLevel を満たす段だけ。順は定義のまま）。段ごとの威力 = スキルの威力 × 段の倍率 */
 export function skillSteps(def: SkillDef, level: number): SkillRunStep[] {
   const power = skillPower(def, level);
   const out: SkillRunStep[] = [];
-  for (const s of def.steps) if ((s.minLevel ?? 1) <= level) out.push({ attack: s.attack, power: power * (s.scale ?? 1) });
+  for (const s of def.steps) {
+    if ((s.minLevel ?? 1) > level) continue;
+    out.push({ attack: stepAttackAt(s, level), power: power * (s.scale ?? 1) });
+  }
   return out;
 }
 

@@ -3,7 +3,7 @@ import { plane } from './cutting-plane';
 import { FROM_STANCE, GS_READY, GS_TWO_HAND } from './greatsword';
 import { PASS as SMASH_PASS } from './gs-heavy';
 import { IMPACT, RAISE, REBOUND, SETTLE } from './gs-smash';
-import { SWEEP_COIL } from './gs-moves';
+import { CHAMBER, LEAP_GATHER, LEAP_TOP, RISE_END, SLAM as LEAP_SLAM, SWEEP_COIL, THRUST } from './gs-moves';
 import { pose } from './stagger';
 
 /**
@@ -103,37 +103,43 @@ const SWEEP_END_R = {
 export const GSK_SWEEP2_HOLD_T = 0.4;
 
 /**
- * 左からの払い（剣技「崩山」の 2 段目）: 右からの払いの受付時点（0.44s）の姿勢から続けて、左へ引き込んで、右足を踏み込んで、剣を左から右へ薙ぎ戻す。
+ * 左から右への払いを作る（前の技の払い切り = 左へ抜けた姿勢から続けて、左へ引き込み、右足を踏み込んで、剣を左から右へ薙ぎ戻す）。
  * 0 → 0.12 左へ引き込む（0.12〜0.15 は一拍）/ 0.15 → 0.24 薙ぐ（0.24 に前を通る最高速。右足は 0.24 に着地）/ 0.24 → 0.34 右へ払い切る / 0.34 → 0.46 保つ / 0.46 → 0.86 戻り。
- * ルートは 0.04 から 0.24 までに 0.3 m、減速して 0.38 までに 0.6 m。足は世界に固定（足の z は開始時のルートから: 左足 −0.08、右足 −0.3 から始まる）。
+ * ルートは 0.04 から 0.24 までに 0.3 m、減速して 0.38 までに 0.6 m。足は世界に固定（l0 / r0 = 開始時の足の z。ルートはこの技の開始位置が原点）。
+ * 崩山の 2 段目（GSK_SWEEP2）と、一閃の 2 段目 = 返し斬り（GSK_ISSEN_BACK。Lv4）が同じ作りで、開始の足の位置だけが違う。
  */
-export const GSK_SWEEP2: AuthoredAttack = {
-  name: 'gskSweep2',
-  duration: 0.86,
-  twoHanded: GS_TWO_HAND,
-  continueFrom: { attack: GSK_SWEEP1, t: GSK_SWEEP1_HOLD_T },
-  keys: [
-    // ---- 下半身: 後ろにいた右足が弧を描いて前へ踏み込む。左足は少し進めて、あとで引き寄せる ----
-    { t: 0.04, ease: 'lin', rootZ: 0 },
-    { t: 0.24, ease: 'in', rootZ: 0.3 },
-    { t: 0.38, ease: 'out', rootZ: 0.6 },
-    { t: 0.04, ease: 'lin', footR: { z: -0.3 } },
-    { t: 0.24, ease: 'io', footR: { z: 0.5, arc: 0.15 } },
-    { t: 0.46, ease: 'lin', footR: { z: 0.5 } },
-    { t: 0.86, ease: 'io', footR: { z: 0.6, arc: 0.03 } },
-    { t: 0.14, ease: 'lin', footL: { z: -0.08 } },
-    { t: 0.38, ease: 'io', footL: { z: 0.15, arc: 0.06 } },
-    { t: 0.46, ease: 'lin', footL: { z: 0.15 } },
-    { t: 0.86, ease: 'io', footL: { z: 0.6, arc: 0.1 } },
-    // ---- 引き込む → 薙ぐ → 払い切る → 保つ → 戻る ----
-    ...pose(0.12, 'io', SWEEP2_COIL),
-    ...pose(0.15, 'lin', SWEEP2_COIL),
-    ...pose(0.24, 'in', SWEEP_PASS),
-    ...pose(0.34, 'out', SWEEP_END_R),
-    ...pose(0.46, 'lin', SWEEP_END_R),
-    ...pose(0.86, 'io', GS_READY),
-  ],
-};
+function buildBackSweep(name: string, from: AuthoredAttack, fromT: number, l0: number, r0: number): AuthoredAttack {
+  return {
+    name,
+    duration: 0.86,
+    twoHanded: GS_TWO_HAND,
+    continueFrom: { attack: from, t: fromT },
+    keys: [
+      // ---- 下半身: 後ろにいた右足が弧を描いて前へ踏み込む。左足は少し進めて、あとで引き寄せる ----
+      { t: 0.04, ease: 'lin', rootZ: 0 },
+      { t: 0.24, ease: 'in', rootZ: 0.3 },
+      { t: 0.38, ease: 'out', rootZ: 0.6 },
+      { t: 0.04, ease: 'lin', footR: { z: r0 } },
+      { t: 0.24, ease: 'io', footR: { z: 0.5, arc: 0.15 } },
+      { t: 0.46, ease: 'lin', footR: { z: 0.5 } },
+      { t: 0.86, ease: 'io', footR: { z: 0.6, arc: 0.03 } },
+      { t: 0.14, ease: 'lin', footL: { z: l0 } },
+      { t: 0.38, ease: 'io', footL: { z: l0 + 0.23, arc: 0.06 } },
+      { t: 0.46, ease: 'lin', footL: { z: l0 + 0.23 } },
+      { t: 0.86, ease: 'io', footL: { z: 0.6, arc: 0.1 } },
+      // ---- 引き込む → 薙ぐ → 払い切る → 保つ → 戻る ----
+      ...pose(0.12, 'io', SWEEP2_COIL),
+      ...pose(0.15, 'lin', SWEEP2_COIL),
+      ...pose(0.24, 'in', SWEEP_PASS),
+      ...pose(0.34, 'out', SWEEP_END_R),
+      ...pose(0.46, 'lin', SWEEP_END_R),
+      ...pose(0.86, 'io', GS_READY),
+    ],
+  };
+}
+
+/** 左からの払いの足の開始位置（右からの払いの払い切りの足）: 左足 −0.08、右足 −0.3 */
+export const GSK_SWEEP2: AuthoredAttack = buildBackSweep('gskSweep2', GSK_SWEEP1, GSK_SWEEP1_HOLD_T, -0.08, -0.3);
 
 // ================================================================= 崩山 3: 叩きつけ（衝撃波）
 
@@ -276,5 +282,142 @@ export const GSK_ISSEN: AuthoredAttack = {
     ...pose(0.72, 'out', ISSEN_END),
     ...pose(0.92, 'lin', ISSEN_END),
     ...pose(1.4, 'io', GS_READY),
+  ],
+};
+
+/** 一閃が次を受け付ける時刻（振り抜いた姿勢を保つ 0.72〜0.92 の途中。AttackDef.cancelAt と同じ。返し斬り・突き抜けが続くとき） */
+export const ISSEN_HOLD_T = 0.8;
+
+// ================================================================= 飛翔崩山（崩山 Lv4 で、叩きつけがこれに替わる）
+
+/** 地面を叩く時刻と、保つ姿勢の受付 */
+export const GSK_SLAM_LEAP_IMPACT_T = 0.4;
+export const GSK_SLAM_LEAP_HOLD_T = 0.56;
+
+/**
+ * 飛翔崩山（崩山の叩きつけの進化。Lv4 から）: 左からの払いの受付時点（0.4s）の姿勢から続けて、深く沈んで前へ高く跳び上がり、剣を頭上へ掲げて、体重を乗せて真上から地面へ叩きつける。
+ * 着地で衝撃波が 2 重に広がる（直接の斬り → 内側の輪 → 遅れて外側の大きな輪。当たりは AttackDef.windows、地面の演出は AttackDef.echoes）。
+ * 0 → 0.14 沈んで引き上げる / 0.14 → 0.28 跳んで頭上へ掲げる / 0.28 → 0.4 叩きつけて両足で着地（0.36 に最高速、0.4 に地面を叩く）/ 0.4 → 0.56 保つ（次段の受付）/ 0.56 → 1.4 戻り（硬直は長い）。
+ * ルートは 0.1 から 0.4 までに 1.6 m 前へ（跳び込み）。足は蹴るまで世界に固定（足の z はこの技の開始時のルートから: 左足 −0.45、右足 −0.1）→ 跳んでいるあいだは腰にぶら下がる → 両足で着地。
+ */
+export const GSK_SLAM_LEAP: AuthoredAttack = {
+  name: 'gskSlamLeap',
+  duration: 1.4,
+  twoHanded: GS_TWO_HAND,
+  continueFrom: { attack: GSK_SWEEP2, t: GSK_SWEEP2_HOLD_T },
+  keys: [
+    // ---- ルート ----
+    { t: 0.1, ease: 'lin', rootZ: 0 },
+    { t: 0.24, ease: 'in', rootZ: 0.6 },
+    { t: GSK_SLAM_LEAP_IMPACT_T, ease: 'out', rootZ: 1.6 },
+    // ---- 足: 受け取った位置 → 跳ぶあいだは腰にぶら下がる → 両足で着地 ----
+    { t: 0.1, ease: 'lin', footL: { arc: 0 }, footR: { arc: 0 } },
+    { t: 0.16, ease: 'io', footL: { rel: 1, lx: 0.11, ly: -0.66, lz: 0.06, knee: 0.6 }, footR: { rel: 1, lx: -0.11, ly: -0.68, lz: -0.04, knee: 0.6 } },
+    { t: 0.3, ease: 'lin', footL: { rel: 1, lx: 0.11, ly: -0.74, lz: 0.1, knee: 0.1 }, footR: { rel: 1, lx: -0.11, ly: -0.72, lz: 0, knee: 0.1 } },
+    { t: GSK_SLAM_LEAP_IMPACT_T, ease: 'io', footL: { rel: 0, z: 1.85, x: 0, lift: 0, pitch: 0 }, footR: { rel: 0, z: 1.5, x: 0, lift: 0, pitch: 0 } },
+    { t: 1.4, ease: 'io', footL: { z: 1.6 }, footR: { z: 1.6 } },
+    // ---- 引き上げる → 跳んで掲げる → 叩きつける → 保つ → 戻る ----
+    ...pose(0.14, 'io', LEAP_GATHER),
+    ...pose(0.28, 'out', LEAP_TOP),
+    ...pose(GSK_SLAM_LEAP_IMPACT_T, 'in', LEAP_SLAM),
+    ...pose(GSK_SLAM_LEAP_HOLD_T, 'lin', LEAP_SLAM),
+    ...pose(1.4, 'io', GS_READY),
+  ],
+};
+
+// ================================================================= 地裂（崩山 Lv7 で、飛翔崩山のあとに加わる）
+
+/** すくい上げの途中（体の前を通る最高速）: 叩きつけた剣を、地面をかすめて斜め上へ。体は沈んだまま起き上がり始める（地擦り斬り上げ gsHeavyRip と同じ） */
+const RIP_PASS = {
+  hips: { yaw: -4, pitch: 8, z: 0.06, y: -0.26 },
+  chest: { yaw: -6, pitch: 10 },
+  head: { yaw: -3 },
+  grip: [8, 0, 0.44] as V3,
+  ...plane(-8, -35),
+  roll: -165,
+  pole: [-0.4, -0.85, -0.1] as V3,
+};
+
+/**
+ * 地裂（崩山の 4 つ目。Lv7 から）: 飛翔崩山で地面を叩いた剣を、そのまま地面をえぐって左上へ斬り上げる。前方へ長い衝撃（地割れ）が走る。
+ * 飛翔崩山の保持の姿勢（0.56s）から続けて始まる（continueFrom）。
+ * 0 → 0.2 すくい上げる（0.2 に前を通る最高速。右足が 0.2 に着地）/ 0.2 → 0.3 左上へ振り抜く / 0.3 → 0.44 保つ / 0.44 → 0.8 戻り。
+ * ルートは 0.06 から 0.3 までに 0.5 m。足は世界に固定（足の z はこの技の開始時のルートから: 左足 +0.25、右足 −0.1。飛翔崩山の着地の両足）。
+ */
+export const GSK_RIP: AuthoredAttack = {
+  name: 'gskRip',
+  duration: 0.8,
+  twoHanded: GS_TWO_HAND,
+  continueFrom: { attack: GSK_SLAM_LEAP, t: GSK_SLAM_LEAP_HOLD_T },
+  keys: [
+    // ---- 下半身: 後ろにいた右足が前へ出る。左足は少し進めて、あとで引きつける ----
+    { t: 0.06, ease: 'lin', rootZ: 0 },
+    { t: 0.2, ease: 'in', rootZ: 0.25 },
+    { t: 0.3, ease: 'out', rootZ: 0.5 },
+    { t: 0.06, ease: 'lin', footR: { z: -0.1 } },
+    { t: 0.2, ease: 'io', footR: { z: 0.3, arc: 0.14 } },
+    { t: 0.44, ease: 'lin', footR: { z: 0.3 } },
+    { t: 0.8, ease: 'io', footR: { z: 0.5, arc: 0.03 } },
+    { t: 0.2, ease: 'lin', footL: { z: 0.25 } },
+    { t: 0.34, ease: 'out', footL: { z: 0.4, arc: 0.06 } },
+    { t: 0.44, ease: 'lin', footL: { z: 0.4 } },
+    { t: 0.8, ease: 'io', footL: { z: 0.5, arc: 0.1 } },
+    // ---- すくい上げる → 振り抜く → 保つ → 戻る ----
+    ...pose(0.2, 'in', RIP_PASS),
+    ...pose(0.3, 'out', RISE_END),
+    ...pose(0.44, 'lin', RISE_END),
+    ...pose(0.8, 'io', GS_READY),
+  ],
+};
+
+// ================================================================= 返し斬り（一閃 Lv4 で加わる）
+
+/**
+ * 返し斬り（一閃の 2 つ目。Lv4 から）: 斬り抜けて左へ抜けた剣を、そのまま左へ引き込み、右足を踏み込んで、右へ薙ぎ戻す。すれ違った敵を、振り返りざまに斬る。
+ * 一閃の保持の姿勢（0.8s）から続けて始まる。崩山の左からの払いと同じ作り（足の開始位置だけ違う: 左足 +0.38、右足 −0.3）。
+ */
+export const GSK_ISSEN_BACK_HOLD_T = 0.4;
+export const GSK_ISSEN_BACK: AuthoredAttack = buildBackSweep('gskIssenBack', GSK_ISSEN, ISSEN_HOLD_T, 0.38, -0.3);
+
+// ================================================================= 突き抜け（一閃 Lv7 で加わる）
+
+/** 牛の構え（飛び込み突きと同じ。手首のねじれが小さくなるよう、右へ払い切った姿勢から続くので roll を −105 にしてある） */
+const ISSEN_LUNGE_CHAMBER = { ...CHAMBER, roll: -105 };
+
+/** 突き抜けが伸び切った姿勢を保つ（終わりの技。受付は使わない） */
+const ISSEN_LUNGE_END = { ...THRUST, hips: { yaw: -8, pitch: 8, z: 0.08, y: -0.18 } };
+
+/**
+ * 突き抜け（一閃の 3 つ目。Lv7 から）: 返し斬りで右へ払い切った剣を、牛の構え（右のこめかみの高さへ引き上げ、切っ先を前下がりで敵の顔へ向ける）に引き絞り、
+ * 体ごと前へ飛び込んで両手で貫く。長く、重い締めの 1 撃（飛び込み突き gsRetreatLunge と同じ作りを、素早く）。
+ * 返し斬りの保持の姿勢（0.4s）から続けて始まる（continueFrom）。
+ * 0 → 0.15 引き絞る（0.15〜0.2 は一拍）/ 0.2 → 0.26 突き出す（0.26 に最高速。右足は 0.26 に着地）/ 0.26 → 0.38 伸び切る / 0.38 → 0.45 保つ / 0.45 → 0.8 戻り。
+ * ルートは 0.09 から 0.26 までに 0.95 m、減速して 0.38 までに 1.65 m。足は世界に固定（右足が大きく飛び込み、左足は残って、突いたあと引き寄せる）。
+ */
+export const GSK_ISSEN_LUNGE: AuthoredAttack = {
+  name: 'gskIssenLunge',
+  duration: 0.8,
+  twoHanded: GS_TWO_HAND,
+  continueFrom: { attack: GSK_ISSEN_BACK, t: GSK_ISSEN_BACK_HOLD_T },
+  keys: [
+    // ---- 下半身 ----
+    { t: 0.09, ease: 'lin', rootZ: 0 },
+    { t: 0.26, ease: 'in', rootZ: 0.95 },
+    { t: 0.38, ease: 'out', rootZ: 1.65 },
+    { t: 0.1, ease: 'lin', footR: { arc: 0 } },
+    { t: 0.26, ease: 'io', footR: { z: 1.45, arc: 0.18 } },
+    { t: 0.45, ease: 'lin', footR: { z: 1.45 } },
+    { t: 0.8, ease: 'io', footR: { z: 1.65, arc: 0.03 } },
+    { t: 0.22, ease: 'lin', footL: { arc: 0 } },
+    { t: 0.38, ease: 'out', footL: { z: 1.05, arc: 0.08 } },
+    { t: 0.45, ease: 'lin', footL: { z: 1.05 } },
+    { t: 0.8, ease: 'io', footL: { z: 1.65, arc: 0.1 } },
+    // ---- 引き絞る → 突く → 伸び切る → 保つ → 戻る ----
+    ...pose(0.15, 'io', ISSEN_LUNGE_CHAMBER),
+    ...pose(0.2, 'lin', ISSEN_LUNGE_CHAMBER),
+    ...pose(0.26, 'in', THRUST),
+    ...pose(0.38, 'out', ISSEN_LUNGE_END),
+    ...pose(0.45, 'lin', ISSEN_LUNGE_END),
+    ...pose(0.8, 'io', GS_READY),
   ],
 };

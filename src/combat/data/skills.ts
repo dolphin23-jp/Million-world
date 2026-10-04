@@ -25,6 +25,11 @@ export interface SkillStepDef {
   minLevel?: number;
   /** この段の威力の倍率（省略 = 1。とどめの段を強くするなど） */
   scale?: number;
+  /**
+   * 進化（Lv4・Lv7。ADR-034）: この段を、レベルが minLevel 以上なら別の攻撃（attack）に差し替える（同じ段の別の動き。五月雨の突きが 5 → 7 → 9 連になるなど）。
+   * 複数あるときは、満たしている中でいちばん高い minLevel のもの。差し替えた攻撃も、前の段の受付時刻の姿勢から続く（クリップの continueFrom）こと
+   */
+  evolve?: readonly { minLevel: number; attack: string }[];
 }
 
 export interface SkillDef {
@@ -59,7 +64,19 @@ export const SKILLS: Record<SkillId, SkillDef> = {
     short: '四ツ葉',
     detail: '右袈裟・右逆袈裟・左袈裟・左逆袈裟の四連斬り',
     family: 'sword',
-    steps: [{ attack: 'skQuad1' }, { attack: 'skQuad2' }, { attack: 'skQuad3' }, { attack: 'skQuad4', scale: 1.1 }],
+    steps: [
+      { attack: 'skQuad1' },
+      { attack: 'skQuad2' },
+      { attack: 'skQuad3' },
+      { attack: 'skQuad4', scale: 1.1 },
+      // Lv4: 5 つ目に突き込み（長く突く）/ Lv7: 6 つ目に回し斬り（1 回転して前後を薙ぐ）
+      { attack: 'skQuad5', minLevel: 4, scale: 1.15 },
+      { attack: 'skQuad6', minLevel: 7, scale: 1.2 },
+    ],
+    evolutions: [
+      { level: 4, text: '5 つ目に「突き込み」が加わる。右足を踏み込んで真っ直ぐ、長く突く' },
+      { level: 7, text: '6 つ目に「回し斬り」が加わる。突き込みのあと 1 回転して、前と後ろを薙ぎ払う' },
+    ],
     power: 1.2,
     powerPerLevel: POWER_PER_LEVEL,
     cooldownFrames: 540,
@@ -71,7 +88,11 @@ export const SKILLS: Record<SkillId, SkillDef> = {
     short: '五月雨',
     detail: '出の早い高速の突き 5 連。細く前へ長く届く',
     family: 'sword',
-    steps: [{ attack: 'skFlurry' }],
+    steps: [{ attack: 'skFlurry', evolve: [{ minLevel: 4, attack: 'skFlurry7' }, { minLevel: 7, attack: 'skFlurry9' }] }],
+    evolutions: [
+      { level: 4, text: '突きが 5 連から 7 連になる（間隔も少し詰まる）' },
+      { level: 7, text: '突きが 9 連になり、とどめの 9 発目は深く踏み込んで、さらに長く強く突く' },
+    ],
     power: 1.15,
     powerPerLevel: POWER_PER_LEVEL,
     cooldownFrames: 480,
@@ -83,7 +104,11 @@ export const SKILLS: Record<SkillId, SkillDef> = {
     short: '竜巻',
     detail: '体ごと 2 周半回る。前の半円に 3 回・後ろに 2 回。回っているあいだはスーパーアーマー',
     family: 'sword',
-    steps: [{ attack: 'skWhirl' }],
+    steps: [{ attack: 'skWhirl', evolve: [{ minLevel: 4, attack: 'skWhirl35' }, { minLevel: 7, attack: 'skWhirl45' }] }],
+    evolutions: [
+      { level: 4, text: '2 周半から 3 周半になり、前 4 回・後ろ 3 回当たる。回りながら前へ追う距離も伸びる' },
+      { level: 7, text: '4 周半になり、前 5 回・後ろ 4 回当たる（9 ヒット）' },
+    ],
     power: 1.15,
     powerPerLevel: POWER_PER_LEVEL,
     cooldownFrames: 720,
@@ -96,7 +121,17 @@ export const SKILLS: Record<SkillId, SkillDef> = {
     short: '崩山',
     detail: '右から払い、左から払い、頭上から地を叩き割る。衝撃波が地面と周囲へ広がる',
     family: 'greatsword',
-    steps: [{ attack: 'skGsSweep1' }, { attack: 'skGsSweep2' }, { attack: 'skGsSlam' }],
+    steps: [
+      { attack: 'skGsSweep1' },
+      { attack: 'skGsSweep2' },
+      // Lv4: 叩きつけが「飛翔崩山」（跳び込み・衝撃波が 2 重）に替わる / Lv7: 4 つ目に「地裂」（地面をえぐって斬り上げ、長い衝撃）
+      { attack: 'skGsSlam', evolve: [{ minLevel: 4, attack: 'skGsSlamLeap' }] },
+      { attack: 'skGsRip', minLevel: 7 },
+    ],
+    evolutions: [
+      { level: 4, text: '叩きつけが「飛翔崩山」になる。高く跳び込んで叩きつけ、衝撃波が 2 重に広がる（外側の輪は遠く大きい）' },
+      { level: 7, text: '4 つ目に「地裂」が加わる。叩きつけた剣で地面をえぐって斬り上げ、前方へ長い衝撃を走らせる' },
+    ],
     power: 1.2,
     powerPerLevel: POWER_PER_LEVEL,
     cooldownFrames: 900,
@@ -108,7 +143,16 @@ export const SKILLS: Record<SkillId, SkillDef> = {
     short: '一閃',
     detail: '剣を引いて少し溜め、一瞬で踏み込んで斬り抜ける。前へ長く広い 1 撃。溜めの間はスーパーアーマー',
     family: 'greatsword',
-    steps: [{ attack: 'skGsIssen' }],
+    steps: [
+      { attack: 'skGsIssen' },
+      // Lv4: 2 つ目に「返し斬り」（振り返りざまに薙ぎ戻す）/ Lv7: 3 つ目に「突き抜け」（体ごと飛び込んで貫く）
+      { attack: 'skGsIssen2', minLevel: 4 },
+      { attack: 'skGsIssenLunge', minLevel: 7 },
+    ],
+    evolutions: [
+      { level: 4, text: '斬り抜けたあと、振り返りざまに斬る「返し斬り」が続く（返し斬りの間もアーマー）' },
+      { level: 7, text: 'さらに「突き抜け」が続く。牛の構えから体ごと飛び込んで、長く重く貫く' },
+    ],
     power: 1.2,
     powerPerLevel: POWER_PER_LEVEL,
     cooldownFrames: 780,

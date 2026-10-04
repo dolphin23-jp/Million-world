@@ -33,7 +33,7 @@ node tools/build-character.mjs <manifest.json>   # クリップ結合・リタ�
 python3 tools/clean-texture.py <glb> <tex.png> <out.png>   # 生成テクスチャの描き崩れ（腰まわり）を塗り直す。docs/05 参照
 node tools/clip-arm-height.mjs <glb>   # クリップごとの腕の挙上角（脇の破綻の目安）
 node tools/sfx-check.mjs   # 効果音を書き出して数値検査し、artifacts/audio/*.wav を出す（先に npm run build）
-node tools/motion-sheet.mjs <label> --script '0:{"attackPressed":true}' --end 36   # 手付けクリップの姿勢を 1 枚に並べる（npm run build の後。--cam side|front|back|three|top、--aim x,z、--weapon <装備 id>、--clip <名前> でクリップを直接再生（大きなヨーの回転は映らない。回転は --skill で）、--skill <スキル id> + --script '0:{"skillPressed":true}' で剣技を実際の連なりとして再生。--mode weights|wsum:<骨>|ybands|normals|wire で重み・服の縁の高さ・法線を見る、--no-outline、--tile 1 で拡大、--track grip|hands|handR|handL|tip で握りなどを追尾して拡大（--dist 0.7〜1.3）。詳細はファイル先頭）
+node tools/motion-sheet.mjs <label> --script '0:{"attackPressed":true}' --end 36   # 手付けクリップの姿勢を 1 枚に並べる（npm run build の後。--cam side|front|back|three|top、--aim x,z、--weapon <装備 id>、--clip <名前> でクリップを直接再生（大きなヨーの回転は映らない。回転は --skill で）、--skill <スキル id> [--skill-level <1〜10>] + --script '0:{"skillPressed":true}' で剣技を実際の連なりとして再生（Lv4・Lv7 で動きが進化。ADR-034）。--mode weights|wsum:<骨>|ybands|normals|wire で重み・服の縁の高さ・法線を見る、--no-outline、--tile 1 で拡大、--track grip|hands|handR|handL|tip で握りなどを追尾して拡大（--dist 0.7〜1.3）。詳細はファイル先頭）
 node tools/motion-check.mjs <clip> | --stats | --trace <clip>   # 手付けクリップの数値検査: 骨の床からの高さ・剣先の速さ / 全クリップの焼き込み統計 / フレームごとの腕・手首
 node tools/grip-check.mjs [--weapon greatsword] [--worst] [--check] [クリップ名 …]   # 両手が柄を握れているか（手のひらの中心が柄の軸の上か・握りの向きが合うか）を実際の骨でフレームごとに測る。握り・リグ・両手持ちの IK を触ったら（先に npm run build。ADR-023）
 node tools/measure-hand-axes.mjs <glb>   # 両手のメッシュの座標系（指・親指側・手の甲側）を頂点から測る（HERO.handFrames の元。手のメッシュを替えたとき）

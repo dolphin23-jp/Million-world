@@ -935,6 +935,56 @@ try {
   await sleep(150);
   await page.screenshot({ path: 'artifacts/shot-skill-slam.png' });
 
+  // 剣技の進化（ADR-034）: 崩山を Lv7 にして撃つ。飛翔崩山（衝撃波が 2 重）→ 地裂（前へ走る衝撃）。地裂が地面をえぐった瞬間の絵（技名・輪・ひび割れ）
+  const evo = await page.evaluate((solo) => {
+    const g = window.__mw.game;
+    g.growth.reset();
+    g.growth.addXp(660); // Lv7 = スキルポイント 6
+    for (let i = 0; i < 6; i++) g.growth.addSkill('houzan');
+    g.applyGrowth(); // private だが実行時は呼べる
+    g.restart({ ...solo, maxAttackers: 0 });
+    g.setLoadout('greatsword');
+    g.stepNow(1);
+    g.player.body.x = 0;
+    g.player.body.z = 0;
+    g.player.yaw = 0;
+    g.cam.yaw = Math.PI;
+    g.enemies[0].enemy.place(0, 5.4, Math.PI);
+    g.enemies[0].enemy.health.hp = g.enemies[0].enemy.health.max = 9999;
+    g.inject({ lockPressed: true });
+    g.stepNow(1);
+    g.inject({ skillPressed: true });
+    g.stepNow(1);
+    const seq = [];
+    let last = null;
+    const impact0 = g.player.impactSerial;
+    for (let i = 0; i < 400; i++) {
+      g.stepNow(1);
+      const id = g.player.attack?.id ?? null;
+      if (id !== last) {
+        last = id;
+        if (id) seq.push(id);
+      }
+      // 3 回目の地面の演出（飛翔崩山の本体・余波の輪・地裂）で止めて撮る
+      if (g.player.impactSerial - impact0 >= 3) break;
+    }
+    const impacts = g.player.impactSerial - impact0;
+    g.renderNow(6);
+    return { seq, impacts, level: g.skills.level('houzan') };
+  }, SOLO);
+  console.log(`[skill] 崩山 Lv7 ${JSON.stringify(evo)}`);
+  if (evo.level !== 7 || evo.seq.join() !== 'skGsSweep1,skGsSweep2,skGsSlamLeap,skGsRip' || evo.impacts < 3) {
+    console.error('[skill] 崩山 Lv7 の進化（飛翔崩山 → 地裂）が出ていない');
+    process.exitCode = 3;
+  }
+  await sleep(150);
+  await page.screenshot({ path: 'artifacts/shot-skill-slam-lv7.png' });
+  await page.evaluate(() => {
+    const g = window.__mw.game;
+    g.growth.reset();
+    g.applyGrowth(); // 後の撮影シーンにレベルを持ち越さない
+  });
+
   // 操作ガイド（ADR-024）: ロックして 1 段目を出し、次段の受付が開いた絵（連携の履歴・続けられる技・受付の帯）と、右上の「技表」を開いた絵
   await page.evaluate((solo) => {
     const g = window.__mw.game;
@@ -962,6 +1012,7 @@ try {
     const g = window.__mw.game;
     g.growth.reset();
     g.growth.addXp(660);
+    g.applyGrowth(); // private だが実行時は呼べる（レベルアップで印が付くのと同じ経路）
     g.stepNow(1);
   });
   const menuInfo0 = await page.evaluate(() => {

@@ -60,6 +60,13 @@ export interface ArmorDef {
   breakDamage: number;
 }
 
+/** 地面を叩いた演出の 1 回ぶん（時刻 = 区間先頭からの秒、位置 = 攻撃者の正面へ m、強さ = 0.3〜1.5） */
+export interface ImpactDef {
+  t: number;
+  dist: number;
+  power: number;
+}
+
 export interface AttackDef {
   id: string;
   /** 使うアニメーション区間名（src/character/data/hero.ts の segments）。手付けの攻撃ではクリップ名（authored.name） */
@@ -90,7 +97,9 @@ export interface AttackDef {
    * 地面を叩く技（ADR-023）: 剣が床に当たる時刻（区間先頭からの秒）と、そのとき剣先が床に触れる位置（攻撃者の正面へ m）、強さ（0.3〜1.5。砂ぼこり・揺れ・ヒットストップ）。
    * その時刻に砂ぼこりの輪・画面の揺れ・ヒットストップ・音を出す（敵に当たらなくても出る）
    */
-  impact?: { t: number; dist: number; power: number };
+  impact?: ImpactDef;
+  /** 遅れて広がる、2 つ目以降の輪（飛翔崩山の二重の衝撃波。ADR-034）。impact と同じ形で、時刻ごとに地面の演出を出す */
+  echoes?: readonly ImpactDef[];
   /** この攻撃へ入るときのクロスフェード秒（省略時 0.08）。前の技との姿勢差が大きいほど長くする */
   fade?: number;
   /**
@@ -131,6 +140,8 @@ export interface AttackFrames {
   windows: readonly ResolvedWindow[];
   /** スーパーアーマーの区間（フレーム。from 含む・to 含まない）と、割れるダメージ。無ければ null */
   armor: { from: number; to: number; breakDamage: number } | null;
+  /** 地面を叩く演出の時刻（フレーム）と位置・強さ。impact と echoes を時刻の順に。無ければ空 */
+  impacts: readonly { frame: number; dist: number; power: number }[];
 }
 
 export function resolveAttack(a: AttackDef): AttackFrames {
@@ -151,6 +162,7 @@ export function resolveAttack(a: AttackDef): AttackFrames {
     dodgeCancel: a.dodgeCancelAt === undefined ? activeEndF : Math.min(total, Math.max(1, toFrames(a.dodgeCancelAt))),
     windows,
     armor: a.armor ? { from: toFrames(a.armor.from), to: toFrames(a.armor.to), breakDamage: a.armor.breakDamage } : null,
+    impacts: [...(a.impact ? [a.impact] : []), ...(a.echoes ?? [])].map((im) => ({ frame: toFrames(im.t), dist: im.dist, power: im.power })),
   };
 }
 

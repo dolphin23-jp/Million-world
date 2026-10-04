@@ -136,6 +136,57 @@ describe('resolveAttack: 窓・アーマー・回避キャンセル', () => {
   });
 });
 
+describe('resolveAttack: 地面を叩く演出（impact と echoes）', () => {
+  it('impact と echoes は rate で割ったフレームに直り、時刻の順に並ぶ。無ければ空', () => {
+    const f = resolveAttack(
+      def({
+        id: 'imp',
+        rate: 2,
+        impact: { t: 0.4, dist: 2.0, power: 1.5 },
+        echoes: [
+          { t: 0.6, dist: 2.2, power: 1.7 },
+          { t: 0.8, dist: 2.4, power: 1.9 },
+        ],
+      }),
+    );
+    expect(f.impacts).toEqual([
+      { frame: 12, dist: 2.0, power: 1.5 },
+      { frame: 18, dist: 2.2, power: 1.7 },
+      { frame: 24, dist: 2.4, power: 1.9 },
+    ]);
+    expect(resolveAttack(def({ id: 'none' })).impacts).toEqual([]);
+    // echoes だけでも出る（impact が無い攻撃）
+    expect(resolveAttack(def({ id: 'e', echoes: [{ t: 0.3, dist: 1, power: 1 }] })).impacts).toEqual([{ frame: 18, dist: 1, power: 1 }]);
+  });
+
+  it('Player は impact と echoes の時刻ごとに 1 回ずつ impactSerial を進め、位置は体の前 dist・強さは attackPower 倍', () => {
+    register(
+      def({
+        id: 'tImpact',
+        impact: { t: 0.3, dist: 2.0, power: 1.5 },
+        echoes: [{ t: 0.5, dist: 3.0, power: 2.0 }],
+      }),
+    );
+    const sc = scene([]);
+    const p = sc.player;
+    start(sc, 'tImpact', 1.2);
+    const seen: { z: number; power: number }[] = [];
+    let last = p.impactSerial;
+    for (let i = 0; i < 90; i++) {
+      sc.step();
+      if (p.impactSerial !== last) {
+        last = p.impactSerial;
+        seen.push({ z: p.lastImpact.z - p.body.z, power: p.lastImpact.power });
+      }
+    }
+    expect(seen.length).toBe(2);
+    expect(seen[0]!.power).toBeCloseTo(1.5 * 1.2, 9);
+    expect(seen[1]!.power).toBeCloseTo(2.0 * 1.2, 9);
+    expect(seen[0]!.z).toBeCloseTo(2.0, 1);
+    expect(seen[1]!.z).toBeCloseTo(3.0, 1);
+  });
+});
+
 describe('多段ヒット: 窓ごとに当たり直す', () => {
   it('窓のあいだだけ当たりが出て、窓ごとに同じ敵へもう一度当たる', () => {
     register(

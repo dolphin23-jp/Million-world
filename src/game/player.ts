@@ -504,12 +504,13 @@ export class Player {
       this.velZ = approach(this.velZ, 0, MOVE.decel * 2 * dt);
     }
 
-    // 地面を叩く技: 剣が床に当たる時刻に演出の合図を出す（描画されている姿勢の時刻 = stateFrame / 60 が impact.t になる step）
-    if (a.impact && f + 1 === Math.round((a.impact.t * 60) / a.rate)) {
+    // 地面を叩く技: 剣が床に当たる時刻に演出の合図を出す（描画されている姿勢の時刻 = stateFrame / 60 が impact.t になる step）。echoes があれば、遅れて広がる輪もそれぞれの時刻に
+    for (const im of fr.impacts) {
+      if (f + 1 !== im.frame) continue;
       this.impactSerial++;
-      this.lastImpact.x = this.body.x + Math.sin(this.yaw) * a.impact.dist;
-      this.lastImpact.z = this.body.z + Math.cos(this.yaw) * a.impact.dist;
-      this.lastImpact.power = a.impact.power * this.attackPower;
+      this.lastImpact.x = this.body.x + Math.sin(this.yaw) * im.dist;
+      this.lastImpact.z = this.body.z + Math.cos(this.yaw) * im.dist;
+      this.lastImpact.power = im.power * this.attackPower;
     }
     // 長押し: 1 段目を押し続けていたら、予備動作の途中で溜めへ移る（離したら通常の 1 段目のまま）
     if (!intent.attackHeld) this.heldSinceBegin = false;
