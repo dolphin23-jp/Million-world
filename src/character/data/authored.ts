@@ -18,6 +18,7 @@ import { GS_DROP } from './gs-drop';
 import { GS_HEAVY_RIP, GS_LUNGE_SWEEP, GS_RETREAT_LUNGE, GS_RISE_SLAM, GS_SPIN2 } from './gs-chain';
 import { COMBO_HOP, COMBO_SPIN, COMBO_UPPER } from './combo-chain';
 import { COMBO_SLAM, HOP_THRUST, LUNGE_SLASH, SWEEP_BACK } from './sword-chain';
+import { FLURRY, QUAD3, QUAD4, WHIRL } from './skill-sword';
 import { GS_GUARD, GS_GUARD_HIT, GS_PARRY } from './gs-guard';
 
 /** 手付けアニメ（authoring.ts）で作る攻撃と回避。HeroVisual が読込時に焼いて、名前でクリップとして登録する */
@@ -32,6 +33,11 @@ export const AUTHORED_ATTACKS: Record<string, AuthoredAttack> = {
   hopThrust: HOP_THRUST,
   lungeSlash: LUNGE_SLASH,
   sweepBack: SWEEP_BACK,
+  // 剣技の専用モーション（ADR-031。攻撃は SKILL_ATTACKS）
+  quad3: QUAD3,
+  quad4: QUAD4,
+  flurry: FLURRY,
+  whirl: WHIRL,
   heavyCharge: HEAVY_CHARGE,
   lunge: LUNGE,
   dash: DASH,

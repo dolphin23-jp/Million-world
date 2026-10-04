@@ -7,7 +7,7 @@ import type { WeaponId } from './loadouts';
  * コストはクールダウン（スキルごと）。レベル 1〜SKILL_LEVEL_MAX: 威力・クールダウンが良くなり、連なりが伸びる（minLevel の段が解放される）。
  */
 
-export type SkillId = 'tsubame' | 'samidare' | 'senpu' | 'shippu' | 'dangan' | 'ouzu' | 'houzan' | 'shoryu';
+export type SkillId = 'yotsuba' | 'samidare' | 'tatsumaki' | 'dangan' | 'ouzu' | 'houzan' | 'shoryu';
 
 export const SKILL_LEVEL_MAX = 5;
 
@@ -42,53 +42,41 @@ const POWER_PER_LEVEL = 0.08;
 const COOLDOWN_PER_LEVEL = 0.06;
 
 export const SKILLS: Record<SkillId, SkillDef> = {
-  // ---- 片手剣（盾付きも） ----
-  tsubame: {
-    id: 'tsubame',
-    name: '燕返し',
-    short: '燕返し',
-    detail: '斬って跳び退き、突き込む',
+  // ---- 片手剣（盾付きも）。どれも剣技専用のモーション（SKILL_ATTACKS）。中身は docs/07 §2.1 ----
+  yotsuba: {
+    id: 'yotsuba',
+    name: '四ツ葉',
+    short: '四ツ葉',
+    detail: '右袈裟・右逆袈裟・左袈裟・左逆袈裟の四連斬り',
     family: 'sword',
-    steps: [{ attack: 'combo1' }, { attack: 'comboHop' }, { attack: 'hopThrust', scale: 1.1 }],
-    power: 1.3,
-    powerPerLevel: POWER_PER_LEVEL,
-    cooldownFrames: 480,
-    cooldownPerLevel: COOLDOWN_PER_LEVEL,
-  },
-  samidare: {
-    id: 'samidare',
-    name: '五月雨',
-    short: '五月雨',
-    detail: '連なる斬り。レベルで段が伸びる',
-    family: 'sword',
-    steps: [{ attack: 'combo1' }, { attack: 'combo2' }, { attack: 'combo3' }, { attack: 'comboUpper', minLevel: 3 }, { attack: 'comboSlam', minLevel: 5, scale: 1.1 }],
-    power: 1.25,
-    powerPerLevel: POWER_PER_LEVEL,
-    cooldownFrames: 720,
-    cooldownPerLevel: COOLDOWN_PER_LEVEL,
-  },
-  senpu: {
-    id: 'senpu',
-    name: '旋風',
-    short: '旋風',
-    detail: '二連の斬りから、体ごと回る',
-    family: 'sword',
-    steps: [{ attack: 'combo1' }, { attack: 'combo2' }, { attack: 'comboSpin', scale: 1.1 }],
-    power: 1.3,
+    steps: [{ attack: 'skQuad1' }, { attack: 'skQuad2' }, { attack: 'skQuad3' }, { attack: 'skQuad4', scale: 1.1 }],
+    power: 1.2,
     powerPerLevel: POWER_PER_LEVEL,
     cooldownFrames: 540,
     cooldownPerLevel: COOLDOWN_PER_LEVEL,
   },
-  shippu: {
-    id: 'shippu',
-    name: '疾風突き',
-    short: '疾風突き',
-    detail: '踏み込んで突き、切り返す',
+  samidare: {
+    id: 'samidare',
+    name: '五月雨突き',
+    short: '五月雨',
+    detail: '出の早い高速の突き 5 連。細く前へ長く届く',
     family: 'sword',
-    steps: [{ attack: 'lunge' }, { attack: 'lungeSlash' }],
-    power: 1.35,
+    steps: [{ attack: 'skFlurry' }],
+    power: 1.15,
     powerPerLevel: POWER_PER_LEVEL,
-    cooldownFrames: 360,
+    cooldownFrames: 480,
+    cooldownPerLevel: COOLDOWN_PER_LEVEL,
+  },
+  tatsumaki: {
+    id: 'tatsumaki',
+    name: '竜巻',
+    short: '竜巻',
+    detail: '体ごと 2 周半回る。前の半円に 3 回・後ろに 2 回。回っているあいだはスーパーアーマー',
+    family: 'sword',
+    steps: [{ attack: 'skWhirl' }],
+    power: 1.15,
+    powerPerLevel: POWER_PER_LEVEL,
+    cooldownFrames: 720,
     cooldownPerLevel: COOLDOWN_PER_LEVEL,
   },
   // ---- 大剣 ----
@@ -143,7 +131,7 @@ export const SKILLS: Record<SkillId, SkillDef> = {
 };
 
 /** 一覧に並べる順（系統ごとにまとまる） */
-export const SKILL_ORDER: readonly SkillId[] = ['tsubame', 'samidare', 'senpu', 'shippu', 'dangan', 'ouzu', 'houzan', 'shoryu'];
+export const SKILL_ORDER: readonly SkillId[] = ['yotsuba', 'samidare', 'tatsumaki', 'dangan', 'ouzu', 'houzan', 'shoryu'];
 
 export function isSkillId(v: unknown): v is SkillId {
   return typeof v === 'string' && Object.prototype.hasOwnProperty.call(SKILLS, v);

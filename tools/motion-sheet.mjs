@@ -24,6 +24,7 @@
  *                                ガードの構えなど、状態機械を通さず姿勢だけ見たいとき。例: --clip guardShield  /  --clip combo1@shield
  *   --track grip|hands|handR|handL|tip   注視点をフレームごとに追尾する（握りの検査用。--dist 1.0 前後で拡大。grip = 右手の握り（剣の柄の位置）、hands = 両手の中点、tip = 剣先）。
  *                                --height は使われない（追尾の位置が注視点）。--cam front|side|back|three で見る向きを変える
+ *   --skill <id>                 スキルボタンで使うスキルを選ぶ（剣技の動きを見るとき。script に {"skillPressed":true} を書く。ADR-031）
  *   --aim 0,4                    ロックオン中にする（対象の位置 x,z。サンドボックスには敵がいないので、ロック中だけに出る技を撮るため）
  *
  *   例: 回避  node tools/motion-sheet.mjs dodge --script '0:{"dodgePressed":true,"dir":[0,1]}' --end 36 --focus 1.4
@@ -63,6 +64,7 @@ const weapon = opt('weapon', null);
 const clipName = opt('clip', null);
 const track = opt('track', null);
 const aim = opt('aim', null) ? opt('aim').split(',').map(Number) : null;
+const skillId = opt('skill', null);
 const script = {};
 for (const part of (opt('script', '0:{}') ?? '').split(';').filter(Boolean)) {
   const k = part.indexOf(':');
@@ -126,9 +128,10 @@ try {
     };
   });
 
-  await page.evaluate(([cam, yaw, focus, dist, h, pitch, weapon, aim, noOutline, mode]) => {
+  await page.evaluate(([cam, yaw, focus, dist, h, pitch, weapon, aim, noOutline, mode, skillId]) => {
     const g = window.__mw.game;
     g.loop.stop();
+    if (skillId) g.skills.select(skillId);
     if (noOutline || mode !== 'tex') g.player.visual.root.traverse((o) => { if (o.name.endsWith('__outline')) o.visible = false; });
     if (mode !== 'tex') {
       const THREE = window.__mw.THREE;
@@ -194,7 +197,7 @@ try {
     g.cam.pin(0, h, focus);
     g.stepNow(30);
     g.renderNow(3);
-  }, [camName, CAMS[camName] ?? CAMS.side, focusZ, dist, height, pitch, weapon, aim, noOutline, mode]);
+  }, [camName, CAMS[camName] ?? CAMS.side, focusZ, dist, height, pitch, weapon, aim, noOutline, mode, skillId]);
 
   const shots = [];
   let at = 0;

@@ -80,7 +80,7 @@ function scene(targets: { id: number; x: number; z: number }[]): Scene {
 }
 
 function start(sc: Scene, id: string, power = 1): void {
-  const run: SkillRun = { skill: 'tsubame', steps: [{ attack: id, power }] };
+  const run: SkillRun = { skill: 'yotsuba', steps: [{ attack: id, power }] };
   sc.player.requestSkill(run);
   sc.step();
 }
@@ -326,7 +326,7 @@ describe('スーパーアーマー（AttackDef.armor）', () => {
     register(def({ id: 'ch1', armor: { from: 0, to: 0.5, breakDamage: 30 }, activeStart: 0.2, activeEnd: 0.4, cancelAt: 0.6, segmentDuration: 0.9 }));
     register(def({ id: 'ch2', activeStart: 0.2, activeEnd: 0.4, segmentDuration: 0.9 }));
     const sc = scene([]);
-    sc.player.requestSkill({ skill: 'tsubame', steps: [{ attack: 'ch1', power: 1 }, { attack: 'ch2', power: 1 }] });
+    sc.player.requestSkill({ skill: 'yotsuba', steps: [{ attack: 'ch1', power: 1 }, { attack: 'ch2', power: 1 }] });
     sc.step();
     sc.run(5);
     sc.player.takeHit(HIT(10));
