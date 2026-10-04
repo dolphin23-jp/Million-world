@@ -144,6 +144,14 @@ body {
   top: calc(12px + var(--safe-top));
 }
 /* アイテム欄（回避・ガードの左）。長押し・上へ払うと一覧が開く（src/input/slot-button.ts。スキル欄にも同じ部品を使う） */
+.tbtn-skill {
+  /* スキル欄（アイテム欄の左）。アイテム欄と同じ部品（ADR-031） */
+  width: 70px;
+  height: 70px;
+  font-size: 11px;
+  right: calc(336px + var(--safe-right));
+  bottom: calc(26px + var(--safe-bottom));
+}
 .tbtn-item {
   width: 70px;
   height: 70px;
@@ -154,6 +162,60 @@ body {
 .slot-btn {
   flex-direction: column;
   gap: 2px;
+}
+/* 使い直しの待ち: 暗い扇が時計回りに消えていく（--cd は残りの度数） */
+.slot-cd {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0;
+  background: conic-gradient(rgba(8, 10, 24, 0.66) var(--cd, 0deg), transparent 0);
+}
+.slot-cd.on {
+  opacity: 1;
+}
+.slot-btn.cooling {
+  border-color: rgba(255, 255, 255, 0.28);
+}
+.slot-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* 剣の絵柄（スキル）: 斜めの刃 + 鍔。色は --c */
+.slot-blade {
+  position: relative;
+  width: 24px;
+  height: 26px;
+  margin-top: 2px;
+}
+.slot-blade-edge {
+  position: absolute;
+  left: 11px;
+  top: -3px;
+  width: 4px;
+  height: 25px;
+  border-radius: 2px 2px 1px 1px;
+  background: var(--c, #7fd8ff);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  box-sizing: border-box;
+  transform: rotate(38deg);
+  transform-origin: 50% 90%;
+}
+.slot-blade-guard {
+  position: absolute;
+  left: 3px;
+  top: 17px;
+  width: 11px;
+  height: 3px;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.92);
+  transform: rotate(-52deg);
+  transform-origin: 50% 50%;
+}
+.slot-btn.pressed .slot-blade-guard {
+  background: #1a1400;
 }
 .slot-btn.empty {
   opacity: 0.55;
@@ -186,6 +248,17 @@ body {
 }
 .slot-count:empty {
   display: none;
+}
+/* 「Lv3」など 3 文字以上のバッジは小さく（絵柄・名前に被りすぎない） */
+.slot-count.long {
+  min-width: 26px;
+  height: 18px;
+  padding: 0 3px;
+  border-radius: 9px;
+  font-size: 10px;
+  line-height: 14px;
+  right: -4px;
+  top: -4px;
 }
 .slot-btn.pressed .slot-count {
   color: #fff;
@@ -623,6 +696,14 @@ body {
     -3px 0 #0e3a22, 3px 0 #0e3a22, 0 -3px #0e3a22, 0 3px #0e3a22,
     -2px -2px #0e3a22, 2px -2px #0e3a22, -2px 2px #0e3a22, 2px 2px #0e3a22,
     0 4px 8px rgba(0, 0, 0, 0.45);
+}
+.dmg-skill {
+  color: #9fe4ff;
+  letter-spacing: 0.18em;
+  text-shadow:
+    -3px 0 #0f2a4a, 3px 0 #0f2a4a, 0 -3px #0f2a4a, 0 3px #0f2a4a,
+    -2px -2px #0f2a4a, 2px -2px #0f2a4a, -2px 2px #0f2a4a, 2px 2px #0f2a4a,
+    0 0 12px rgba(120, 210, 255, 0.85);
 }
 .dmg-item {
   color: #ffe9a8;

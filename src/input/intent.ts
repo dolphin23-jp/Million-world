@@ -25,6 +25,9 @@ export interface InputIntent {
   /** アイテムの使用ボタンの押下エッジ（選んでいるアイテムを使う。ADR-030）と、選択の切替（キーボード用。-1 前 / +1 次 / 0 なし）。Game が扱う */
   itemPressed: boolean;
   itemCycle: number;
+  /** スキルボタンの押下エッジ（選んでいるスキルを使う。ADR-031）と、選択の切替（キーボード用）。Game が扱う */
+  skillPressed: boolean;
+  skillCycle: number;
   /** ロックオン対象切替（-1 左 / +1 右 / 0 なし） */
   lockSwitch: number;
 }
@@ -44,6 +47,8 @@ export function createEmptyIntent(): InputIntent {
     lockPressed: false,
     itemPressed: false,
     itemCycle: 0,
+    skillPressed: false,
+    skillCycle: 0,
     lockSwitch: 0,
   };
 }
@@ -80,6 +85,8 @@ export class InputAggregator {
     it.lockPressed = false;
     it.itemPressed = false;
     it.itemCycle = 0;
+    it.skillPressed = false;
+    it.skillCycle = 0;
     it.lockSwitch = 0;
     for (const s of this.sources) s.collect(it);
     const len = Math.hypot(it.moveX, it.moveY);

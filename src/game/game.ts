@@ -19,6 +19,8 @@ import { ProjectileRenderer } from '../render/projectiles';
 import type { Circle } from '../world/collision';
 import { Mystical } from '../combat/mystical';
 import { Inventory } from '../combat/inventory';
+import { SkillBook } from '../combat/skills';
+import { SKILLS, isSkillId, type SkillDef } from '../combat/data/skills';
 import { ITEMS, ITEM_ORDER, ITEM_RULES, type ItemId } from '../combat/data/items';
 import { MYSTICAL } from '../combat/data/mystical';
 import { Enemy } from '../ai/enemy';
@@ -181,6 +183,10 @@ export class Game {
   readonly inventory = new Inventory();
   dropRng: () => number = Math.random;
   private seenInventorySerial = -1;
+  /** スキル欄（剣技。ADR-031）。seenSkillSerial = クールダウンと演出を起こし終えた Player.skillSerial、skillUiKey = スキルボタンの表示を合わせ終えた状態 */
+  readonly skills = new SkillBook();
+  private seenSkillSerial = 0;
+  private skillUiKey = '';
   /** ボスが呼んだ手下の id（倒してもアイテムを落とさない = 呼ばせて稼げないように） */
   private readonly summonedIds = new Set<number>();
   /** 地面を叩いた合図（Player.impactSerial）を処理し終えた値 */
@@ -273,6 +279,9 @@ export class Game {
       if (!(id in ITEMS)) return;
       this.inventory.select(id as ItemId);
       this.sfx.play('ui');
+    };
+    this.touch.onSkillChoose = (id) => {
+      if (isSkillId(id) && this.skills.select(id)) this.sfx.play('ui');
     };
     this.touch.setEquipLabel(this.player.loadout.name);
     this.refreshMoveList();
@@ -532,12 +541,55 @@ export class Game {
     this.sfx.play('potion');
   }
 
+  /**
+   * 選んでいるスキルを使う（スキルボタンのタップ・O キー）。連なりを Player に頼む（立っている・走っている・攻撃 / 回避の受付なら始まる）。
+   * 選べるスキルが無い・クールダウン中は「使えない」音。クールダウンに入るのは、実際に始まったとき（onSkillStart）
+   */
+  private useSkill(): void {
+    const p = this.player;
+    if (p.dead) return;
+    const run = this.skills.prepare(p.loadout.weapon);
+    if (!run) {
+      this.sfx.play('itemDeny');
+      return;
+    }
+    p.requestSkill(run);
+  }
+
+  /** 剣技が始まった（Player.skillSerial が増えた）: クールダウンに入り、技名の文字・音を出す */
+  private onSkillStart(): void {
+    const p = this.player;
+    this.seenSkillSerial = p.skillSerial;
+    const id = p.lastSkill;
+    if (!id) return;
+    this.skills.start(id);
+    this.damageNumbers.spawnText(p.body.x, 1.95, p.body.z, SKILLS[id].name, 'skill', 1.2);
+    this.sfx.play('skillStart');
+  }
+
+  /** スキルボタンの表示（いま選んでいるもの・一覧）とクールダウンの扇を合わせる。装備を替えると系統が替わって一覧も替わる */
+  private syncSkillUi(): void {
+    const fam = this.player.loadout.weapon;
+    const key = `${fam}:${this.skills.serial}`;
+    if (key !== this.skillUiKey) {
+      this.skillUiKey = key;
+      const opt = (d: SkillDef) => ({ id: d.id, label: d.short, sub: d.name, badge: `Lv${this.skills.level(d.id)}`, icon: 'blade' as const, color: d.family === 'greatsword' ? '#ffb86f' : '#7fd8ff' });
+      this.touch.skill.setOptions(this.skills.available(fam).map(opt));
+      const sel = this.skills.selectedFor(fam);
+      this.touch.skill.setFace(sel ? opt(sel) : null);
+    }
+    const sel = this.skills.selectedFor(fam);
+    this.touch.skill.setCooldown(sel ? this.skills.cooldownRatio(sel.id) : 0);
+    const it = ITEMS[this.inventory.selected];
+    this.touch.item.setCooldown(this.inventory.cooldown / it.cooldownFrames);
+  }
+
   /** アイテムボタンの表示（いま選んでいるもの・一覧）を、数や選択が変わったときだけ作り直す */
   private syncItemUi(): void {
     if (this.seenInventorySerial === this.inventory.serial) return;
     this.seenInventorySerial = this.inventory.serial;
     const inv = this.inventory;
-    const opt = (id: ItemId) => ({ id, label: ITEMS[id].short, sub: ITEMS[id].name, count: inv.count(id), color: ITEMS[id].color });
+    const opt = (id: ItemId) => ({ id, label: ITEMS[id].short, sub: ITEMS[id].name, badge: String(inv.count(id)), dim: inv.count(id) === 0, icon: 'bottle' as const, color: ITEMS[id].color });
     this.touch.item.setOptions(ITEM_ORDER.map(opt));
     this.touch.item.setFace(opt(inv.selected));
   }
@@ -682,11 +734,17 @@ export class Game {
       intent.lockSwitch = 0;
       intent.itemPressed = false;
       intent.itemCycle = 0;
+      intent.skillPressed = false;
+      intent.skillCycle = 0;
     }
     // アイテム: 選択の切替（キーボード）・使い直しの待ち・使用
     if (intent.itemCycle !== 0) this.inventory.cycle(intent.itemCycle);
     this.inventory.step();
     if (intent.itemPressed) this.useItem();
+    // スキル: 選択の切替（キーボード）・クールダウンを進める・使用の頼み（始められたかは player.step のあとに skillSerial で分かる）
+    if (intent.skillCycle !== 0) this.skills.cycle(this.player.loadout.weapon, intent.skillCycle);
+    this.skills.step();
+    if (intent.skillPressed) this.useSkill();
     // 装備の切替（立っている・走っているあいだだけ）
     if (intent.equipPressed) this.cycleLoadout();
 
@@ -720,6 +778,7 @@ export class Game {
     this.mysticalWas = this.mystical.active;
 
     this.player.step(dt, intent, this.cam.yaw);
+    if (this.player.skillSerial !== this.seenSkillSerial) this.onSkillStart();
     this.soundPlayerState();
     this.onGroundImpact();
 
@@ -878,6 +937,8 @@ export class Game {
     this.player.reset();
     this.mystical.reset();
     this.mysticalWas = false;
+    this.skills.reset();
+    this.seenSkillSerial = this.player.skillSerial;
     this.inventory.reset();
     this.summonedIds.clear();
     this.lockOn.release();
@@ -956,6 +1017,7 @@ export class Game {
     this.updateMoveGuide();
     this.updateMysticalHud();
     this.syncItemUi();
+    this.syncSkillUi();
     // 実フレーム間隔で解像度を調整する。段が変わるとレンダターゲットを作り直すので、描画の後で行う
     const nextRatio = this.adaptive.update(frameDt * 1000);
     if (nextRatio !== null) this.host.setMaxPixelRatio(nextRatio);

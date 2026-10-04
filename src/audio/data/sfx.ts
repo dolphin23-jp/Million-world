@@ -194,6 +194,11 @@ export const SFX = {
   },
   /** 薬瓶を拾った（ドロップが入った）: 小さな「ちりん」 */
   itemGet: { gain: 0.8, layers: [tone('triangle', 1568, 1568, 0.09, 0.4, 0.003), tone('triangle', 2093, 2093, 0.16, 0.32, 0.003, 0.07)] },
+  /** 剣技の発動（ADR-031）: 抜き放つ鋭い風切りと、澄んだ 2 音（技名の文字と同時に鳴る） */
+  skillStart: {
+    gain: 0.9,
+    layers: [noise('bandpass', 1400, 5200, 1.4, 0.2, 0.9, 0.02), tone('triangle', 880, 1320, 0.16, 0.4, 0.004), tone('triangle', 1320, 1760, 0.2, 0.32, 0.004, 0.07), tone('sine', 220, 120, 0.2, 0.3, 0.01)],
+  },
   /** 使えない（空・使用待ち）: 低い短い「ぶっ」 */
   itemDeny: { gain: 0.8, layers: [tone('square', 180, 120, 0.1, 0.8, 0.004), tone('triangle', 360, 240, 0.08, 0.5, 0.004)] },
   enemySwing: { gain: 0.7, layers: [noise('bandpass', 800, 2400, 1.0, 0.2, 0.8, 0.04), tone('sine', 120, 70, 0.2, 0.3, 0.03)] },
