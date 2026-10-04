@@ -51,6 +51,8 @@ export class Player {
   readonly hitTracker = new HitTracker();
   /** 多段ヒットの技（AttackDef.windows）で、いま当たりが出ている窓の番号（-1 = 出ていない）と、記録をリセットした窓の組。step() の終わりに更新する */
   private winIdx = -1;
+  /** 多段ヒットの技で、2 つ目以降の窓の組が開くたびに増える（Game が振りの音を鳴らす。最初の窓の音は攻撃の開始で鳴らす） */
+  swingSerial = 0;
   private winGroup = -1;
   /** スーパーアーマーが攻撃を耐えたたびに増える（Game が演出を出すのに読む） */
   armorSerial = 0;
@@ -235,6 +237,7 @@ export class Player {
       if (this.stateFrame >= w.start && this.stateFrame < w.end) {
         this.winIdx = i;
         if (w.group !== this.winGroup) {
+          if (this.winGroup !== -1) this.swingSerial++;
           this.winGroup = w.group;
           this.hitTracker.reset();
         }

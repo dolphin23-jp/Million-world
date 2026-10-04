@@ -818,7 +818,7 @@ try {
   await sleep(150);
   await page.screenshot({ path: 'artifacts/shot-item-used.png' });
 
-  // スキル欄（ADR-031）: ロックして剣技（燕返し）を出し、連なりの途中の絵（技名の文字・クールダウンの扇）→ 長押しして上へすべらせた一覧 → 大剣へ替えたスキルボタン
+  // スキル欄（ADR-031）: ロックして剣技（四ツ葉）を出し、連なりの途中の絵（技名の文字・クールダウンの扇）→ 長押しして上へすべらせた一覧 → 大剣へ替えたスキルボタン
   const skill = await page.evaluate((solo) => {
     const g = window.__mw.game;
     g.restart({ ...solo, maxAttackers: 0 });
@@ -836,7 +836,7 @@ try {
     const serial = g.player.skillSerial;
     const seq = [];
     let last = null;
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < 54; i++) {
       g.stepNow(1);
       const id = g.player.attack?.id ?? null;
       if (id !== last) {
@@ -845,10 +845,10 @@ try {
       }
     }
     g.renderNow(6);
-    return { serial, seq, cd: g.skills.cooldownRatio('tsubame') };
+    return { serial, seq, cd: g.skills.cooldownRatio('yotsuba') };
   }, SOLO);
   console.log(`[skill] ${JSON.stringify(skill)}`);
-  if (skill.serial !== 1 || !skill.seq.includes('comboHop') || skill.cd <= 0) {
+  if (skill.serial !== 1 || !skill.seq.includes('skQuad3') || skill.cd <= 0) {
     console.error('[skill] スキルボタンから剣技が始まっていない（連なりが自動で続いていない・クールダウンに入っていない）');
     process.exitCode = 3;
   }
@@ -879,12 +879,53 @@ try {
     return g.skills.selectedFor('greatsword').id;
   });
   console.log(`[skill] 大剣のスキルボタン: ${gsSkill}`);
-  if (gsSkill !== 'dangan') {
+  if (gsSkill !== 'houzan') {
     console.error('[skill] 大剣に替えても、スキルボタンが大剣のスキルになっていません');
     process.exitCode = 3;
   }
   await sleep(150);
   await page.screenshot({ path: 'artifacts/shot-skill-greatsword.png' });
+
+  // 大剣の剣技（崩山）: 叩きつけが地面を叩いた直後の絵（衝撃波の輪・砂ぼこり・ひび割れ・技名）と、スーパーアーマーの「ARMOR」の文字
+  const slam = await page.evaluate((solo) => {
+    const g = window.__mw.game;
+    g.restart({ ...solo, maxAttackers: 0 });
+    g.setLoadout('greatsword');
+    g.stepNow(1);
+    g.player.body.x = 0;
+    g.player.body.z = 0;
+    g.player.yaw = 0;
+    g.cam.yaw = Math.PI;
+    g.enemies[0].enemy.place(0, 4.2, Math.PI);
+    g.enemies[0].enemy.health.hp = g.enemies[0].enemy.health.max = 9999;
+    g.inject({ lockPressed: true });
+    g.stepNow(1);
+    g.inject({ skillPressed: true });
+    g.stepNow(1);
+    const seq = [];
+    let last = null;
+    let impact = -1;
+    const impact0 = g.player.impactSerial;
+    for (let i = 0; i < 90; i++) {
+      g.stepNow(1);
+      const id = g.player.attack?.id ?? null;
+      if (id !== last) {
+        last = id;
+        if (id) seq.push(id);
+      }
+      if (impact < 0 && g.player.impactSerial > impact0) impact = i;
+    }
+    g.damageNumbers.spawnText(g.player.body.x, 2.1, g.player.body.z, 'ARMOR', 'armor', 0.9);
+    g.renderNow(8);
+    return { seq, impact, hp: g.enemies[0].enemy.health.hp };
+  }, SOLO);
+  console.log(`[skill] 崩山 ${JSON.stringify(slam)}`);
+  if (slam.seq.join() !== 'skGsSweep1,skGsSweep2,skGsSlam' || slam.impact < 0) {
+    console.error('[skill] 崩山の連なり（払い・払い・叩きつけ）が出ていない、または地面を叩いていない');
+    process.exitCode = 3;
+  }
+  await sleep(150);
+  await page.screenshot({ path: 'artifacts/shot-skill-slam.png' });
 
   // 操作ガイド（ADR-024）: ロックして 1 段目を出し、次段の受付が開いた絵（連携の履歴・続けられる技・受付の帯）と、右上の「技表」を開いた絵
   await page.evaluate((solo) => {

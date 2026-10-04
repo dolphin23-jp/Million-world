@@ -223,6 +223,27 @@ describe('多段ヒット: 窓ごとに当たり直す', () => {
     expect(sc.hits.find((h) => h.id === 2)!.damage).toBe(6);
   });
 
+  it('2 つ目以降の窓の組が開くたびに swingSerial が増える（最初の窓と、同じ組の窓では増えない。Game が振りの音を鳴らす）', () => {
+    register(
+      def({
+        id: 'swings',
+        windows: [
+          { start: 0.2, end: 0.3, group: 0 },
+          { start: 0.3, end: 0.4, group: 0 },
+          { start: 0.5, end: 0.6, group: 1 },
+          { start: 0.8, end: 0.9, group: 2 },
+        ],
+        activeStart: 0.2,
+        activeEnd: 0.9,
+      }),
+    );
+    const sc = scene([]);
+    start(sc, 'swings');
+    const s0 = sc.player.swingSerial;
+    sc.run(80);
+    expect(sc.player.swingSerial - s0).toBe(2);
+  });
+
   it('窓のある攻撃では、窓と窓のあいだは attackActive が false', () => {
     register(def({ id: 'gap', windows: [{ start: 0.2, end: 0.3 }, { start: 0.6, end: 0.7 }], activeStart: 0.2, activeEnd: 0.7 }));
     const sc = scene([]);

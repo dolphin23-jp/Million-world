@@ -130,6 +130,17 @@ const SWING_SFX: Record<string, SfxName> = {
   gsRetreatLunge: 'gsSwingLunge',
   gsRiseSlam: 'gsSwingDash',
   gsHeavyRip: 'gsSwingRise',
+  // 剣技（ADR-031 / 032）。多段の技は、2 つ目以降の窓が開くたびにも鳴らす（Player.swingSerial）
+  skQuad1: 'swing1',
+  skQuad2: 'swing2',
+  skQuad3: 'swing1',
+  skQuad4: 'swing2',
+  skFlurry: 'swingLunge',
+  skWhirl: 'swingSweep',
+  skGsSweep1: 'gsSwingRetreat',
+  skGsSweep2: 'gsSwing2',
+  skGsSlam: 'gsSwingSmash',
+  skGsIssen: 'gsSwingLunge',
 };
 /** 敵の攻撃の音（敵の種類ごと。無ければ enemySwing） */
 const ENEMY_ATTACK_SFX: Partial<Record<string, SfxName>> = { boar: 'boarCharge', lantern: 'orbShot', bat: 'batSwoop' };
@@ -191,6 +202,10 @@ export class Game {
   private readonly summonedIds = new Set<number>();
   /** 地面を叩いた合図（Player.impactSerial）を処理し終えた値 */
   private seenImpact = 0;
+  /** スーパーアーマーで受けた合図（Player.armorSerial）を処理し終えた値 */
+  private seenArmor = 0;
+  /** 多段の技の 2 つ目以降の振り（Player.swingSerial）の音を鳴らし終えた値 */
+  private seenSwing = 0;
   readonly damageNumbers: DamageNumbers;
   readonly enemyBars: EnemyBars;
   readonly lockMarker: LockMarker;
@@ -449,7 +464,15 @@ export class Game {
     this.damageNumbers.spawn(this.player.body.x, HIT_FEEDBACK.playerImpactHeight + 0.7, this.player.body.z, result.dealt, 'hurt');
     this.hud.flashHurt();
     this.hud.setPlayerHp(this.player.health.hp, this.player.health.max);
-    this.sfx.play('hurt');
+    // スーパーアーマーで受けた（剣技の最中。ひるまずダメージだけ受けた）: 「ARMOR」の文字と、受け止める金属の音（被弾の音のかわり）
+    const armored = this.player.armorSerial !== this.seenArmor;
+    this.seenArmor = this.player.armorSerial;
+    if (armored) {
+      this.damageNumbers.spawnText(this.player.body.x, 2.1, this.player.body.z, 'ARMOR', 'armor', 0.9);
+      this.sfx.play('guard');
+    } else {
+      this.sfx.play('hurt');
+    }
     this.encounter.onPlayerHit(result.dealt);
     if (result.killed) this.hitStop.slow(DEFEAT_SLOW.scale, DEFEAT_SLOW.seconds);
   }
@@ -845,6 +868,11 @@ export class Game {
     } else {
       this.seenChargeLevel = 0;
     }
+    if (p.swingSerial !== this.seenSwing) {
+      this.seenSwing = p.swingSerial;
+      const name = p.attack ? SWING_SFX[p.attack.id] : undefined;
+      if (name) this.sfx.play(name, { gain: Math.min(1.1, 0.7 * p.attackPower) });
+    }
     if (p.stateSerial === this.seenPlayerSerial) return;
     this.seenPlayerSerial = p.stateSerial;
     if (p.state === 'attack' && p.attack) {
@@ -939,6 +967,8 @@ export class Game {
     this.mysticalWas = false;
     this.skills.reset();
     this.seenSkillSerial = this.player.skillSerial;
+    this.seenArmor = this.player.armorSerial;
+    this.seenSwing = this.player.swingSerial;
     this.inventory.reset();
     this.summonedIds.clear();
     this.lockOn.release();
