@@ -18,8 +18,8 @@ import { GS_DROP } from './gs-drop';
 import { GS_HEAVY_RIP, GS_LUNGE_SWEEP, GS_RETREAT_LUNGE, GS_RISE_SLAM, GS_SPIN2 } from './gs-chain';
 import { COMBO_HOP, COMBO_SPIN, COMBO_UPPER } from './combo-chain';
 import { COMBO_SLAM, HOP_THRUST, LUNGE_SLASH, SWEEP_BACK } from './sword-chain';
-import { FLURRY, QUAD3, QUAD4, WHIRL } from './skill-sword';
-import { GSK_ISSEN, GSK_SLAM, GSK_SWEEP1, GSK_SWEEP2 } from './skill-greatsword';
+import { FLURRY, FLURRY_7, FLURRY_9, QUAD3, QUAD4, QUAD5, QUAD6, WHIRL, WHIRL_35, WHIRL_45 } from './skill-sword';
+import { GSK_ISSEN, GSK_ISSEN_BACK, GSK_ISSEN_LUNGE, GSK_RIP, GSK_SLAM, GSK_SLAM_LEAP, GSK_SWEEP1, GSK_SWEEP2 } from './skill-greatsword';
 import { GS_GUARD, GS_GUARD_HIT, GS_PARRY } from './gs-guard';
 
 /** 手付けアニメ（authoring.ts）で作る攻撃と回避。HeroVisual が読込時に焼いて、名前でクリップとして登録する */
@@ -39,10 +39,20 @@ export const AUTHORED_ATTACKS: Record<string, AuthoredAttack> = {
   quad4: QUAD4,
   flurry: FLURRY,
   whirl: WHIRL,
+  whirl35: WHIRL_35,
+  whirl45: WHIRL_45,
+  flurry7: FLURRY_7,
+  flurry9: FLURRY_9,
+  quad5: QUAD5,
+  quad6: QUAD6,
   gskSweep1: GSK_SWEEP1,
   gskSweep2: GSK_SWEEP2,
   gskSlam: GSK_SLAM,
   gskIssen: GSK_ISSEN,
+  gskSlamLeap: GSK_SLAM_LEAP,
+  gskRip: GSK_RIP,
+  gskIssenBack: GSK_ISSEN_BACK,
+  gskIssenLunge: GSK_ISSEN_LUNGE,
   heavyCharge: HEAVY_CHARGE,
   lunge: LUNGE,
   dash: DASH,
