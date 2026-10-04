@@ -33,6 +33,12 @@ const url = `http://127.0.0.1:${port}${BASE}?autostart=1&adaptive=0`;
 mkdirSync('artifacts', { recursive: true });
 
 /** 単体の戦闘構成（ページ側で restart(def) に渡す）。決定的に撮るために敵 1 体だけにする */
+/** スロットボタンの一覧の位置（同心円。src/input/slot-layout.ts の既定の内側の輪と同じ式。n 個のうち i 番目の、ボタンの中心からの差 px） */
+function slotPos(n, i) {
+  const R = 116;
+  const a = -Math.PI / 2 + (i - (n - 1) / 2) * (76 / R);
+  return { x: Math.cos(a) * R, y: Math.sin(a) * R };
+}
 const SOLO = { waves: [[{ type: 'imp', offset: 0, radius: 6 }]], waveGapFrames: 100, victoryDelayFrames: 75, defeatDelayFrames: 150, maxAttackers: 2 };
 /** 敵 3 体（ロックオンの撮影用） */
 const TRIO = { ...SOLO, waves: [[{ type: 'imp', offset: -0.5, radius: 7 }, { type: 'imp', offset: 0, radius: 8 }, { type: 'imp', offset: 0.5, radius: 7 }]] };
@@ -788,7 +794,8 @@ try {
   await page.mouse.down();
   await sleep(400);
   await page.mouse.move(icx, icy - 40, { steps: 4 });
-  await page.mouse.move(icx, icy - 72 * 2, { steps: 6 });
+  const itemTo = slotPos(2, 1); // 薬瓶（中）= 2 個のうち 2 番目
+  await page.mouse.move(icx + itemTo.x, icy + itemTo.y, { steps: 6 });
   await sleep(150);
   await page.screenshot({ path: 'artifacts/shot-item-menu.png' });
   await page.mouse.up();
@@ -861,7 +868,8 @@ try {
   await page.mouse.down();
   await sleep(400);
   await page.mouse.move(scx, scy - 40, { steps: 4 });
-  await page.mouse.move(scx, scy - 72 * 2, { steps: 6 });
+  const skillTo = slotPos(3, 1); // 五月雨突き = 3 個のうち 2 番目
+  await page.mouse.move(scx + skillTo.x, scy + skillTo.y, { steps: 6 });
   await sleep(150);
   await page.screenshot({ path: 'artifacts/shot-skill-menu.png' });
   await page.mouse.up();

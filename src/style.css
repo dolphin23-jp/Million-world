@@ -300,7 +300,7 @@ body {
 .slot-btn.pressed .slot-bottle::before {
   border-color: #1a1400;
 }
-/* 一覧: ボタンの上へ縦に並ぶ（位置は src/input/slot-button.ts が決める）。指は押さえたままなので pointer は受けない */
+/* 一覧: ボタンを中心にした同心円（扇）の上に並ぶ（位置は src/input/slot-layout.ts の配置。slot-button.ts が置く）。指は押さえたままなので pointer は受けない */
 .slot-menu {
   position: fixed;
   left: 0;
@@ -314,6 +314,24 @@ body {
 }
 .slot-menu.show {
   opacity: 1;
+}
+/* 輪の目安の弧（ボタンを中心にした円の一部）。選択肢の下に薄く */
+.slot-arcs {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: visible;
+  pointer-events: none;
+}
+.slot-arc {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.75);
+  stroke-width: 4;
+  stroke-dasharray: 0.1 11;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 2px rgba(10, 12, 30, 0.9));
 }
 .slot-opt {
   position: fixed;
