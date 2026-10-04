@@ -22,6 +22,9 @@ export interface InputIntent {
   /** 装備の切替ボタンの押下エッジ（次の装備へ。Game が扱う） */
   equipPressed: boolean;
   lockPressed: boolean;
+  /** アイテムの使用ボタンの押下エッジ（選んでいるアイテムを使う。ADR-030）と、選択の切替（キーボード用。-1 前 / +1 次 / 0 なし）。Game が扱う */
+  itemPressed: boolean;
+  itemCycle: number;
   /** ロックオン対象切替（-1 左 / +1 右 / 0 なし） */
   lockSwitch: number;
 }
@@ -39,6 +42,8 @@ export function createEmptyIntent(): InputIntent {
     guardHeld: false,
     equipPressed: false,
     lockPressed: false,
+    itemPressed: false,
+    itemCycle: 0,
     lockSwitch: 0,
   };
 }
@@ -73,6 +78,8 @@ export class InputAggregator {
     it.guardHeld = false;
     it.equipPressed = false;
     it.lockPressed = false;
+    it.itemPressed = false;
+    it.itemCycle = 0;
     it.lockSwitch = 0;
     for (const s of this.sources) s.collect(it);
     const len = Math.hypot(it.moveX, it.moveY);

@@ -18,6 +18,8 @@ import { PROJECTILES, PROJECTILE_HEIGHT } from '../combat/data/projectiles';
 import { ProjectileRenderer } from '../render/projectiles';
 import type { Circle } from '../world/collision';
 import { Mystical } from '../combat/mystical';
+import { Inventory } from '../combat/inventory';
+import { ITEMS, ITEM_ORDER, ITEM_RULES, type ItemId } from '../combat/data/items';
 import { MYSTICAL } from '../combat/data/mystical';
 import { Enemy } from '../ai/enemy';
 import { stepSwarm } from '../ai/swarm';
@@ -175,6 +177,12 @@ export class Game {
   /** ミスティカルドッジ（ジャスト回避。ADR-030）。発動中は敵と敵の弾だけが遅い。mysticalWas = 前ステップで発動中だったか（切れた瞬間の合図用） */
   readonly mystical = new Mystical();
   private mysticalWas = false;
+  /** アイテム欄（薬瓶。ADR-030）。敵を倒すと確率で増え、ボタンで使う。dropRng はドロップの抽選の乱数（開発・テストで差し替えられる） */
+  readonly inventory = new Inventory();
+  dropRng: () => number = Math.random;
+  private seenInventorySerial = -1;
+  /** ボスが呼んだ手下の id（倒してもアイテムを落とさない = 呼ばせて稼げないように） */
+  private readonly summonedIds = new Set<number>();
   /** 地面を叩いた合図（Player.impactSerial）を処理し終えた値 */
   private seenImpact = 0;
   readonly damageNumbers: DamageNumbers;
@@ -261,6 +269,11 @@ export class Game {
 
     // --- 入力 ---
     this.touch = new TouchInput();
+    this.touch.onItemChoose = (id) => {
+      if (!(id in ITEMS)) return;
+      this.inventory.select(id as ItemId);
+      this.sfx.play('ui');
+    };
     this.touch.setEquipLabel(this.player.loadout.name);
     this.refreshMoveList();
     this.input.add(this.touch);
@@ -398,6 +411,7 @@ export class Game {
     if (result.killed) this.sfx.play('kill');
     if (result.killed) {
       this.encounter.onKill();
+      this.dropItems(enemy);
       // ボスを倒すと手下（呼ばれた小蝙蝠など）は消える（倒した数には入らない）
       if (enemy.def.boss) for (const e of this.enemySims) if (e !== enemy) e.vanish();
       // 最後のウェーブの最後の 1 体: スローモーション
@@ -484,6 +498,50 @@ export class Game {
     this.sfx.play('mysticalEnd');
   }
 
+  /**
+   * 倒した敵のドロップ（ADR-030）: 敵ごとの確率で抽選して、落ちたものはその場でストックに入る（拾う操作は要らない）。
+   * 呼ばれた手下・ドロップの無い敵（ボス）は抽選しない（救済の数え方にも入れない）。出た瞬間に、緑の光・名前の文字・音
+   */
+  private dropItems(enemy: Enemy): void {
+    const def = enemy.def as EnemyDef;
+    if (!def.drops || def.drops.length === 0 || this.summonedIds.has(enemy.id)) return;
+    for (const id of this.inventory.rollDrops(def.drops, this.dropRng)) {
+      if (this.inventory.add(id) === 0) continue;
+      this.hitFx.burst(enemy.body.x, 0.9, enemy.body.z, 0, 0, 0.7, FX_TINT.heal);
+      this.damageNumbers.spawnText(enemy.body.x, Math.min(enemy.def.height + 0.1, 1.9), enemy.body.z, `＋${ITEMS[id].name}`, 'item');
+      this.sfx.play('itemGet');
+    }
+  }
+
+  /**
+   * 選んでいるアイテムを使う（アイテムボタンのタップ・U キー）。体力が満タン・持っていない・使い直しの待ちのときは使わない（数は減らない）。
+   * 使えたら体力を回復して、緑の光・回復量の数字・音
+   */
+  private useItem(): void {
+    const p = this.player;
+    if (p.dead) return;
+    const r = this.inventory.use(p.health.max - p.health.hp);
+    if (!r.ok) {
+      if (r.reason !== 'wait' && ITEM_RULES.denySound) this.sfx.play('itemDeny');
+      return;
+    }
+    const healed = p.heal(ITEMS[r.item].heal);
+    this.hud.setPlayerHp(p.health.hp, p.health.max);
+    this.hitFx.burst(p.body.x, HIT_FEEDBACK.playerImpactHeight, p.body.z, 0, 0, 0.8, FX_TINT.heal);
+    this.damageNumbers.spawn(p.body.x, HIT_FEEDBACK.playerImpactHeight + 0.7, p.body.z, healed, 'heal');
+    this.sfx.play('potion');
+  }
+
+  /** アイテムボタンの表示（いま選んでいるもの・一覧）を、数や選択が変わったときだけ作り直す */
+  private syncItemUi(): void {
+    if (this.seenInventorySerial === this.inventory.serial) return;
+    this.seenInventorySerial = this.inventory.serial;
+    const inv = this.inventory;
+    const opt = (id: ItemId) => ({ id, label: ITEMS[id].short, sub: ITEMS[id].name, count: inv.count(id), color: ITEMS[id].color });
+    this.touch.item.setOptions(ITEM_ORDER.map(opt));
+    this.touch.item.setFace(opt(inv.selected));
+  }
+
   /** 弾き返す先（撃った敵の体）。いなければ（倒した・取り除いた）null */
   private readonly ownerBody = (id: number): Circle | null => {
     for (const e of this.enemySims) if (e.id === id && !e.dead) return e.body;
@@ -541,7 +599,7 @@ export class Game {
     summonPoints(boss.body.x, boss.body.z, n, req.radius, boss.summonSerial, this.arena.radius, this.summonBuf);
     for (let i = 0; i < n; i++) {
       const p = this.summonBuf[i]!;
-      this.spawnEnemy(type, p.x, p.z);
+      this.summonedIds.add(this.spawnEnemy(type, p.x, p.z).id);
       this.hitFx.burst(p.x, 1.0, p.z, 0, 0, 0.8, FX_TINT.orb);
     }
     this.sfx.play('orbShot', { gain: 0.8 });
@@ -622,7 +680,13 @@ export class Game {
       intent.equipPressed = false;
       intent.lockPressed = false;
       intent.lockSwitch = 0;
+      intent.itemPressed = false;
+      intent.itemCycle = 0;
     }
+    // アイテム: 選択の切替（キーボード）・使い直しの待ち・使用
+    if (intent.itemCycle !== 0) this.inventory.cycle(intent.itemCycle);
+    this.inventory.step();
+    if (intent.itemPressed) this.useItem();
     // 装備の切替（立っている・走っているあいだだけ）
     if (intent.equipPressed) this.cycleLoadout();
 
@@ -814,6 +878,8 @@ export class Game {
     this.player.reset();
     this.mystical.reset();
     this.mysticalWas = false;
+    this.inventory.reset();
+    this.summonedIds.clear();
     this.lockOn.release();
     this.hitStop.reset();
     this.cam.shake.reset();
@@ -889,6 +955,7 @@ export class Game {
     this.hud.setTarget(locked && !locked.def.boss ? { name: locked.def.name, hp: locked.health.hp, max: locked.health.max, poise: locked.poise ? locked.poise.ratio : null } : null);
     this.updateMoveGuide();
     this.updateMysticalHud();
+    this.syncItemUi();
     // 実フレーム間隔で解像度を調整する。段が変わるとレンダターゲットを作り直すので、描画の後で行う
     const nextRatio = this.adaptive.update(frameDt * 1000);
     if (nextRatio !== null) this.host.setMaxPixelRatio(nextRatio);

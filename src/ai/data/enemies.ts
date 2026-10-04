@@ -5,6 +5,7 @@
 
 import { type HitboxDef } from '../../combat/hit';
 import type { ProjectileId } from '../../combat/data/projectiles';
+import type { DropDef } from '../../combat/data/items';
 import { BOSS_POISE_BREAK, POISE_BREAK, type PoiseDef } from '../../combat/data/poise';
 
 const deg = (d: number) => (d * Math.PI) / 180;
@@ -154,6 +155,8 @@ export interface EnemyDef {
   orbitSpeed?: number;
   /** 飛んでいる敵（ADR-028）: プレイヤーを押し出さず、地上の敵とも体を押し合わない（群れの敵どうしだけが重ならない） */
   flying?: boolean;
+  /** 倒したときのアイテムのドロップ（ADR-030）。種類ごとに別々の確率で抽選する。無ければ落とさない（ボス・呼ばれた手下は落とさない） */
+  drops?: readonly DropDef[];
   attack: EnemyAttackDef;
 }
 
@@ -273,6 +276,7 @@ export const ENEMIES = {
     knockbackFrames: 12,
     knockbackScale: 1,
     deathFrames: 70,
+    drops: [{ item: 'potionS', chance: 0.1 }],
     turnSpeed: 5,
     moveSpeed: 2.4,
     aggroRange: 14,
@@ -314,6 +318,7 @@ export const ENEMIES = {
     knockbackFrames: 12,
     knockbackScale: 0.6,
     deathFrames: 70,
+    drops: [{ item: 'potionS', chance: 0.2 }],
     turnSpeed: 4,
     moveSpeed: 2.6,
     aggroRange: 16,
@@ -354,6 +359,7 @@ export const ENEMIES = {
     knockbackFrames: 12,
     knockbackScale: 1.2,
     deathFrames: 60,
+    drops: [{ item: 'potionS', chance: 0.18 }],
     turnSpeed: 5,
     moveSpeed: 2.2,
     aggroRange: 20,
@@ -397,6 +403,10 @@ export const ENEMIES = {
     knockbackFrames: 14,
     knockbackScale: 0.12,
     deathFrames: 90,
+    drops: [
+      { item: 'potionS', chance: 0.35 },
+      { item: 'potionM', chance: 0.3 },
+    ],
     turnSpeed: 2.2,
     moveSpeed: 1.7,
     aggroRange: 18,
@@ -441,6 +451,7 @@ export const ENEMIES = {
     knockbackFrames: 10,
     knockbackScale: 1.8,
     deathFrames: 40,
+    drops: [{ item: 'potionS', chance: 0.05 }],
     turnSpeed: 9,
     moveSpeed: 4.2,
     aggroRange: 22,

@@ -38,7 +38,7 @@ export class DamageNumbers {
   }
 
   /** world は命中位置。style で大きさと色が変わる（guard = ガードで受けた削り、riposte = 弾かれた敵への反撃） */
-  spawn(x: number, y: number, z: number, value: number, style: HitStyle | 'hurt' | 'guard' | 'riposte'): void {
+  spawn(x: number, y: number, z: number, value: number, style: HitStyle | 'hurt' | 'guard' | 'riposte' | 'heal'): void {
     this.put(x, y, z, String(Math.round(value)), style);
   }
 
