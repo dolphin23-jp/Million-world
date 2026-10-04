@@ -1,0 +1,38 @@
+{
+  "_note": "tools/recenter-skeleton.mjs の入力。各関節を、バインド姿勢（ジオメトリ空間、cm）でメッシュの断面の中心へ寄せた目標の位置。null の軸は動かさない（y・z は元のまま）。メッシュは x = +4.2cm を軸に左右対称で（胴・腕・脚の断面の中心を tools/measure-joint-centers.mjs で測った）、骨は元は全体に −3.6cm の軸にあった。目標の位置なので、補正済みの GLB にかけても何も変わらない。手首の右（RightHand）は動かさない: 剣の握り（HERO.sword）が手ボーンのローカルで調整されている。左手首は断面の中心（腕の線の延長）へ寄せ、左腕の長さを元（48.7cm）に近づける。",
+  "targetCm": {
+    "Hips": [4.21, null, null],
+    "Spine02": [4.21, null, null],
+    "Spine01": [4.21, null, null],
+    "Spine": [4.21, null, null],
+    "neck": [4.21, null, null],
+    "Head": [4.24, null, null],
+    "head_end": [5.42, null, null],
+    "headfront": [3.58, null, null],
+    "LeftShoulder": [6.96, null, null],
+    "RightShoulder": [1.45, null, null],
+    "LeftArm": [16.95, null, null],
+    "RightArm": [-7.52, null, null],
+    "LeftForeArm": [26.27, null, null],
+    "RightForeArm": [-19.58, null, null],
+    "LeftHand": [36.01, null, null],
+    "LeftUpLeg": [14.42, null, null],
+    "RightUpLeg": [-6.0, null, null],
+    "LeftLeg": [15.87, null, null],
+    "RightLeg": [-7.6, null, null],
+    "LeftFoot": [22.92, null, null],
+    "RightFoot": [-14.46, null, null],
+    "LeftToeBase": [25.28, null, null],
+    "RightToeBase": [-16.84, null, null]
+  },
+  "reaim": {
+    "LeftArm": "LeftForeArm",
+    "LeftForeArm": "LeftHand",
+    "RightArm": "RightForeArm",
+    "RightForeArm": "RightHand",
+    "LeftUpLeg": "LeftLeg",
+    "LeftLeg": "LeftFoot",
+    "RightUpLeg": "RightLeg",
+    "RightLeg": "RightFoot"
+  }
+}

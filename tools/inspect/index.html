@@ -168,6 +168,14 @@
         }
         return results;
       };
+      // 骨を線で重ねる（バインド姿勢で、関節がメッシュの中のどこにあるかを見る）。メッシュは半透明にする
+      window.showSkeleton = () => {
+        const meshes = []; model.traverse((o) => { if (o.isSkinnedMesh) meshes.push(o); });
+        for (const m of meshes) { const mats = Array.isArray(m.material) ? m.material : [m.material]; for (const mt of mats) { mt.transparent = true; mt.opacity = 0.45; mt.depthWrite = false; } }
+        const helper = new THREE.SkeletonHelper(model);
+        helper.material.depthTest = false; helper.material.linewidth = 2; helper.renderOrder = 10;
+        scene.add(helper);
+      };
       window.__ready = true;
     </script>
   </body>
