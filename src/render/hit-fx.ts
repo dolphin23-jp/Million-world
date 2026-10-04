@@ -101,6 +101,8 @@ const WHITE = new THREE.Color(1, 1, 1);
 export const FX_TINT = {
   parry: new THREE.Color(0.55, 0.9, 1),
   guard: new THREE.Color(1, 0.93, 0.75),
+  /** 鬼火が消える・斬り落とされたときの閃光（紫がかった白） */
+  orb: new THREE.Color(0.78, 0.66, 1),
 } as const;
 
 export class HitFx {

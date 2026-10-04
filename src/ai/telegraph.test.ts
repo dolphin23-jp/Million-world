@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Enemy } from './enemy';
 import { ENEMIES } from './data/enemies';
+import { PROJECTILES } from '../combat/data/projectiles';
 import { laneLength, laneOf, type LaneView } from './telegraph';
 
 const DT = 1 / 60;
@@ -84,5 +85,46 @@ describe('予告の帯（telegraph。ADR-025）', () => {
 
   it('追跡・硬直・ひるみでは出さない', () => {
     expect(laneOf(boarAt(30, 100), lane())).toBe(false); // 遠くて追跡中
+  });
+});
+
+describe('飛び道具の予告（提灯。ADR-026）', () => {
+  const LANTERN = ENEMIES.lantern.attack;
+  const WISP = PROJECTILES.wisp;
+
+  it('帯の長さは弾の飛ぶ距離（速さ × 寿命）、幅は敵のデータ。弾の当たり幅（弾 + プレイヤーの半径）より広い', () => {
+    expect(laneLength(LANTERN)).toBeCloseTo((WISP.speed * WISP.lifetimeFrames) / 60, 9);
+    const e = new Enemy(ENEMIES.lantern, 1, 0, 6.5);
+    e.place(0, 6.5, Math.PI);
+    for (let i = 0; i < 300 && !(e.state === 'windup' && e.stateFrame >= 1); i++) e.step(DT, 0, 0);
+    const l = lane();
+    expect(laneOf(e, l)).toBe(true);
+    expect(l.length).toBeCloseTo(12.6, 6);
+    expect(l.width).toBe(0.8);
+    // 帯の外へ体が出れば（中心が半幅 + プレイヤーの半径 0.38 より外）弾の当たり（弾の半径 + プレイヤーの半径）にも入らない
+    expect(l.width / 2 + 0.38).toBeGreaterThan(WISP.radius + 0.38);
+  });
+
+  it('予備動作の後半は向きが固定され、帯が濃くなる。撃ったあとは出発点に固定されて薄れ、すぐ消える', () => {
+    const e = new Enemy(ENEMIES.lantern, 1, 0, 6.5);
+    e.place(0, 6.5, Math.PI);
+    for (let i = 0; i < 300 && !(e.state === 'windup' && e.stateFrame >= LANTERN.windupTrackFrames + 2); i++) e.step(DT, 0, 0);
+    const locked = lane();
+    laneOf(e, locked);
+    expect(locked.locked).toBe(true);
+    expect(locked.striking).toBe(false);
+    const yaw = locked.yaw;
+    for (let i = 0; i < 4; i++) e.step(DT, 6, 0); // プレイヤーが横へ回り込んでも向きは動かない（撃つ向きもこのまま）
+    laneOf(e, locked);
+    expect(locked.yaw).toBeCloseTo(yaw, 9);
+    while (e.state === 'windup') e.step(DT, 6, 0);
+    expect(e.state).toBe('attack');
+    const strike = lane();
+    expect(laneOf(e, strike)).toBe(true);
+    expect(strike.striking).toBe(true);
+    expect(strike.x).toBeCloseTo(0, 9); // 提灯は撃つ前に動かない（出発点 = 立っていた位置）
+    expect(strike.z).toBeCloseTo(6.5, 1);
+    for (let i = 0; i < LANTERN.startupFrames + LANTERN.activeFrames + 2; i++) e.step(DT, 6, 0);
+    expect(laneOf(e, lane())).toBe(false); // 撃ったあとの硬直では出さない
   });
 });

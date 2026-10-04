@@ -109,7 +109,7 @@ describe('Encounter', () => {
   });
 
   it('デモの構成: 波があり、最後の波を含む。敵の数は 2 → 3、攻撃権は 1 以上', () => {
-    expect(DEMO_ENCOUNTER.waves.map((w) => w.length)).toEqual([2, 2, 3]);
+    expect(DEMO_ENCOUNTER.waves.map((w) => w.length)).toEqual([2, 2, 4]);
     expect(DEMO_ENCOUNTER.maxAttackers).toBeGreaterThanOrEqual(1);
   });
 });

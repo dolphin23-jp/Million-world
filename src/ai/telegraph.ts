@@ -1,9 +1,10 @@
+import { PROJECTILES } from '../combat/data/projectiles';
 import type { EnemyAttackDef } from './data/enemies';
 
 /**
  * 敵の攻撃の予告（テレグラフ）の床表示の幾何（純粋関数。ADR-025）。描くのは src/render/telegraph.ts。
  *
- * lane（突進の通り道）: 予備動作に入ると、敵の向いている方向へ帯が伸びる。前半（windupTrackFrames まで）は敵がプレイヤーを追って向きを変えるので
+ * lane（突進・飛び道具の通り道）: 予備動作に入ると、敵の向いている方向へ帯が伸びる。前半（windupTrackFrames まで）は敵がプレイヤーを追って向きを変えるので
  * 帯も薄く揺れ、後半は向きが固定されて帯が濃くなる（ここから横へ動けば避けられる）。突進が始まったら出発点に固定して、攻撃の終わりへ向けて薄れる。
  */
 
@@ -33,8 +34,12 @@ export interface TelegraphSource {
   readonly attackOriginZ: number;
 }
 
-/** 帯の長さ = 踏み込み + 当たりの届く距離 */
+/** 帯の長さ = 踏み込み + 当たりの届く距離。飛び道具は弾の飛ぶ距離（速さ × 寿命） */
 export function laneLength(atk: EnemyAttackDef): number {
+  if (atk.projectile) {
+    const p = PROJECTILES[atk.projectile];
+    return (p.speed * p.lifetimeFrames) / 60;
+  }
   const reach = atk.hitbox.kind === 'arc' ? atk.hitbox.range : atk.hitbox.length;
   return atk.lunge + reach;
 }

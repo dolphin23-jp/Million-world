@@ -4,6 +4,7 @@
  */
 
 import { type HitboxDef } from '../../combat/hit';
+import type { ProjectileId } from '../../combat/data/projectiles';
 
 const deg = (d: number) => (d * Math.PI) / 180;
 
@@ -41,6 +42,11 @@ export interface EnemyAttackDef {
    * lane = 向いている方向へまっすぐ伸びる帯（突進の通り道。長さは踏み込み lunge + 当たりの届く距離）。width は帯の幅（m）で、横へ動いて避けられる幅の目安
    */
   telegraph?: { kind: 'lane'; width: number };
+  /**
+   * 飛び道具を撃つ攻撃（ADR-026）。攻撃に入って startupFrames で、予備動作で固定した向きへ弾を撃つ（近接の判定は出ない。hitbox・damage・knockback・hitStop・lunge は使わない）。
+   * 帯（telegraph）の長さは弾の飛ぶ距離
+   */
+  projectile?: ProjectileId;
 }
 
 export interface EnemyDef {
@@ -70,8 +76,17 @@ export interface EnemyDef {
   stopDistance: number;
   /** 出現してから動き出すまで */
   spawnIdleFrames: number;
+  /**
+   * 距離を取る敵（遠距離型）: プレイヤーがこの距離（中心間 m）より近づくと、向きを保ったまま後ろへ下がる（retreatSpeed m/s。壁際では止まる）。
+   * 近づかれても慌てず撃つ・逃げる、を作る。stopDistance は撃つときに保つ距離
+   */
+  retreatDistance?: number;
+  retreatSpeed?: number;
   attack: EnemyAttackDef;
 }
+
+/** 近接の判定を持たない攻撃（飛び道具）が hitbox に置く、大きさ 0 の判定 */
+const NO_HITBOX: HitboxDef = { kind: 'arc', range: 0, halfAngle: 0 };
 
 export const ENEMIES = {
   /** 子鬼。M2 の最初の敵（プリミティブ製の仮の見た目。src/game/enemy-visual.ts） */
@@ -148,6 +163,50 @@ export const ENEMIES = {
       hitStop: 9,
       lunge: 6,
       telegraph: { kind: 'lane', width: 2.1 },
+    },
+  },
+  /**
+   * 提灯（ADR-026。M5-2）: 遠距離型。距離を保って（近づかれると後ろへ下がる）、鬼火を一直線に撃つ。
+   * 予備動作 0.73 秒のうち前半 30f はプレイヤーを追い、後半 14f は向きを固定する（床に鬼火の通り道が出る = 横へ動く・ロールで避けられる）。
+   * 鬼火は盾・大剣でパリィすると撃った提灯へ跳ね返って大ダメージ（体力 50 に対して 60 = 一撃）。ガードなら削りだけ、斬ればかき消せる。
+   * 体は脆く（体力 50）、一度近づけば 2〜3 振りで落とせるが、近づくあいだに撃たれ、下がられる。
+   */
+  lantern: {
+    id: 'lantern',
+    name: '提灯',
+    hp: 50,
+    radius: 0.45,
+    height: 1.5,
+    hitStunFrames: 20,
+    knockbackFrames: 12,
+    knockbackScale: 1.2,
+    deathFrames: 60,
+    turnSpeed: 5,
+    moveSpeed: 2.2,
+    aggroRange: 20,
+    stopDistance: 6.5,
+    spawnIdleFrames: 60,
+    retreatDistance: 4.5,
+    retreatSpeed: 3.4,
+    attack: {
+      range: 11,
+      windupFrames: 44,
+      windupTrackFrames: 30,
+      // 撃つ直前まで弱い攻撃でひるむ（近づいて斬れば撃たせない）。スーパーアーマーなし
+      armorFromFrame: 999,
+      armorBreakDamage: 0,
+      armorKnockbackScale: 1,
+      startupFrames: 2,
+      activeFrames: 1,
+      recoverFrames: 36,
+      cooldownFrames: 70,
+      hitbox: NO_HITBOX,
+      damage: 0,
+      knockback: 0,
+      hitStop: 0,
+      lunge: 0,
+      telegraph: { kind: 'lane', width: 0.8 },
+      projectile: 'wisp',
     },
   },
 } as const satisfies Record<string, EnemyDef>;
