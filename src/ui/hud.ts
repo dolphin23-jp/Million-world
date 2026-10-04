@@ -14,6 +14,7 @@ export class Hud {
   private readonly targetFill: HTMLElement;
   private readonly targetLag: HTMLElement;
   private readonly targetName: HTMLElement;
+  private readonly targetPoiseFill: HTMLElement;
   private targetShown = false;
   private readonly bannerEl: HTMLElement;
   private readonly resultEl: HTMLElement;
@@ -36,6 +37,7 @@ export class Hud {
     this.targetFill = this.targetEl.querySelector('.hp-fill') as HTMLElement;
     this.targetLag = this.targetEl.querySelector('.hp-lag') as HTMLElement;
     this.targetName = this.targetEl.querySelector('.hp-name') as HTMLElement;
+    this.targetPoiseFill = this.targetEl.querySelector('.poise-fill') as HTMLElement;
     this.bannerEl = document.getElementById('banner')!;
     this.resultEl = document.getElementById('result')!;
     this.retryBtn = document.getElementById('result-retry')!;
@@ -98,7 +100,7 @@ export class Hud {
   }
 
   /** ロック対象の HP バー（プレイヤーの HP の下）。null で隠す。毎フレーム呼んでよい（変化があったときだけ DOM を触る） */
-  setTarget(t: { name: string; hp: number; max: number } | null): void {
+  setTarget(t: { name: string; hp: number; max: number; /** 体勢ゲージ 0..1（重装型だけ） */ poise?: number | null } | null): void {
     if (!t) {
       if (this.targetShown) {
         this.targetEl.style.display = 'none';
@@ -116,6 +118,12 @@ export class Hud {
       this.targetLag.style.transition = '';
     }
     if (this.targetName.textContent !== t.name) this.targetName.textContent = t.name;
+    const hasPoise = t.poise !== undefined && t.poise !== null;
+    this.targetEl.classList.toggle('has-poise', hasPoise);
+    if (hasPoise) {
+      this.targetPoiseFill.style.width = `${Math.max(0, Math.min(1, t.poise!)) * 100}%`;
+      this.targetEl.classList.toggle('poise-broken', t.poise! <= 0);
+    }
     const w = `${Math.max(0, Math.min(1, t.hp / t.max)) * 100}%`;
     if (this.targetFill.style.width !== w) {
       this.targetFill.style.width = w;

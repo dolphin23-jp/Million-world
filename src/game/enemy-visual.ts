@@ -8,9 +8,9 @@ import { PROJECTILES, PROJECTILE_HEIGHT } from '../combat/data/projectiles';
 import { WISP_COLORS, glowTexture } from '../render/projectiles';
 
 /**
- * 敵（子鬼・暴れ猪・提灯）の見た目。プリミティブ製の仮モデルだが、トゥーン着色・輪郭線・影の枠の中に置く（CLAUDE.md 原則 3）。
+ * 敵（子鬼・暴れ猪・提灯・岩鬼）の見た目。プリミティブ製の仮モデルだが、トゥーン着色・輪郭線・影の枠の中に置く（CLAUDE.md 原則 3）。
  * 種類（kind）ごとに部品とポーズの付け方が違い（子鬼は腕を振り上げて叩きつける。暴れ猪は前脚で地面を掻いて頭を下げ、突進で脚を回す。
- * 提灯は宙に浮いて、予備動作で前に鬼火を溜め、撃つ反動で前のめりになる）、
+ * 提灯は宙に浮いて、予備動作で前に鬼火を溜め、撃つ反動で前のめりになる。岩鬼は金棒を頭上へ振りかぶって地面へ叩きつけ、体勢が減るほど体の割れ目が光り、崩れると膝をつく）、
  * 被弾・のけぞり・倒れ・弾かれの反応と発光は共通。
  * 原点は足元、正面は +Z。体（pivot）は被弾でのけぞり・つぶれ、死亡で倒れる。
  *
@@ -25,14 +25,19 @@ const DANGER = new THREE.Color(1, 0.22, 0.16);
 const STAGGER = new THREE.Color(0.45, 0.88, 1);
 /** 提灯の予備動作の発光色（紫。紙の赤い体の上で、溜めている鬼火と同じ色の「これから撃つ」が読める） */
 const LANTERN_WINDUP = new THREE.Color(0.62, 0.45, 1);
+/** ガード不能の予備動作の発光色（赤紫。床の予告の円と同じ色。防げる攻撃の赤と見分ける） */
+const UNBLOCKABLE_WINDUP = new THREE.Color(1, 0.3, 0.68);
 /** 倒れたときの後ろ向きの傾き（rad。ほぼ仰向け）と、そのときの持ち上げ（m。胴の半径ぶん） */
 const FALL_PITCH = 1.42;
 /** 暴れ猪が倒れるときの横倒しの角度（rad。ほぼ真横） */
 const BOAR_ROLL = 1.5;
 const FALL_LIFT = 0.34;
+/** 岩鬼が倒れて仰向けに寝るときの持ち上げ（m。胴の半径ぶん） */
+const OGRE_FALL_LIFT = 0.62;
 const AXIS_X = new THREE.Vector3(1, 0, 0);
 const AXIS_Z = new THREE.Vector3(0, 0, 1);
 const _q = new THREE.Quaternion();
+const _crackHot = new THREE.Color();
 const _axis = new THREE.Vector3();
 
 /** フラッシュ・予備動作の発光に使うマテリアルと、元の発光色 */
@@ -111,6 +116,20 @@ export const LANTERN_COLORS = {
   tongue: 0xff7fa8,
 } as const;
 
+export const OGRE_COLORS = {
+  skin: 0xc98b4e,
+  skinRim: 0xffe0b8,
+  armor: 0x8d94a6,
+  dark: 0x2e3040,
+  metal: 0x4a4f60,
+  cream: 0xf2e7c9,
+  gold: 0xe3b04b,
+  eye: 0xffe45c,
+  /** 体勢が減るほど光る割れ目（溶岩のような橙） */
+  crackDim: 0x6a2a14,
+  crackHot: 0xffb347,
+} as const;
+
 /** 提灯の体の中心の高さ（宙に浮く。足元の影との間が空く）と、紙の胴の半径。倒れる（落ちて横たわる）ときの落下量に使う */
 const LANTERN_Y = 1.05;
 const LANTERN_R = 0.42;
@@ -130,6 +149,8 @@ export class EnemyVisual {
   /** 提灯の房（体の下で揺れる）と、予備動作で前に溜める鬼火。提灯以外では使わない */
   private readonly tassel = new THREE.Group();
   private charge: THREE.Group | null = null;
+  /** 岩鬼の体勢の割れ目の材質（体勢が減るほど明るくする）。岩鬼以外では使わない */
+  private crackMat: THREE.MeshBasicMaterial | null = null;
 
   private seenHit = 0;
   /** 被弾の演出（0..1 で減衰）。実時間で減らす */
@@ -146,6 +167,7 @@ export class EnemyVisual {
     this.root.add(this.pivot);
     if (kind === 'boar') this.buildBoar();
     else if (kind === 'lantern') this.buildLantern();
+    else if (kind === 'ogre') this.buildOgre();
     else this.build();
   }
 
@@ -166,7 +188,7 @@ export class EnemyVisual {
   }
 
   private toon(color: number, over: Partial<Parameters<typeof createToonMaterial>[0]> = {}): ToonMaterial {
-    const rim = this.kind === 'boar' ? BOAR_COLORS.bodyRim : this.kind === 'lantern' ? LANTERN_COLORS.paperRim : IMP_COLORS.bodyRim;
+    const rim = this.kind === 'boar' ? BOAR_COLORS.bodyRim : this.kind === 'lantern' ? LANTERN_COLORS.paperRim : this.kind === 'ogre' ? OGRE_COLORS.skinRim : IMP_COLORS.bodyRim;
     const m = createToonMaterial({ color, steps: 3, shadowLevel: 0.5, rimColor: rim, rimStrength: 0.4, ...over });
     this.flashables.push({ mat: m, baseEmissive: m.emissive.clone(), baseIntensity: m.emissiveIntensity });
     return m;
@@ -353,6 +375,96 @@ export class EnemyVisual {
     this.charge = ch;
   }
 
+  /**
+   * 岩鬼の部品（ADR-027）: 石の鎧をまとった大鬼。ずんぐりした胴と肩当て（灰青の石）・黄土色の肌・兜に 2 本の角・牙・右手に大きな金棒（トゲ付き）。
+   * 体には割れ目が走り、体勢が減るほど溶岩のように光る（体勢を崩す目安）。腕は肩が軸で、金棒は右腕に付く（下ろすと先が床すれすれ）。
+   * 子鬼と同じ腕の動かし方（肩を軸に振り上げて叩きつける）で、振りかぶりは頭上まで上げる。描画呼び出しは、動かない部分・細部・目・割れ目・腕 2 本の 5 メッシュ前後。
+   */
+  private buildOgre(): void {
+    const C = OGRE_COLORS;
+    const body = this.toon(0xffffff, { vertexColors: true });
+    const eyeMat = this.toon(0xffffff, { vertexColors: true, steps: 2, shadowLevel: 0.9, rimStrength: 0, emissive: C.eye, emissiveIntensity: 0.9 });
+    const H = { x: 0, y: 2.26, z: 0.06 };
+    const onHead = (x: number, y: number, z: number): [number, number, number] => [H.x + x, H.y + y, H.z + z];
+
+    const solid: Part[] = [
+      // 脚・ブーツ・腰
+      { geo: new THREE.CapsuleGeometry(0.24, 0.42, 5, 10), color: C.skin, pos: [-0.38, 0.6, 0] },
+      { geo: new THREE.CapsuleGeometry(0.24, 0.42, 5, 10), color: C.skin, pos: [0.38, 0.6, 0] },
+      { geo: new THREE.SphereGeometry(0.31, 12, 9), color: C.armor, pos: [-0.38, 0.17, 0.1], scale: [1, 0.58, 1.4] },
+      { geo: new THREE.SphereGeometry(0.31, 12, 9), color: C.armor, pos: [0.38, 0.17, 0.1], scale: [1, 0.58, 1.4] },
+      { geo: new THREE.CapsuleGeometry(0.5, 0.2, 5, 12), color: C.dark, pos: [0, 1.05, 0], scale: [1.15, 1, 0.9] },
+      // 胴（肌）と前後の胸当て・肩当て
+      { geo: new THREE.CapsuleGeometry(0.62, 0.5, 6, 14), color: C.skin, pos: [0, 1.52, 0], scale: [1.2, 1, 0.95] },
+      { geo: new THREE.SphereGeometry(0.66, 14, 10), color: C.armor, pos: [0, 1.56, 0.3], scale: [1.12, 0.86, 0.62] },
+      { geo: new THREE.SphereGeometry(0.66, 14, 10), color: C.armor, pos: [0, 1.56, -0.3], scale: [1.12, 0.86, 0.6] },
+      { geo: new THREE.SphereGeometry(0.44, 12, 9), color: C.armor, pos: [-0.9, 2.0, 0], scale: [1, 0.8, 1] },
+      { geo: new THREE.SphereGeometry(0.44, 12, 9), color: C.armor, pos: [0.9, 2.0, 0], scale: [1, 0.8, 1] },
+      // 頭・兜・角・牙
+      { geo: new THREE.SphereGeometry(0.34, 14, 10), color: C.skin, pos: onHead(0, 0, 0), scale: [1.1, 0.95, 1] },
+      { geo: new THREE.SphereGeometry(0.39, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2), color: C.armor, pos: onHead(0, 0.06, -0.01) },
+      { geo: new THREE.ConeGeometry(0.1, 0.42, 8), color: C.cream, pos: onHead(-0.3, 0.38, 0), rot: [0, 0, 0.55] },
+      { geo: new THREE.ConeGeometry(0.1, 0.42, 8), color: C.cream, pos: onHead(0.3, 0.38, 0), rot: [0, 0, -0.55] },
+      { geo: new THREE.ConeGeometry(0.06, 0.2, 6), color: C.cream, pos: onHead(-0.14, -0.16, 0.3), rot: [0, 0, 3.14] },
+      { geo: new THREE.ConeGeometry(0.06, 0.2, 6), color: C.cream, pos: onHead(0.14, -0.16, 0.3), rot: [0, 0, 3.14] },
+    ];
+    this.mesh(this.pivot, mergeParts(solid), body, 0.03);
+
+    // 輪郭線のない細部: 眉・口・胸当ての金の縁・帯
+    const detail: Part[] = [
+      { geo: new THREE.SphereGeometry(0.2, 10, 6), color: C.dark, pos: onHead(0, 0.07, 0.3), scale: [1.6, 0.28, 0.4] },
+      { geo: new THREE.SphereGeometry(0.1, 10, 6), color: C.dark, pos: onHead(0, -0.15, 0.3), scale: [1.8, 0.45, 0.4] },
+      { geo: new THREE.TorusGeometry(0.62, 0.035, 6, 20), color: C.gold, pos: [0, 1.2, 0.05], rot: [Math.PI / 2, 0, 0], scale: [1.15, 0.9, 1] },
+      { geo: new THREE.SphereGeometry(0.1, 8, 6), color: C.gold, pos: [0, 1.58, 0.67] },
+    ];
+    this.mesh(this.pivot, mergeParts(detail), body, 0);
+
+    // 目（発光する細い目）
+    const eyes: Part[] = [
+      { geo: new THREE.SphereGeometry(0.06, 8, 6), color: C.eye, pos: onHead(-0.14, 0.0, 0.31), scale: [1.5, 0.8, 0.5] },
+      { geo: new THREE.SphereGeometry(0.06, 8, 6), color: C.eye, pos: onHead(0.14, 0.0, 0.31), scale: [1.5, 0.8, 0.5] },
+    ];
+    this.mesh(this.pivot, mergeParts(eyes), eyeMat, 0);
+
+    // 体の割れ目（溶岩のように光る）: 胸当て・肩当て・兜に走る細い線。体勢が減るほど明るくする（update で色を替える）
+    const crack = (x: number, y: number, z: number, len: number, rot: [number, number, number]): Part => ({ geo: new THREE.BoxGeometry(0.035, len, 0.035), color: 0xffffff, pos: [x, y, z], rot });
+    const cracks: Part[] = [
+      crack(-0.18, 1.62, 0.665, 0.5, [0.1, 0, 0.5]),
+      crack(0.22, 1.5, 0.645, 0.4, [0.1, 0, -0.6]),
+      crack(0.05, 1.82, 0.52, 0.3, [0.5, 0, 0.2]),
+      crack(-0.88, 2.1, 0.22, 0.34, [0.5, 0, 0.7]),
+      crack(0.9, 2.1, 0.22, 0.3, [0.5, 0, -0.7]),
+      crack(-0.12, 2.5, 0.2, 0.22, [0.6, 0, 0.3]),
+      crack(0.0, 1.5, -0.62, 0.55, [-0.1, 0, 0.4]),
+    ];
+    const crackMat = new THREE.MeshBasicMaterial({ vertexColors: true, color: C.crackDim, toneMapped: false, fog: false });
+    const crackMesh = new THREE.Mesh(mergeParts(cracks), crackMat);
+    this.pivot.add(crackMesh);
+    this.crackMat = crackMat;
+
+    // 腕: 肩が軸（左は素手、右は金棒を持つ）。下ろしたとき、金棒の先が床すれすれになる長さ
+    const armParts = (club: boolean): Part[] => [
+      { geo: new THREE.CapsuleGeometry(0.2, 0.34, 4, 8), color: C.skin, pos: [0, -0.4, 0] },
+      { geo: new THREE.CylinderGeometry(0.25, 0.22, 0.3, 10), color: C.armor, pos: [0, -0.56, 0] },
+      { geo: new THREE.SphereGeometry(0.26, 10, 8), color: C.skin, pos: [0, -0.76, 0] },
+      ...(club
+        ? [
+            { geo: new THREE.CylinderGeometry(0.07, 0.085, 0.8, 8), color: C.dark, pos: [0, -1.0, 0] } as Part,
+            { geo: new THREE.CylinderGeometry(0.28, 0.2, 0.6, 10), color: C.metal, pos: [0, -1.58, 0] } as Part,
+            ...[0, 1, 2, 3].map((i): Part => ({ geo: new THREE.ConeGeometry(0.07, 0.2, 6), color: C.cream, pos: [Math.sin((i * Math.PI) / 2) * 0.3, -1.58, Math.cos((i * Math.PI) / 2) * 0.3], rot: [Math.cos((i * Math.PI) / 2) * 1.57, 0, -Math.sin((i * Math.PI) / 2) * 1.57] })),
+          ]
+        : []),
+    ];
+    const armL = mergeParts(armParts(false));
+    const armR = mergeParts(armParts(true));
+    for (const [grp, s, geo] of [[this.armL, -1, armL], [this.armR, 1, armR]] as const) {
+      grp.position.set(s * 0.9, 1.98, 0);
+      grp.rotation.z = s * 0.28;
+      this.pivot.add(grp);
+      this.mesh(grp, geo, body, 0.03);
+    }
+  }
+
   /** 発光（被弾のフラッシュ・予備動作の予告）。amount 0..1、color は発光の色（既定は白） */
   setGlow(amount: number, color: THREE.Color = WHITE): void {
     for (const f of this.flashables) {
@@ -385,6 +497,7 @@ export class EnemyVisual {
     const atk = e.def.attack;
     const boar = this.kind === 'boar';
     const lantern = this.kind === 'lantern';
+    const ogre = this.kind === 'ogre';
 
     // --- 攻撃の予備動作（テレグラフ）と攻撃 ---
     // windup: 腕を振り上げ、体が赤く光り、しゃがんで後ろへ反る。attack: 腕を前へ叩きつけて前のめり、そのあと硬直で戻る
@@ -441,10 +554,18 @@ export class EnemyVisual {
       const into = clamp(e.stateFrame / 6, 0, 1);
       const out = clamp((e.stateFrame - (e.parryEffect.frames - 14)) / 14, 0, 1);
       stagger = easeOutCubic(into) * (1 - out);
-      raise = stagger * 0.95;
-      pitch = (boar ? -0.32 : -0.5) * stagger;
-      crouch = -0.04 * stagger; // 伸び上がる
-      wobble = Math.sin(e.stateFrame * 0.32) * 0.14 * stagger;
+      if (ogre) {
+        // 体勢崩し（岩鬼）: 弾かれたのけぞりではなく、膝をついて前へうなだれ、金棒を落としかける
+        raise = 0;
+        pitch = 0.3 * stagger;
+        crouch = 0.2 * stagger;
+        wobble = Math.sin(e.stateFrame * 0.2) * 0.05 * stagger;
+      } else {
+        raise = stagger * 0.95;
+        pitch = (boar ? -0.32 : -0.5) * stagger;
+        crouch = -0.04 * stagger; // 伸び上がる
+        wobble = Math.sin(e.stateFrame * 0.32) * 0.14 * stagger;
+      }
     } else if (e.state === 'down') {
       // 大剣に弾き飛ばされて後ろへ倒れ（14f）、腕を投げ出して寝たまま動けず、最後の 26f で起き上がる
       const fall = easeOutCubic(clamp(e.stateFrame / 14, 0, 1));
@@ -461,9 +582,16 @@ export class EnemyVisual {
     const white = this.flash * 0.7;
     const red = Math.max(0, danger);
     const blue = stagger > 0 ? stagger * (0.4 + 0.2 * Math.sin(e.stateFrame * 0.55)) : 0;
-    if (blue > white && blue > red) this.setGlow(blue, STAGGER);
-    else if (white >= red) this.setGlow(white);
-    else this.setGlow(red * (lantern ? 0.45 : 0.8), lantern ? LANTERN_WINDUP : DANGER);
+    // 岩鬼は体が大きく、全身が発光で塗りつぶされると鎧と肌が読めなくなるので、予備動作・崩れの発光は控えめにする
+    if (blue > white && blue > red) this.setGlow(blue * (ogre ? 0.45 : 1), STAGGER);
+    else if (white >= red) this.setGlow(white * (ogre ? 0.7 : 1));
+    else this.setGlow(red * (lantern ? 0.45 : ogre ? 0.3 : 0.8), lantern ? LANTERN_WINDUP : atk.unblockable ? UNBLOCKABLE_WINDUP : DANGER);
+    // 岩鬼の割れ目: 体勢が減るほど明るい（満タンはほぼ消えた暗い橙。崩れると白熱して脈打つ）
+    if (this.crackMat) {
+      const hot = e.poise ? 1 - e.poise.ratio : 0;
+      const pulse = e.state === 'stagger' ? 0.15 * Math.sin(e.stateFrame * 0.5) : 0;
+      this.crackMat.color.setHex(OGRE_COLORS.crackDim).lerp(_crackHot.setHex(OGRE_COLORS.crackHot), clamp(hot + pulse, 0, 1));
+    }
 
     // 待機のゆらぎ（上下・腕）と、腕の姿勢
     // 提灯は宙に浮いているので、ゆったり大きく上下する
@@ -484,6 +612,12 @@ export class EnemyVisual {
     } else if (lantern) {
       // 房は体の動きに遅れて揺れる（下がるとき・撃った反動で振れる）
       this.tassel.rotation.set(Math.sin(this.idleTime * 3.1) * 0.18 - pitch * 0.9, 0, Math.sin(this.idleTime * 2.3) * 0.2);
+    } else if (ogre) {
+      // 金棒を頭上へ（腕を前から真上へ回す）→ 真下へ叩きつける。下ろすときは少し開く
+      const armX = -0.1 - raise * 2.8 - swing * 0.27;
+      const open = armBase * (1 - Math.max(raise, swing)) + 0.2 * raise;
+      this.armL.rotation.set(armX, 0, -open);
+      this.armR.rotation.set(armX, 0, open);
     } else {
       const spread = lerp(armBase, 2.55, raise);
       const spreadSwing = lerp(spread, 0.3, swing);
@@ -492,12 +626,12 @@ export class EnemyVisual {
     }
 
     // つぶれ（被弾直後に縦に縮んで横に広がり、戻る）と、しゃがみ
-    const sq = this.squash * this.squash * 0.22 + crouch * 0.5;
+    const sq = this.squash * this.squash * (ogre ? 0.07 : 0.22) + crouch * 0.5;
     this.pivot.scale.set(1 + sq, 1 - sq * 1.1, 1 + sq + (boar ? 0.06 * swing : 0));
 
     // のけぞり（攻撃の向きへ頭が傾く）。死亡では倒れる。予備動作・攻撃の前後の傾きは別に掛ける
     // 倒れているあいだは被弾でのけぞらない（寝たまま、揺れとフラッシュだけ）
-    let tilt = this.lean * (e.state === 'down' ? 0.08 : 0.4);
+    let tilt = this.lean * (e.state === 'down' || ogre ? 0.08 : 0.4);
     let sink = 0;
     let shrink = 1;
     if (dead) {
@@ -536,7 +670,7 @@ export class EnemyVisual {
     let sx = 0;
     let sz = 0;
     if (this.shake > 0) {
-      const amp = this.shake * this.shake * 0.07;
+      const amp = this.shake * this.shake * (ogre ? 0.03 : 0.07);
       sx = Math.sin(this.shakeSeed + this.shake * 90) * amp;
       sz = Math.cos(this.shakeSeed * 1.7 + this.shake * 77) * amp;
     }
@@ -554,7 +688,9 @@ export class EnemyVisual {
       const roll = BOAR_ROLL * fallen;
       this.pivot.position.set(sx + BOAR_BODY_Y * Math.sin(roll), bob - sink + fallen * (BOAR_BODY_R - BOAR_BODY_Y * Math.cos(BOAR_ROLL)), sz);
     } else {
-      this.pivot.position.set(sx, bob - sink + FALL_LIFT * fallen, sz);
+      // 岩鬼は胴が太いので、倒れる（死亡）とき地面にめり込まないよう、倒れるのに合わせて持ち上げる
+      const lift = ogre ? OGRE_FALL_LIFT * clamp(dead ? e.stateFrame / 22 : 0, 0, 1) : FALL_LIFT * fallen;
+      this.pivot.position.set(sx, bob - sink + lift, sz);
     }
 
     // 溜めている鬼火（提灯の予備動作〜撃つ瞬間）。撃つ位置（銃口）に、小さく生まれて膨らみ、ちらつく

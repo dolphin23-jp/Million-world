@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { Enemy } from './enemy';
 import { ENEMIES } from './data/enemies';
 import { PROJECTILES } from '../combat/data/projectiles';
-import { laneLength, laneOf, type LaneView } from './telegraph';
+import { circleOf, laneLength, laneOf, type CircleView, type LaneView } from './telegraph';
 
 const DT = 1 / 60;
-const lane = (): LaneView => ({ x: 0, z: 0, yaw: 0, length: 0, width: 0, intensity: 0, locked: false, striking: false });
+const lane = (): LaneView => ({ x: 0, z: 0, yaw: 0, length: 0, width: 0, intensity: 0, locked: false, striking: false, unblockable: false });
 const ATK = ENEMIES.boar.attack;
 
 /** 暴れ猪を (0, 0) に置き、プレイヤーを (0, z) に置いて n フレーム進める */
@@ -128,3 +128,63 @@ describe('飛び道具の予告（提灯。ADR-026）', () => {
     expect(laneOf(e, lane())).toBe(false); // 撃ったあとの硬直では出さない
   });
 });
+
+describe('円の予告（岩鬼。ADR-027）', () => {
+  const OGRE = ENEMIES.ogre.attack;
+  const circle = (): CircleView => ({ x: 0, z: 0, radius: 0, intensity: 0, fill: 0, locked: false, striking: false, unblockable: false });
+  const ogreAt = (frame: number): Enemy => {
+    const e = new Enemy(ENEMIES.ogre, 1, 0, 3);
+    e.place(0, 3, Math.PI);
+    for (let i = 0; i < 400 && !(e.state === 'windup' && e.stateFrame >= frame); i++) e.step(DT, 0, 0);
+    return e;
+  };
+
+  it('半径は当たりの届く距離（3.0m）、ガード不能の印が付く。帯（lane）の予告には出ない', () => {
+    const e = ogreAt(1);
+    const c = circle();
+    expect(circleOf(e, c)).toBe(true);
+    expect(c.radius).toBe(OGRE.hitbox.kind === 'arc' ? OGRE.hitbox.range : 0);
+    expect(c.radius).toBe(3);
+    expect(c.unblockable).toBe(true);
+    expect(laneOf(e, lane())).toBe(false);
+  });
+
+  it('予備動作に合わせて内側から満ちていく（fill 0 → 1）。固定後は濃くなる', () => {
+    const early = circle();
+    circleOf(ogreAt(8), early);
+    const mid = circle();
+    circleOf(ogreAt(OGRE.windupTrackFrames + 2), mid);
+    const late = circle();
+    circleOf(ogreAt(OGRE.windupFrames - 2), late);
+    expect(early.fill).toBeLessThan(mid.fill);
+    expect(mid.fill).toBeLessThan(late.fill);
+    expect(late.fill).toBeGreaterThan(0.9);
+    expect(early.locked).toBe(false);
+    expect(mid.locked).toBe(true);
+    expect(mid.intensity).toBeGreaterThan(early.intensity + 0.2);
+  });
+
+  it('攻撃が出ると全面が光って、すぐ消える。硬直のあいだは出さない', () => {
+    const e = ogreAt(OGRE.windupFrames);
+    while (e.state === 'windup') e.step(DT, 0, 0);
+    expect(e.state).toBe('attack');
+    const c = circle();
+    expect(circleOf(e, c)).toBe(true);
+    expect(c.striking).toBe(true);
+    expect(c.fill).toBe(1);
+    const first = c.intensity;
+    for (let i = 0; i < 6; i++) e.step(DT, 0, 0);
+    circleOf(e, c);
+    expect(c.intensity).toBeLessThan(first);
+    for (let i = 0; i < OGRE.startupFrames + OGRE.activeFrames + 10; i++) e.step(DT, 0, 0);
+    expect(circleOf(e, circle())).toBe(false);
+  });
+
+  it('円の予告の無い敵（猪・子鬼・提灯）には出さない', () => {
+    for (const def of [ENEMIES.imp, ENEMIES.boar, ENEMIES.lantern]) {
+      const e = new Enemy(def, 1, 0, 3);
+      expect(circleOf(e, circle())).toBe(false);
+    }
+  });
+});
+

@@ -40,7 +40,13 @@ export const DEMO_ENCOUNTER: EncounterDef = {
       { type: 'boar', offset: 0.35, radius: 8.5 },
       { type: 'lantern', offset: -0.5, radius: 9 },
     ],
-    // 3 波（最後）: 子鬼 2 体 + 猪 + 提灯（接近戦・突進・鬼火を同時にさばく。提灯を先に落とすか、鬼火を弾き返して減らす）
+    // 3 波: 岩鬼（重装型。ADR-027）が初登場。ガード不能の地ならしと体勢ゲージを、子鬼 2 体を添えて試す（子鬼を相手にしながら岩鬼の円を見る）
+    [
+      { type: 'ogre', offset: 0, radius: 8.5 },
+      { type: 'imp', offset: -1.0, radius: 7 },
+      { type: 'imp', offset: 1.0, radius: 7 },
+    ],
+    // 4 波（最後）: 子鬼 2 + 猪 + 提灯（接近戦・突進・鬼火を同時にさばく。提灯を先に落とすか、鬼火を弾き返して減らす）
     [
       { type: 'imp', offset: -0.9, radius: 7 },
       { type: 'boar', offset: 0.1, radius: 8.5 },
@@ -56,7 +62,7 @@ export const DEMO_ENCOUNTER: EncounterDef = {
 
 /** 評価（上から順に、両方の条件を満たす最初のランク。どれも満たさなければ C）。時間は秒、ダメージは被ダメージの合計 */
 export const RANKS = [
-  { rank: 'S', maxSeconds: 90, maxDamage: 24 },
-  { rank: 'A', maxSeconds: 130, maxDamage: 60 },
-  { rank: 'B', maxSeconds: 190, maxDamage: 90 },
+  { rank: 'S', maxSeconds: 130, maxDamage: 24 },
+  { rank: 'A', maxSeconds: 180, maxDamage: 60 },
+  { rank: 'B', maxSeconds: 250, maxDamage: 90 },
 ] as const;
