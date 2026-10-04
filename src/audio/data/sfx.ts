@@ -158,6 +158,8 @@ export const SFX = {
   // ---- 敵 ----
   /** 予備動作の合図（短い 2 音。聞いて避ける） */
   telegraph: { gain: 0.5, layers: [tone('triangle', 700, 880, 0.09, 0.5), tone('triangle', 880, 1080, 0.1, 0.45, 0.005, 0.1)] },
+  /** 暴れ猪の突進: 地を蹴る低い唸りと、長く伸びる風（予備動作の 0.9 秒のあと、突進の瞬間に鳴る） */
+  boarCharge: { gain: 0.8, layers: [noise('lowpass', 900, 260, 0.9, 0.5, 0.9, 0.05), tone('sawtooth', 95, 55, 0.45, 0.35, 0.03), noise('bandpass', 600, 1800, 0.8, 0.3, 0.5, 0.12, 0.04)] },
   enemySwing: { gain: 0.7, layers: [noise('bandpass', 800, 2400, 1.0, 0.2, 0.8, 0.04), tone('sine', 120, 70, 0.2, 0.3, 0.03)] },
 
   // ---- ロックオン・UI・進行 ----

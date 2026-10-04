@@ -35,10 +35,15 @@ export const DEMO_ENCOUNTER: EncounterDef = {
       { type: 'imp', offset: -0.55, radius: 6.5 },
       { type: 'imp', offset: 0.55, radius: 6.5 },
     ],
-    // 2 波（最後）: 3 体
+    // 2 波: 暴れ猪（突進型。ADR-025）が初登場。子鬼 1 体を添える
+    [
+      { type: 'boar', offset: 0, radius: 8.5 },
+      { type: 'imp', offset: -0.9, radius: 6.5 },
+    ],
+    // 3 波（最後）: 猪 + 子鬼 2 体（猪の突進と子鬼の接近戦を同時にさばく）
     [
       { type: 'imp', offset: -0.9, radius: 7 },
-      { type: 'imp', offset: 0, radius: 8 },
+      { type: 'boar', offset: 0.1, radius: 8.5 },
       { type: 'imp', offset: 0.9, radius: 7 },
     ],
   ],
@@ -50,7 +55,7 @@ export const DEMO_ENCOUNTER: EncounterDef = {
 
 /** 評価（上から順に、両方の条件を満たす最初のランク。どれも満たさなければ C）。時間は秒、ダメージは被ダメージの合計 */
 export const RANKS = [
-  { rank: 'S', maxSeconds: 60, maxDamage: 24 },
-  { rank: 'A', maxSeconds: 90, maxDamage: 60 },
-  { rank: 'B', maxSeconds: 150, maxDamage: 90 },
+  { rank: 'S', maxSeconds: 80, maxDamage: 24 },
+  { rank: 'A', maxSeconds: 120, maxDamage: 60 },
+  { rank: 'B', maxSeconds: 180, maxDamage: 90 },
 ] as const;

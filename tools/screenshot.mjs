@@ -368,6 +368,66 @@ try {
   await sleep(120);
   await page.screenshot({ path: 'artifacts/shot-lock-switch.png' });
 
+  // 暴れ猪（突進型。ADR-025）: 予備動作で向きが固定されて床の帯（突進の通り道）が濃くなった絵と、大剣のパリィで弾いて倒れた絵
+  const boar = await page.evaluate((solo) => {
+    const g = window.__mw.game;
+    const def = { ...solo, waves: [[{ type: 'boar', offset: 0, radius: 7.5 }]], maxAttackers: 2 };
+    g.restart(def);
+    g.setLoadout('sword');
+    g.stepNow(1);
+    g.player.body.x = 0;
+    g.player.body.z = 0;
+    g.player.yaw = 0;
+    const e = g.enemies[0].enemy;
+    e.place(0, 7, Math.PI);
+    g.cam.yaw = Math.PI;
+    let n = 0;
+    while (!(e.state === 'windup' && e.stateFrame >= 46) && n++ < 400) g.stepNow(1);
+    g.renderNow(8);
+    return { state: e.state, frame: e.stateFrame };
+  }, SOLO);
+  console.log(`[boar] windup ${JSON.stringify(boar)}`);
+  if (boar.state !== 'windup') {
+    console.error('[boar] 暴れ猪が予備動作に入っていません');
+    process.exitCode = 3;
+  }
+  await sleep(120);
+  await page.screenshot({ path: 'artifacts/shot-boar-lane.png' });
+  const parried = await page.evaluate((solo) => {
+    const g = window.__mw.game;
+    g.restart({ ...solo, waves: [[{ type: 'boar', offset: 0, radius: 7.5 }]], maxAttackers: 2 });
+    g.setLoadout('greatsword');
+    g.stepNow(1);
+    g.player.body.x = 0;
+    g.player.body.z = 0;
+    g.player.yaw = 0;
+    const e = g.enemies[0].enemy;
+    e.place(0, 7, Math.PI);
+    g.cam.yaw = Math.PI;
+    let n = 0;
+    while (e.state !== 'attack' && n++ < 400) g.stepNow(1);
+    while (e.body.z - g.player.body.z > 3.4 && n++ < 600) g.stepNow(1);
+    g.inject({ guardPressed: true, guardHeld: true });
+    g.stepNow(1);
+    for (let i = 0; i < 30 && e.state !== 'down'; i++) {
+      g.inject({ guardHeld: true });
+      g.stepNow(1);
+    }
+    for (let i = 0; i < 26; i++) {
+      g.inject({ guardHeld: true });
+      g.stepNow(1);
+    }
+    g.renderNow(8);
+    return { state: e.state, hp: g.player.health.hp };
+  }, SOLO);
+  console.log(`[boar] parry ${JSON.stringify(parried)}`);
+  if (parried.state !== 'down' || parried.hp !== 100) {
+    console.error('[boar] 大剣のパリィで突進を弾けていません（猪が倒れる・ダメージなし）');
+    process.exitCode = 3;
+  }
+  await sleep(120);
+  await page.screenshot({ path: 'artifacts/shot-boar-down.png' });
+
   // 操作ガイド（ADR-024）: ロックして 1 段目を出し、次段の受付が開いた絵（連携の履歴・続けられる技・受付の帯）と、右上の「技表」を開いた絵
   await page.evaluate((solo) => {
     const g = window.__mw.game;
