@@ -1,0 +1,88 @@
+import { describe, expect, it } from 'vitest';
+import { Enemy } from './enemy';
+import { ENEMIES } from './data/enemies';
+import { laneLength, laneOf, type LaneView } from './telegraph';
+
+const DT = 1 / 60;
+const lane = (): LaneView => ({ x: 0, z: 0, yaw: 0, length: 0, width: 0, intensity: 0, locked: false, striking: false });
+const ATK = ENEMIES.boar.attack;
+
+/** 暴れ猪を (0, 0) に置き、プレイヤーを (0, z) に置いて n フレーム進める */
+function boarAt(z: number, frames: number): Enemy {
+  const e = new Enemy(ENEMIES.boar, 1, 0, 0);
+  e.place(0, 0, 0);
+  for (let i = 0; i < frames; i++) e.step(DT, 0, z);
+  return e;
+}
+const inWindup = (e: Enemy, frame: number): void => {
+  while (e.state !== 'windup' || e.stateFrame < frame) e.step(DT, 0, 6);
+};
+
+describe('予告の帯（telegraph。ADR-025）', () => {
+  it('帯の長さは踏み込み + 当たりの届く距離、幅は敵のデータ', () => {
+    expect(laneLength(ATK)).toBeCloseTo(ATK.lunge + ATK.hitbox.range, 9);
+    const e = new Enemy(ENEMIES.boar, 1, 0, 0);
+    inWindup(e, 1);
+    const l = lane();
+    expect(laneOf(e, l)).toBe(true);
+    expect(l.length).toBeCloseTo(7.6, 6);
+    expect(l.width).toBe(2.1);
+  });
+
+  it('予告の無い敵（子鬼）は、予備動作でも出さない', () => {
+    const imp = new Enemy(ENEMIES.imp, 1, 0, 0);
+    imp.place(0, 0, 0);
+    for (let i = 0; i < 120 && imp.state !== 'windup'; i++) imp.step(DT, 0, 1.5);
+    expect(imp.state).toBe('windup');
+    expect(laneOf(imp, lane())).toBe(false);
+  });
+
+  it('予備動作の前半は薄く（向きを追う）、向きが固定されたら濃くなる', () => {
+    const e = new Enemy(ENEMIES.boar, 1, 0, 0);
+    e.place(0, 0, 0);
+    inWindup(e, 6);
+    const early = lane();
+    laneOf(e, early);
+    expect(early.locked).toBe(false);
+    inWindup(e, ATK.windupTrackFrames + 4);
+    const late = lane();
+    laneOf(e, late);
+    expect(late.locked).toBe(true);
+    expect(late.intensity).toBeGreaterThan(early.intensity + 0.2);
+  });
+
+  it('向きが固定されたあとは帯の向きが動かない（プレイヤーが回り込んでも）', () => {
+    const e = new Enemy(ENEMIES.boar, 1, 0, 0);
+    e.place(0, 0, 0);
+    inWindup(e, ATK.windupTrackFrames + 1);
+    const a = lane();
+    laneOf(e, a);
+    for (let i = 0; i < 10; i++) e.step(DT, 6, 0); // プレイヤーが真横へ回り込む
+    const b = lane();
+    laneOf(e, b);
+    expect(b.yaw).toBeCloseTo(a.yaw, 9);
+  });
+
+  it('突進が始まったら、帯は出発点に固定され、強く光ってから薄れ、突進の終わりで消える', () => {
+    const e = new Enemy(ENEMIES.boar, 1, 0, 0);
+    e.place(0, 0, 0);
+    while (e.state !== 'attack') e.step(DT, 0, 6);
+    const l0 = lane();
+    expect(laneOf(e, l0)).toBe(true);
+    expect(l0.striking).toBe(true);
+    expect(l0.intensity).toBeGreaterThan(0.9);
+    const startZ = e.body.z;
+    for (let i = 0; i < 20; i++) e.step(DT, 0, 6);
+    const l1 = lane();
+    laneOf(e, l1);
+    expect(e.body.z).toBeGreaterThan(startZ + 2); // 敵は前へ進んでいる
+    expect(l1.z).toBeCloseTo(l0.z, 9); // 帯の始点は出発点のまま
+    expect(l1.intensity).toBeLessThan(l0.intensity);
+    for (let i = 0; i < ATK.startupFrames + ATK.activeFrames; i++) e.step(DT, 0, 6);
+    expect(laneOf(e, lane())).toBe(false); // 硬直のあいだは出さない
+  });
+
+  it('追跡・硬直・ひるみでは出さない', () => {
+    expect(laneOf(boarAt(30, 100), lane())).toBe(false); // 遠くて追跡中
+  });
+});

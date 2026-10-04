@@ -36,6 +36,11 @@ export interface EnemyAttackDef {
   hitStop: number;
   /** 持続中に前へ踏み込む距離（m） */
   lunge: number;
+  /**
+   * 予告（テレグラフ）の床表示（ADR-025）。あれば、予備動作のあいだ「どこが危ないか」を床に出す。
+   * lane = 向いている方向へまっすぐ伸びる帯（突進の通り道。長さは踏み込み lunge + 当たりの届く距離）。width は帯の幅（m）で、横へ動いて避けられる幅の目安
+   */
+  telegraph?: { kind: 'lane'; width: number };
 }
 
 export interface EnemyDef {
@@ -105,4 +110,46 @@ export const ENEMIES = {
       lunge: 0.8,
     },
   },
+  /**
+   * 暴れ猪（ADR-025。M5-1）: 突進型。遠くから予備動作に入り（床に突進の通り道が出る）、向きを固定して一直線に突っ込む。
+   * 横へ動く・ロールで避ければ、息切れの長い硬直を無防備にさらす。パリィで弾けば倒れて大きな反撃を受ける（突進の勢いで 2 回りは遠くへ弾かれる）。
+   * 予備動作 0.93 秒のうち前半 30f はプレイヤーを追い、後半 26f は向きを固定（床の帯が出る）。突進は 6m を 0.43 秒（13.8 m/s）で、当たりは正面の狭い扇（帯の幅 2.1m に収まる）。
+   * 突進の前後はスーパーアーマー（armorBreakDamage 34 以上の重い攻撃だけが割り込める）。
+   */
+  boar: {
+    id: 'boar',
+    name: '暴れ猪',
+    hp: 110,
+    radius: 0.7,
+    height: 1.15,
+    hitStunFrames: 18,
+    knockbackFrames: 12,
+    knockbackScale: 0.6,
+    deathFrames: 70,
+    turnSpeed: 4,
+    moveSpeed: 2.6,
+    aggroRange: 16,
+    stopDistance: 3,
+    spawnIdleFrames: 50,
+    attack: {
+      range: 7,
+      windupFrames: 56,
+      windupTrackFrames: 30,
+      armorFromFrame: 20,
+      armorBreakDamage: 34,
+      armorKnockbackScale: 0.2,
+      startupFrames: 4,
+      activeFrames: 26,
+      recoverFrames: 64,
+      cooldownFrames: 50,
+      hitbox: { kind: 'arc', range: 1.6, halfAngle: deg(40) },
+      damage: 20,
+      knockback: 3.2,
+      hitStop: 9,
+      lunge: 6,
+      telegraph: { kind: 'lane', width: 2.1 },
+    },
+  },
 } as const satisfies Record<string, EnemyDef>;
+
+export type EnemyId = keyof typeof ENEMIES;

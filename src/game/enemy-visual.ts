@@ -1,11 +1,14 @@
 import * as THREE from 'three';
 import type { Enemy } from '../ai/enemy';
+import type { EnemyId } from '../ai/data/enemies';
 import { clamp, easeOutCubic, lerp, lerpAngle } from '../core/math';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { addOutline, createToonMaterial, type ToonMaterial } from '../render/toon';
 
 /**
- * 敵（子鬼）の見た目。プリミティブ製の仮モデルだが、トゥーン着色・輪郭線・影の枠の中に置く（CLAUDE.md 原則 3）。
+ * 敵（子鬼・暴れ猪）の見た目。プリミティブ製の仮モデルだが、トゥーン着色・輪郭線・影の枠の中に置く（CLAUDE.md 原則 3）。
+ * 種類（kind）ごとに部品とポーズの付け方が違い（子鬼は腕を振り上げて叩きつける。暴れ猪は前脚で地面を掻いて頭を下げ、突進で脚を回す）、
+ * 被弾・のけぞり・倒れ・弾かれの反応と発光は共通。
  * 原点は足元、正面は +Z。体（pivot）は被弾でのけぞり・つぶれ、死亡で倒れる。
  *
  * sim の状態（hitSerial / state / stateFrame）を読んで見た目を決める。
@@ -19,6 +22,8 @@ const DANGER = new THREE.Color(1, 0.22, 0.16);
 const STAGGER = new THREE.Color(0.45, 0.88, 1);
 /** 倒れたときの後ろ向きの傾き（rad。ほぼ仰向け）と、そのときの持ち上げ（m。胴の半径ぶん） */
 const FALL_PITCH = 1.42;
+/** 暴れ猪が倒れるときの横倒しの角度（rad。ほぼ真横） */
+const BOAR_ROLL = 1.5;
 const FALL_LIFT = 0.34;
 const AXIS_X = new THREE.Vector3(1, 0, 0);
 const AXIS_Z = new THREE.Vector3(0, 0, 1);
@@ -81,12 +86,27 @@ export const IMP_COLORS = {
   dark: 0x2c2150,
 } as const;
 
+export const BOAR_COLORS = {
+  body: 0x2f8a8f,
+  bodyRim: 0xc9f4f1,
+  cream: 0xf2e7c9,
+  accent: 0xf2a03d,
+  eye: 0xffe45c,
+  dark: 0x1d3a3d,
+} as const;
+
+/** 暴れ猪の胴の中心の高さと半径（倒れて横たわるとき、地面にめり込まないよう持ち上げる量に使う） */
+const BOAR_BODY_Y = 0.66;
+const BOAR_BODY_R = 0.42;
+
 export class EnemyVisual {
   readonly root = new THREE.Group();
   /** 体全体（足元が原点）。のけぞり・つぶれ・倒れを掛ける */
   private readonly pivot = new THREE.Group();
   private readonly armL = new THREE.Group();
   private readonly armR = new THREE.Group();
+  /** 暴れ猪の脚（前左・前右・後左・後右。腰の付け根が軸）。子鬼では使わない */
+  private readonly legs: THREE.Group[] = [];
   private readonly flashables: Flashable[] = [];
 
   private seenHit = 0;
@@ -99,10 +119,11 @@ export class EnemyVisual {
   /** 待機のゆらぎ用の時間（ヒットストップで止まる） */
   private idleTime = Math.random() * 10;
 
-  constructor() {
-    this.root.name = 'enemy-imp';
+  constructor(private readonly kind: EnemyId = 'imp') {
+    this.root.name = `enemy-${kind}`;
     this.root.add(this.pivot);
-    this.build();
+    if (kind === 'boar') this.buildBoar();
+    else this.build();
   }
 
   dispose(): void {
@@ -119,7 +140,7 @@ export class EnemyVisual {
   }
 
   private toon(color: number, over: Partial<Parameters<typeof createToonMaterial>[0]> = {}): ToonMaterial {
-    const m = createToonMaterial({ color, steps: 3, shadowLevel: 0.5, rimColor: IMP_COLORS.bodyRim, rimStrength: 0.4, ...over });
+    const m = createToonMaterial({ color, steps: 3, shadowLevel: 0.5, rimColor: this.kind === 'boar' ? BOAR_COLORS.bodyRim : IMP_COLORS.bodyRim, rimStrength: 0.4, ...over });
     this.flashables.push({ mat: m, baseEmissive: m.emissive.clone(), baseIntensity: m.emissiveIntensity });
     return m;
   }
@@ -189,6 +210,64 @@ export class EnemyVisual {
     }
   }
 
+  /**
+   * 暴れ猪の部品。低く長い胴（+Z が前）、頭と牙、背の鬣（オレンジ）、4 本の脚（腰の付け根が軸）。子鬼（縦長・紫）と並べてシルエットと色で見分けがつく（青緑の横長）。
+   * 描画呼び出しは、動かない部分（輪郭線あり）・細部・目・脚 4 本の 7 メッシュ。
+   */
+  private buildBoar(): void {
+    const C = BOAR_COLORS;
+    const body = this.toon(0xffffff, { vertexColors: true });
+    const eyeMat = this.toon(0xffffff, { vertexColors: true, steps: 2, shadowLevel: 0.9, rimStrength: 0, emissive: C.eye, emissiveIntensity: 0.9 });
+    const Y = BOAR_BODY_Y;
+    const solid: Part[] = [
+      // 胴（長軸を Z へ寝かせる）と、尻・肩の盛り上がり
+      { geo: new THREE.CapsuleGeometry(BOAR_BODY_R, 0.62, 6, 14), color: C.body, pos: [0, Y, -0.05], rot: [Math.PI / 2, 0, 0], scale: [1.05, 1, 0.95] },
+      { geo: new THREE.SphereGeometry(0.4, 14, 10), color: C.body, pos: [0, Y + 0.04, -0.5], scale: [1.05, 1, 1] },
+      { geo: new THREE.SphereGeometry(0.4, 14, 10), color: C.body, pos: [0, Y + 0.12, 0.4], scale: [1.08, 1.02, 1] },
+      // 頭・鼻先・牙・耳
+      { geo: new THREE.SphereGeometry(0.34, 14, 10), color: C.body, pos: [0, Y - 0.02, 0.92], scale: [1, 0.95, 1.05] },
+      { geo: new THREE.CylinderGeometry(0.17, 0.21, 0.34, 10), color: C.cream, pos: [0, Y - 0.1, 1.2], rot: [Math.PI / 2, 0, 0] },
+      { geo: new THREE.ConeGeometry(0.055, 0.32, 8), color: C.cream, pos: [-0.18, Y - 0.12, 1.18], rot: [1.05, 0, 0.3] },
+      { geo: new THREE.ConeGeometry(0.055, 0.32, 8), color: C.cream, pos: [0.18, Y - 0.12, 1.18], rot: [1.05, 0, -0.3] },
+      { geo: new THREE.ConeGeometry(0.1, 0.24, 6), color: C.body, pos: [-0.22, Y + 0.32, 0.82], rot: [-0.25, 0, 0.5] },
+      { geo: new THREE.ConeGeometry(0.1, 0.24, 6), color: C.body, pos: [0.22, Y + 0.32, 0.82], rot: [-0.25, 0, -0.5] },
+      // 背の鬣（オレンジ）と、しっぽ
+      ...[-0.7, -0.4, -0.1, 0.2, 0.5].map((z, i): Part => ({ geo: new THREE.ConeGeometry(0.075, 0.26 - i * 0.012, 6), color: C.accent, pos: [0, Y + 0.45 + (i > 2 ? 0.08 : 0), z], rot: [-0.2, 0, 0] })),
+      { geo: new THREE.ConeGeometry(0.05, 0.34, 6), color: C.body, pos: [0, Y + 0.18, -0.95], rot: [-1.05, 0, 0] },
+    ];
+    this.mesh(this.pivot, mergeParts(solid), body, 0.03);
+
+    // 輪郭線のない細部: 鼻の穴・瞳・額の模様
+    const detail: Part[] = [
+      { geo: new THREE.SphereGeometry(0.03, 8, 6), color: C.dark, pos: [-0.07, Y - 0.06, 1.37], scale: [1, 1.4, 0.6] },
+      { geo: new THREE.SphereGeometry(0.03, 8, 6), color: C.dark, pos: [0.07, Y - 0.06, 1.37], scale: [1, 1.4, 0.6] },
+      { geo: new THREE.SphereGeometry(0.035, 8, 6), color: C.dark, pos: [-0.2, Y + 0.12, 1.2], scale: [1, 1.3, 0.5] },
+      { geo: new THREE.SphereGeometry(0.035, 8, 6), color: C.dark, pos: [0.2, Y + 0.12, 1.2], scale: [1, 1.3, 0.5] },
+      { geo: new THREE.SphereGeometry(0.13, 10, 8), color: C.accent, pos: [0, Y + 0.24, 1.02], scale: [1.2, 0.35, 1] },
+    ];
+    this.mesh(this.pivot, mergeParts(detail), body, 0);
+
+    // 目（発光する）
+    const eyes: Part[] = [
+      { geo: new THREE.SphereGeometry(0.075, 10, 8), color: C.eye, pos: [-0.2, Y + 0.12, 1.14], scale: [1, 1.2, 0.6] },
+      { geo: new THREE.SphereGeometry(0.075, 10, 8), color: C.eye, pos: [0.2, Y + 0.12, 1.14], scale: [1, 1.2, 0.6] },
+    ];
+    this.mesh(this.pivot, mergeParts(eyes), eyeMat, 0);
+
+    // 脚: 腰（肩）の付け根が軸。左右・前後で同じジオメトリ
+    const leg = mergeParts([
+      { geo: new THREE.CapsuleGeometry(0.1, 0.3, 4, 8), color: C.body, pos: [0, -0.24, 0] },
+      { geo: new THREE.SphereGeometry(0.115, 10, 8), color: C.cream, pos: [0, -0.5, 0.02], scale: [1, 0.7, 1.2] },
+    ]);
+    for (const [x, z] of [[-0.27, 0.5], [0.27, 0.5], [-0.27, -0.55], [0.27, -0.55]] as const) {
+      const g = new THREE.Group();
+      g.position.set(x, 0.56, z);
+      this.pivot.add(g);
+      this.mesh(g, leg, body, 0.025);
+      this.legs.push(g);
+    }
+  }
+
   /** 発光（被弾のフラッシュ・予備動作の予告）。amount 0..1、color は発光の色（既定は白） */
   setGlow(amount: number, color: THREE.Color = WHITE): void {
     for (const f of this.flashables) {
@@ -219,6 +298,7 @@ export class EnemyVisual {
 
     const dead = e.dead;
     const atk = e.def.attack;
+    const boar = this.kind === 'boar';
 
     // --- 攻撃の予備動作（テレグラフ）と攻撃 ---
     // windup: 腕を振り上げ、体が赤く光り、しゃがんで後ろへ反る。attack: 腕を前へ叩きつけて前のめり、そのあと硬直で戻る
@@ -234,8 +314,22 @@ export class EnemyVisual {
       const w = clamp(e.stateFrame / atk.windupFrames, 0, 1);
       raise = easeOutCubic(clamp(w * 1.5, 0, 1));
       danger = 0.25 + 0.45 * w + 0.12 * Math.sin(e.stateFrame * 0.9);
-      crouch = 0.12 * w;
-      pitch = -0.28 * w;
+      if (boar) {
+        // 前脚で地面を掻き（raise）、頭を下げて沈む（突進の構え）
+        crouch = 0.1 * w;
+        pitch = 0.16 * w;
+      } else {
+        crouch = 0.12 * w;
+        pitch = -0.28 * w;
+      }
+    } else if (e.state === 'attack' && boar) {
+      // 突進: 判定のあいだ（startup + active）は全力で脚を回して前傾し、そのあとの硬直で息を切らして収まる
+      const dash = atk.startupFrames + atk.activeFrames;
+      const settle = clamp((e.stateFrame - dash) / 28, 0, 1);
+      swing = e.stateFrame <= dash ? 1 : 1 - easeOutCubic(settle);
+      danger = 0.4 * (1 - clamp(e.stateFrame / dash, 0, 1));
+      pitch = 0.1 * swing + 0.035 * Math.sin(e.stateFrame * 0.5) * settle * (1 - settle * 0.5);
+      crouch = 0.04 + 0.05 * settle * (1 - settle);
     } else if (e.state === 'attack') {
       const swingEnd = atk.startupFrames + 1;
       const t = clamp(e.stateFrame / swingEnd, 0, 1);
@@ -251,7 +345,7 @@ export class EnemyVisual {
       const out = clamp((e.stateFrame - (e.parryEffect.frames - 14)) / 14, 0, 1);
       stagger = easeOutCubic(into) * (1 - out);
       raise = stagger * 0.95;
-      pitch = -0.5 * stagger;
+      pitch = (boar ? -0.32 : -0.5) * stagger;
       crouch = -0.04 * stagger; // 伸び上がる
       wobble = Math.sin(e.stateFrame * 0.32) * 0.14 * stagger;
     } else if (e.state === 'down') {
@@ -261,7 +355,9 @@ export class EnemyVisual {
       fallen = fall * (1 - up * up * (3 - 2 * up));
       stagger = fall * (1 - up);
       raise = fallen * 0.6;
-      pitch = -FALL_PITCH * fallen;
+      // 子鬼は仰向けに倒れ、四足の猪は横倒しになる（wobble = 前後軸まわりの傾きに足す）
+      if (boar) wobble += BOAR_ROLL * fallen;
+      else pitch = -FALL_PITCH * fallen;
     }
 
     // 白（被弾）が強いあいだは白、そうでなければ赤（予備動作）。崩れているあいだは水色が脈打つ（反撃のチャンスの合図）
@@ -276,14 +372,27 @@ export class EnemyVisual {
     const bob = Math.sin(this.idleTime * 3.2) * 0.025 * (1 - raise) * (1 - fallen);
     const sway = 1 - Math.max(raise, swing);
     const armBase = 0.28 + Math.sin(this.idleTime * 3.2) * 0.05 * sway;
-    const spread = lerp(armBase, 2.55, raise);
-    const spreadSwing = lerp(spread, 0.3, swing);
-    this.armL.rotation.set(-swing * 1.5, 0, -spreadSwing);
-    this.armR.rotation.set(-swing * 1.5, 0, spreadSwing);
+    if (boar) {
+      // 脚: 予備動作は前脚を交互に持ち上げて地面を掻く、突進は 4 本を回す（対角が同じ向き）、弾かれ・倒れでは前脚を蹴り上げる
+      const [fl, fr, bl, br] = this.legs;
+      const phase = e.state === 'attack' ? e.stateFrame * 0.85 : this.idleTime * 6;
+      const gallop = swing * Math.sin(phase) * 0.95;
+      const paw = e.state === 'windup' ? 0.5 + 0.5 * Math.sin(e.stateFrame * 0.5) : 1;
+      const pawR = e.state === 'windup' ? 0.5 + 0.5 * Math.sin(e.stateFrame * 0.5 + Math.PI) : 1;
+      fl!.rotation.x = -raise * 0.9 * paw + gallop;
+      fr!.rotation.x = -raise * 0.9 * pawR - gallop;
+      bl!.rotation.x = -gallop * 0.9 + raise * 0.15;
+      br!.rotation.x = gallop * 0.9 + raise * 0.15;
+    } else {
+      const spread = lerp(armBase, 2.55, raise);
+      const spreadSwing = lerp(spread, 0.3, swing);
+      this.armL.rotation.set(-swing * 1.5, 0, -spreadSwing);
+      this.armR.rotation.set(-swing * 1.5, 0, spreadSwing);
+    }
 
     // つぶれ（被弾直後に縦に縮んで横に広がり、戻る）と、しゃがみ
     const sq = this.squash * this.squash * 0.22 + crouch * 0.5;
-    this.pivot.scale.set(1 + sq, 1 - sq * 1.1, 1 + sq);
+    this.pivot.scale.set(1 + sq, 1 - sq * 1.1, 1 + sq + (boar ? 0.06 * swing : 0));
 
     // のけぞり（攻撃の向きへ頭が傾く）。死亡では倒れる。予備動作・攻撃の前後の傾きは別に掛ける
     // 倒れているあいだは被弾でのけぞらない（寝たまま、揺れとフラッシュだけ）
@@ -331,6 +440,12 @@ export class EnemyVisual {
       sz = Math.cos(this.shakeSeed * 1.7 + this.shake * 77) * amp;
     }
     // 倒れたとき、足元を軸に回すと胴が地面にめり込むので、胴の太さのぶん持ち上げる
-    this.pivot.position.set(sx, bob - sink + FALL_LIFT * fallen, sz);
+    if (boar) {
+      // 横倒しになると、胴の中心が足元を軸に横へ回るので、体の下に戻し、胴の半径ぶん持ち上げる
+      const roll = BOAR_ROLL * fallen;
+      this.pivot.position.set(sx + BOAR_BODY_Y * Math.sin(roll), bob - sink + fallen * (BOAR_BODY_R - BOAR_BODY_Y * Math.cos(BOAR_ROLL)), sz);
+    } else {
+      this.pivot.position.set(sx, bob - sink + FALL_LIFT * fallen, sz);
+    }
   }
 }

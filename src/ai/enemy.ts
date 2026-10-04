@@ -52,6 +52,9 @@ export class Enemy {
   /** 攻撃の踏み込みの向き（予備動作で固定した向き） */
   private lungeDirX = 0;
   private lungeDirZ = 1;
+  /** 攻撃（突進）に入った位置。床の予告の帯が、動いている敵ではなく出発点に付くよう、見た目側が読む（ADR-025） */
+  attackOriginX = 0;
+  attackOriginZ = 0;
 
   // 補間用の前ステップ
   prevX: number;
@@ -203,6 +206,8 @@ export class Enemy {
         if (this.stateFrame >= atk.windupFrames) {
           this.lungeDirX = Math.sin(this.yaw);
           this.lungeDirZ = Math.cos(this.yaw);
+          this.attackOriginX = this.body.x;
+          this.attackOriginZ = this.body.z;
           this.hitTracker.reset();
           this.setState('attack');
         }

@@ -18,6 +18,7 @@ import { Sfx, distanceGain } from '../audio/sfx';
 import type { SfxName } from '../audio/data/sfx';
 import { ENEMIES } from '../ai/data/enemies';
 import { EnemyVisual } from './enemy-visual';
+import { TelegraphLanes } from '../render/telegraph';
 import { HitStop } from '../core/hitstop';
 import { HitFx } from '../render/hit-fx';
 import { GroundFx } from '../render/ground-fx';
@@ -111,6 +112,8 @@ const SWING_SFX: Record<string, SfxName> = {
   gsRiseSlam: 'gsSwingDash',
   gsHeavyRip: 'gsSwingRise',
 };
+/** 敵の攻撃の音（敵の種類ごと。無ければ enemySwing） */
+const ENEMY_ATTACK_SFX: Partial<Record<string, SfxName>> = { boar: 'boarCharge' };
 /** 溜めの段階が上がったときの合図 */
 const CHARGE_LEVEL_SFX: readonly SfxName[] = ['chargeLevel1', 'chargeLevel2'];
 
@@ -145,6 +148,8 @@ export class Game {
   readonly hitFx = new HitFx();
   /** 地面を叩いた演出（砂ぼこりの輪・ひび割れ・破片。ADR-023） */
   readonly groundFx = new GroundFx();
+  /** 敵の攻撃の予告の床表示（突進の通り道。ADR-025） */
+  private readonly lanes = new TelegraphLanes();
   /** 地面を叩いた合図（Player.impactSerial）を処理し終えた値 */
   private seenImpact = 0;
   readonly damageNumbers: DamageNumbers;
@@ -220,6 +225,7 @@ export class Game {
     this.scene.add(this.player.root);
     this.scene.add(this.hitFx.group);
     this.scene.add(this.groundFx.group);
+    this.scene.add(this.lanes.group);
     this.scene.add(this.swordTrail.mesh);
     this.hud.onRetry(() => {
       this.sfx.play('ui');
@@ -313,7 +319,7 @@ export class Game {
   spawnEnemy(type: keyof typeof ENEMIES, x: number, z: number): Enemy {
     const enemy = new Enemy(ENEMIES[type], this.nextEnemyId++, x, z);
     enemy.place(x, z, Math.atan2(this.player.body.x - x, this.player.body.z - z));
-    const visual = new EnemyVisual();
+    const visual = new EnemyVisual(type);
     this.scene.add(visual.root);
     this.enemies.push({ enemy, visual, seenSerial: enemy.stateSerial });
     this.enemySims.push(enemy);
@@ -588,7 +594,7 @@ export class Game {
       if (e.state === 'down') this.sfx.play('knockdown', { gain, delay: 0.17 });
       if (e.state !== 'windup' && e.state !== 'attack') continue;
       if (e.state === 'windup') this.sfx.play('telegraph', { gain });
-      else this.sfx.play('enemySwing', { gain, delay: 0.02 });
+      else this.sfx.play(ENEMY_ATTACK_SFX[e.def.id] ?? 'enemySwing', { gain, delay: 0.02 });
     }
   }
 
@@ -613,6 +619,7 @@ export class Game {
     this.cam.shake.reset();
     this.hitFx.clear();
     this.groundFx.clear();
+    this.lanes.clear();
     this.swordTrail.clear();
     this.damageNumbers.clear();
     this.hud.hideResult();
@@ -640,6 +647,7 @@ export class Game {
     this.arena.animate(t);
     this.hitFx.update(frameDt);
     this.groundFx.update(frameDt);
+    this.lanes.update(this.enemySims, frameDt);
     if (draw) this.post.render();
     this.damageNumbers.update(this.cam.camera, frameDt, this.host.width, this.host.height);
     const locked = this.lockedEnemy();
