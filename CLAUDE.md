@@ -33,7 +33,7 @@ node tools/build-character.mjs <manifest.json>   # クリップ結合・リタ�
 python3 tools/clean-texture.py <glb> <tex.png> <out.png>   # 生成テクスチャの描き崩れ（腰まわり）を塗り直す。docs/05 参照
 node tools/clip-arm-height.mjs <glb>   # クリップごとの腕の挙上角（脇の破綻の目安）
 node tools/sfx-check.mjs   # 効果音を書き出して数値検査し、artifacts/audio/*.wav を出す（先に npm run build）
-node tools/motion-sheet.mjs <label> --script '0:{"attackPressed":true}' --end 36   # 手付けクリップの姿勢を 1 枚に並べる（npm run build の後。--cam side|front|back|three|top、--aim x,z、--weapon <装備 id>、--clip <名前> でクリップを直接再生。--mode weights|wsum:<骨>|ybands|normals|wire で重み・服の縁の高さ・法線を見る、--no-outline、--tile 1 で拡大、--track grip|hands|handR|handL|tip で握りなどを追尾して拡大（--dist 0.7〜1.3）。詳細はファイル先頭）
+node tools/motion-sheet.mjs <label> --script '0:{"attackPressed":true}' --end 36   # 手付けクリップの姿勢を 1 枚に並べる（npm run build の後。--cam side|front|back|three|top、--aim x,z、--weapon <装備 id>、--clip <名前> でクリップを直接再生（大きなヨーの回転は映らない。回転は --skill で）、--skill <スキル id> + --script '0:{"skillPressed":true}' で剣技を実際の連なりとして再生。--mode weights|wsum:<骨>|ybands|normals|wire で重み・服の縁の高さ・法線を見る、--no-outline、--tile 1 で拡大、--track grip|hands|handR|handL|tip で握りなどを追尾して拡大（--dist 0.7〜1.3）。詳細はファイル先頭）
 node tools/motion-check.mjs <clip> | --stats | --trace <clip>   # 手付けクリップの数値検査: 骨の床からの高さ・剣先の速さ / 全クリップの焼き込み統計 / フレームごとの腕・手首
 node tools/grip-check.mjs [--weapon greatsword] [--worst] [--check] [クリップ名 …]   # 両手が柄を握れているか（手のひらの中心が柄の軸の上か・握りの向きが合うか）を実際の骨でフレームごとに測る。握り・リグ・両手持ちの IK を触ったら（先に npm run build。ADR-023）
 node tools/measure-hand-axes.mjs <glb>   # 両手のメッシュの座標系（指・親指側・手の甲側）を頂点から測る（HERO.handFrames の元。手のメッシュを替えたとき）
@@ -51,7 +51,7 @@ src/input/      タッチ（仮想スティック・ボタン・カメラドラ�
 src/render/     レンダラ初期化、トゥーンマテリアル、輪郭線、ポストプロセス、VFX（トレイル・パーティクル・予告の床表示（帯・円）・飛び道具の鬼火）
 src/world/      アリーナ、衝突、環境オブジェクト
 src/character/  キャラクター読込、アニメーション状態機械、リターゲット、手付け攻撃アニメ（ik / rig / pose-solver / authoring。ADR-012）、立ち姿の前傾補正（posture。ADR-024）
-src/combat/     攻撃データ（フレームデータ）、ヒット判定、ダメージ、ロックオン、演出の数値、操作ガイド・技表の表示内容（move-guide / move-tree。純粋関数）、飛び道具の sim（projectile。ADR-026）・体勢ゲージ（poise。ADR-027）・ミスティカルドッジ（mystical。ジャスト回避で敵の時間を間引く純粋なクラス）・アイテム欄（inventory。数・選択・ドロップの抽選と救済。ADR-030）・スキル（skills。剣技 = 既存の技の連なり。SkillBook = レベル・選択・クールダウン。ADR-031）
+src/combat/     攻撃データ（フレームデータ）、ヒット判定、ダメージ、ロックオン、演出の数値、操作ガイド・技表の表示内容（move-guide / move-tree。純粋関数）、飛び道具の sim（projectile。ADR-026）・体勢ゲージ（poise。ADR-027）・ミスティカルドッジ（mystical。ジャスト回避で敵の時間を間引く純粋なクラス）・アイテム欄（inventory。数・選択・ドロップの抽選と救済。ADR-030）・スキル（skills。剣技 = 専用モーション（SKILL_ATTACKS。多段ヒットの窓・スーパーアーマー・円の当たり）を中心にした技の連なり。SkillBook = レベル・選択・クールダウン。ADR-031 / 032）
 src/ai/         敵の行動（FSM・攻撃権・予告の床表示の幾何 telegraph（帯・円）・距離を取って飛び道具を撃つ遠距離型・ガード不能と体勢ゲージの重装型・攻撃権の重みと周回の群れ・複数の技と段階と召喚のボス。ADR-025〜029）、敵とウェーブの数値（data/）
 src/audio/      効果音（WebAudio 合成のレシピと再生。ADR-017）
 src/ui/         HUD（DOM）: HP バー・ダメージ数字・ロックの枠・リザルト・操作ガイド（下の中央）・技表
