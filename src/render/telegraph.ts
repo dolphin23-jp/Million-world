@@ -89,7 +89,7 @@ export class TelegraphLanes {
         mesh.rotation.y = v.yaw;
         mesh.scale.set(v.width, 1, v.length);
         // 本数が多いとき（輪）は、1 本ずつを薄くして重なる中心が白飛びしないように
-        mat.opacity = Math.min(1, v.intensity) * (count > 1 ? 0.6 : 0.8);
+        mat.opacity = Math.min(1, v.intensity) * (count > 1 ? 0.78 : 0.8);
         mat.color.copy(v.unblockable ? (v.striking ? COLOR_UNBLOCKABLE_STRIKE : COLOR_UNBLOCKABLE) : v.striking ? COLOR_STRIKE : v.locked ? COLOR_LOCK : COLOR_TRACK);
         const map = mat.map!;
         map.repeat.set(1, v.length / CELL);

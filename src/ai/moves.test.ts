@@ -178,7 +178,7 @@ describe('段階（ADR-029）', () => {
 });
 
 describe('召喚・扇の弾（ADR-029）', () => {
-  const summonMove: EnemyAttackDef = { ...base, id: 'roar', range: 20, hitbox: NO_HIT, damage: 0, summon: { type: 'bat', count: 3, radius: 3 }, windupFrames: 20, windupTrackFrames: 0, startupFrames: 3, activeFrames: 1 };
+  const summonMove: EnemyAttackDef = { ...base, id: 'roar', range: 20, hitbox: NO_HIT, damage: 0, summon: { type: 'bat', count: 3, radius: 3, max: 6 }, windupFrames: 20, windupTrackFrames: 0, startupFrames: 3, activeFrames: 1 };
 
   it('召喚の技は、攻撃に入って startupFrames で 1 回だけ summonSerial が増え、内容が入る。近接の判定は出ない', () => {
     const e = new Enemy({ ...noPhases(DEF), moves: [summonMove], attack: summonMove }, 1, 0, 0);
@@ -189,7 +189,7 @@ describe('召喚・扇の弾（ADR-029）', () => {
       if (e.attackActive) attackActiveSeen = true;
     }
     expect(e.summonSerial).toBeGreaterThanOrEqual(1);
-    expect(e.summon).toEqual({ type: 'bat', count: 3, radius: 3 });
+    expect(e.summon).toEqual({ type: 'bat', count: 3, radius: 3, max: 6 });
     expect(attackActiveSeen).toBe(false);
     // 1 回の攻撃で 1 回（次の攻撃までは増えない）
     const s0 = e.summonSerial;

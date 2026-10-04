@@ -290,6 +290,47 @@ body {
   box-shadow: 0 0 8px rgba(143, 233, 255, 0.9);
 }
 
+/* ボスの HP バー（ADR-029）: 画面上部、プレイヤーの HP の下。段階の境目（HP の割合）に縦の目盛り。体勢バーは下に。ボスがいるあいだはロック対象の HP を下へずらす */
+#hp-boss {
+  position: absolute;
+  top: calc(40px + var(--safe-top));
+  left: 50%;
+  width: min(62vw, 560px);
+  height: 15px;
+  transform: translateX(-50%);
+  overflow: visible;
+}
+#hp-boss .hp-fill {
+  background: linear-gradient(180deg, #ffb0c8, #d8305a);
+  border-radius: 7px;
+}
+#hp-boss .hp-lag {
+  border-radius: 7px;
+}
+#hp-boss .poise {
+  display: block;
+  left: 2px;
+  right: 2px;
+  top: 18px;
+}
+#hp-boss .hp-name {
+  top: 27px;
+  left: 4px;
+  font-size: 14px;
+  letter-spacing: 0.18em;
+}
+#hp-boss .phase-tick {
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  width: 2px;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 3px rgba(0, 0, 0, 0.6);
+}
+.boss-on #hp-target {
+  top: calc(72px + var(--safe-top));
+}
+
 /* ロックオンのマーカー（src/ui/lock-marker.ts）: 四隅の枠 */
 .lock-marker {
   position: absolute;

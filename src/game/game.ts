@@ -12,7 +12,7 @@ import { clampInsideArena, pushOutOfCircle, separateCircles } from '../world/col
 import { Player } from './player';
 import { resolveEnemyAttacks, resolvePlayerAttack } from './combat';
 import { cutProjectiles, resolveProjectilesOnPlayer, resolveReflectedProjectiles, type ProjectileHandlers } from './projectile-combat';
-import { MAX_PROJECTILES, ProjectileSystem, fanOffset, type Projectile, type ProjectileEnd } from '../combat/projectile';
+import { MAX_PROJECTILES, ProjectileSystem, spawnShot, type Projectile, type ProjectileEnd } from '../combat/projectile';
 import { summonPoints, type SummonPoint } from '../ai/summon';
 import { PROJECTILES, PROJECTILE_HEIGHT } from '../combat/data/projectiles';
 import { ProjectileRenderer } from '../render/projectiles';
@@ -22,7 +22,7 @@ import { stepSwarm } from '../ai/swarm';
 import { AudioBus } from '../platform/audio';
 import { Sfx, distanceGain } from '../audio/sfx';
 import type { SfxName } from '../audio/data/sfx';
-import { ENEMIES } from '../ai/data/enemies';
+import { ENEMIES, type EnemyDef, type EnemyId } from '../ai/data/enemies';
 import { EnemyVisual } from './enemy-visual';
 import { TelegraphCircles, TelegraphLanes } from '../render/telegraph';
 import { HitStop } from '../core/hitstop';
@@ -369,7 +369,9 @@ export class Game {
     if (!ev) return;
     if (ev.type === 'spawn') {
       this.spawnWave(ev.wave);
-      this.hud.showBanner(ev.last && this.encounter.waveCount > 1 ? 'FINAL WAVE' : `WAVE ${ev.wave + 1}`);
+      // ボスのウェーブは「BOSS」（最後のウェーブでもある）
+      const boss = (this.encounter.def.waves[ev.wave] ?? []).some((w) => (ENEMIES[w.type] as EnemyDef).boss === true);
+      this.hud.showBanner(boss ? 'BOSS' : ev.last && this.encounter.waveCount > 1 ? 'FINAL WAVE' : `WAVE ${ev.wave + 1}`);
       this.sfx.play('wave');
     } else {
       const r = this.encounter.result();
@@ -391,6 +393,8 @@ export class Game {
     if (result.killed) this.sfx.play('kill');
     if (result.killed) {
       this.encounter.onKill();
+      // ボスを倒すと手下（呼ばれた小蝙蝠など）は消える（倒した数には入らない）
+      if (enemy.def.boss) for (const e of this.enemySims) if (e !== enemy) e.vanish();
       // 最後のウェーブの最後の 1 体: スローモーション
       if (this.encounter.onLastWave && !this.enemySims.some((e) => !e.dead)) this.hitStop.slow(FINISH_SLOW.scale, FINISH_SLOW.seconds);
     }
@@ -463,6 +467,11 @@ export class Game {
     onParry: (ev, p, fx) => this.onProjectileParried(ev, p, fx),
     onEnd: (p, reason) => this.onProjectileEnd(p, reason),
   };
+  /** ボスの HP バーの段階の目盛り（HP の割合）。ボスが変わったときだけ作り直す */
+  private bossTicks: readonly number[] = [];
+  private bossTicksFor: string | null = null;
+  /** 召喚の出現位置の作業用（毎回作らない） */
+  private readonly summonBuf: SummonPoint[] = [];
   private readonly onProjectileEndCb = (p: Projectile, reason: ProjectileEnd): void => this.onProjectileEnd(p, reason);
 
   /**
@@ -488,29 +497,32 @@ export class Game {
     if (cut) this.hitStop.trigger(2);
   }
 
+  /** 召喚（ボスの号令。Enemy.summon）: 周りに手下を呼ぶ。生きている同種が max 以上なら呼ばない。出た位置に閃光 */
+  private summonMinions(boss: Enemy): void {
+    const req = boss.summon;
+    if (!req) return;
+    const type = req.type as EnemyId;
+    if (!ENEMIES[type]) return;
+    let alive = 0;
+    for (const e of this.enemySims) if (!e.dead && e.def.id === type) alive++;
+    const n = Math.min(req.count, Math.max(0, req.max - alive));
+    if (n <= 0) return;
+    summonPoints(boss.body.x, boss.body.z, n, req.radius, boss.summonSerial, this.arena.radius, this.summonBuf);
+    for (let i = 0; i < n; i++) {
+      const p = this.summonBuf[i]!;
+      this.spawnEnemy(type, p.x, p.z);
+      this.hitFx.burst(p.x, 1.0, p.z, 0, 0, 0.8, FX_TINT.orb);
+    }
+    this.sfx.play('orbShot', { gain: 0.8 });
+  }
+
   /** 敵が撃った弾を作る（Enemy.fireSerial が増えたら、その出どころ Enemy.shot から。扇・輪は本数ぶんを fanOffset の向きに） */
   private spawnProjectiles(): void {
     for (const entry of this.enemies) {
       const e = entry.enemy;
       if (e.fireSerial === entry.seenFire) continue;
       entry.seenFire = e.fireSerial;
-      const s = e.shot;
-      const def = PROJECTILES[s.projectile];
-      if (s.count <= 1) {
-        this.projectiles.spawn(def, e.id, s.x, s.z, s.dirX, s.dirZ);
-        continue;
-      }
-      // 扇・輪: 中心の向きを、本数ぶんに回す。銃口は、敵の中心から中心の向きへ出した位置（s.x, s.z）を中心に回した向きの根元
-      const cx = e.body.x;
-      const cz = e.body.z;
-      const reach = Math.hypot(s.x - cx, s.z - cz);
-      const yaw = Math.atan2(s.dirX, s.dirZ);
-      for (let i = 0; i < s.count; i++) {
-        const a = yaw + fanOffset(i, s.count, s.spread);
-        const dx = Math.sin(a);
-        const dz = Math.cos(a);
-        this.projectiles.spawn(def, e.id, cx + dx * reach, cz + dz * reach, dx, dz);
-      }
+      spawnShot(this.projectiles, e.id, e.body.x, e.body.z, e.shot);
     }
   }
 
@@ -712,6 +724,19 @@ export class Game {
         this.cam.shake.trigger(GROUND_IMPACT.shake.amp * power * gain, GROUND_IMPACT.shake.seconds * 1.1);
         this.sfx.play('groundSmash', { gain: Math.min(GROUND_IMPACT.sfx.maxGain, GROUND_IMPACT.sfx.gain * power) * Math.max(0.5, gain) });
       }
+      if (e.summonSerial !== entry.seenSummon) {
+        entry.seenSummon = e.summonSerial;
+        this.summonMinions(e);
+      }
+      if (e.phaseSerial !== entry.seenPhase) {
+        // ボスの段階が上がった: 咆哮（強いヒットストップ・画面の揺れ・閃光・文字・音）。技が増え、間隔が縮む
+        entry.seenPhase = e.phaseSerial;
+        this.hitStop.trigger(10);
+        this.cam.shake.trigger(0.14, 0.55);
+        this.hitFx.burst(e.body.x, e.def.height * 0.5, e.body.z, 0, 0, 1.6, FX_TINT.orb);
+        this.damageNumbers.spawnText(e.body.x, Math.min(e.def.height, 2.4), e.body.z, e.phase >= 2 ? '激昂' : '怒り', 'warn', 1.5);
+        this.sfx.play('bossRoar');
+      }
       if (e.breakSerial !== entry.seenBreak) {
         entry.seenBreak = e.breakSerial;
         const fx = e.parryEffect;
@@ -771,6 +796,15 @@ export class Game {
       this.swordTrail.update(animDt, this.player.trailActive, _bladeBase, _bladeTip);
     }
     this.player.getInterpolatedPosition(alpha, _pos);
+    // ボス（生きているもの）。カメラがボスの頭まで映るよう引くのに使い、HP バーにも使う
+    let boss: Enemy | null = null;
+    for (const e of this.enemySims) {
+      if (e.def.boss && !e.dead) {
+        boss = e;
+        break;
+      }
+    }
+    this.cam.boss = boss !== null;
     this.cam.update(_pos, frameDt);
     this.sky.follow(this.cam.camera);
     this.arena.animate(t);
@@ -790,7 +824,17 @@ export class Game {
       this.host.width,
       this.host.height,
     );
-    this.hud.setTarget(locked ? { name: locked.def.name, hp: locked.health.hp, max: locked.health.max, poise: locked.poise ? locked.poise.ratio : null } : null);
+    // ボスの HP は画面上部の専用のバーに出す（ロック対象のバーとは重ねない）。boss はカメラの更新の前に調べてある
+    if (boss) {
+      if (this.bossTicksFor !== boss.def.id) {
+        this.bossTicksFor = boss.def.id;
+        this.bossTicks = (boss.def.phases ?? []).map((p) => p.hpBelow);
+      }
+      this.hud.setBoss({ name: boss.def.name, hp: boss.health.hp, max: boss.health.max, poise: boss.poise ? boss.poise.ratio : null, phases: this.bossTicks });
+    } else {
+      this.hud.setBoss(null);
+    }
+    this.hud.setTarget(locked && !locked.def.boss ? { name: locked.def.name, hp: locked.health.hp, max: locked.health.max, poise: locked.poise ? locked.poise.ratio : null } : null);
     this.updateMoveGuide();
     // 実フレーム間隔で解像度を調整する。段が変わるとレンダターゲットを作り直すので、描画の後で行う
     const nextRatio = this.adaptive.update(frameDt * 1000);

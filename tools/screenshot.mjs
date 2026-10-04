@@ -663,6 +663,76 @@ try {
   await sleep(120);
   await page.screenshot({ path: 'artifacts/shot-bat-sweep.png' });
 
+  // ボス「夜行の大将」（ADR-029）: 登場（上部の HP バーと体勢バー・段階の目盛り）、鬼火の連弾（扇の 5 本の帯）、地ならし（円）、段階 1 の号令（小蝙蝠を呼ぶ）、段階 2 の鬼火の輪（8 本の帯）
+  const BOSS_WAVE = { ...SOLO, waves: [[{ type: 'boss', offset: 0, radius: 9 }]], maxAttackers: 2 };
+  /** ボスを段階 phaseHp（HP の割合）にして、技 id の予備動作が frame に達するまで進める（プレイヤーは死なない）。ページ側の関数 */
+  const bossScene = (def, o) =>
+    page.evaluate(
+      ([def, o]) => {
+        const g = window.__mw.game;
+        g.restart(def);
+        g.setLoadout(o.loadout ?? 'sword');
+        g.stepNow(1);
+        g.player.body.x = 0;
+        g.player.body.z = 0;
+        g.player.yaw = 0;
+        const boss = g.enemies[0].enemy;
+        boss.place(0, o.z, Math.PI);
+        boss.health.hp = Math.round(boss.health.max * (o.hp ?? 1));
+        g.cam.yaw = Math.PI;
+        if (o.lock) {
+          g.inject({ lockPressed: true });
+          g.stepNow(1);
+        }
+        let n = 0;
+        const done = () => (o.summoned ? boss.summonSerial > 0 : o.move ? boss.state === 'windup' && boss.attackDef.id === o.move && boss.stateFrame >= (o.frame ?? 30) : n >= (o.steps ?? 1));
+        while (!done() && n++ < 6000) {
+          g.player.health.hp = 100;
+          g.stepNow(1);
+        }
+        if (o.after) g.stepNow(o.after);
+        g.renderNow(8);
+        return { found: n < 6000, move: boss.attackDef.id, state: boss.state, frame: boss.stateFrame, phase: boss.phase, bats: g.enemies.filter((e) => e.enemy.def.id === 'bat' && !e.enemy.dead).length, hp: boss.health.hp };
+      },
+      [def, o],
+    );
+  const bossIntro = await bossScene(BOSS_WAVE, { z: 9, steps: 90 });
+  console.log(`[boss] intro ${JSON.stringify(bossIntro)}`);
+  await sleep(120);
+  await page.screenshot({ path: 'artifacts/shot-boss-intro.png' });
+  const bossVolley = await bossScene(BOSS_WAVE, { z: 10, move: 'volley', frame: 42 });
+  console.log(`[boss] volley ${JSON.stringify(bossVolley)}`);
+  if (!bossVolley.found) {
+    console.error('[boss] 鬼火の連弾の予備動作に入っていません');
+    process.exitCode = 3;
+  }
+  await sleep(120);
+  await page.screenshot({ path: 'artifacts/shot-boss-volley.png' });
+  const bossPound = await bossScene(BOSS_WAVE, { z: 3.6, move: 'pound', frame: 50 });
+  console.log(`[boss] pound ${JSON.stringify(bossPound)}`);
+  if (!bossPound.found) {
+    console.error('[boss] 地ならしの予備動作に入っていません');
+    process.exitCode = 3;
+  }
+  await sleep(120);
+  await page.screenshot({ path: 'artifacts/shot-boss-pound.png' });
+  const bossSummon = await bossScene(BOSS_WAVE, { z: 11, hp: 0.6, summoned: true, after: 20, lock: true });
+  console.log(`[boss] summon ${JSON.stringify(bossSummon)}`);
+  if (bossSummon.bats < 1) {
+    console.error('[boss] 段階 1 の号令で小蝙蝠が呼ばれていません');
+    process.exitCode = 3;
+  }
+  await sleep(120);
+  await page.screenshot({ path: 'artifacts/shot-boss-summon.png' });
+  const bossRing = await bossScene(BOSS_WAVE, { z: 9, hp: 0.28, move: 'ring', frame: 46 });
+  console.log(`[boss] ring ${JSON.stringify(bossRing)}`);
+  if (!bossRing.found || bossRing.phase !== 2) {
+    console.error('[boss] 段階 2 の鬼火の輪の予備動作に入っていません');
+    process.exitCode = 3;
+  }
+  await sleep(120);
+  await page.screenshot({ path: 'artifacts/shot-boss-ring.png' });
+
   // 操作ガイド（ADR-024）: ロックして 1 段目を出し、次段の受付が開いた絵（連携の履歴・続けられる技・受付の帯）と、右上の「技表」を開いた絵
   await page.evaluate((solo) => {
     const g = window.__mw.game;

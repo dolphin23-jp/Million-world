@@ -1,5 +1,5 @@
 import type { Circle } from '../world/collision';
-import type { ProjectileDef } from './data/projectiles';
+import { PROJECTILES, type ProjectileDef, type ProjectileId } from './data/projectiles';
 
 /**
  * 飛び道具（鬼火など）の sim（ADR-026）。three にも DOM にも依存しない純粋なデータと関数。
@@ -197,5 +197,37 @@ export function fanOffset(i: number, count: number, spread: number): number {
   if (count <= 1) return 0;
   if (spread >= Math.PI * 2 - 1e-6) return (i * Math.PI * 2) / count;
   return -spread / 2 + (spread * i) / (count - 1);
+}
+
+/** 敵が撃った弾の出どころ（Enemy.shot がそのまま満たす） */
+export interface ShotSpec {
+  projectile: ProjectileId;
+  /** 銃口（敵の中心から中心の向きへ出した位置）と、中心の向き（単位ベクトル） */
+  x: number;
+  z: number;
+  dirX: number;
+  dirZ: number;
+  /** 本数と扇の広がり（count 1 = 1 本。spread は fanOffset の約束） */
+  count: number;
+  spread: number;
+}
+
+/**
+ * 敵の弾を作る。1 本なら銃口から中心の向きへ。複数（扇・輪）なら、(cx, cz)（敵の中心）から銃口までの距離（reach）を保ったまま、
+ * 中心の向きを fanOffset だけ回した向きへ 1 本ずつ撃つ（体の大きな敵が、体の外から放射状に撃つ）。作った弾を返す（最後の 1 本）
+ */
+export function spawnShot(system: ProjectileSystem, ownerId: number, cx: number, cz: number, shot: ShotSpec): Projectile {
+  const def = PROJECTILES[shot.projectile];
+  if (shot.count <= 1) return system.spawn(def, ownerId, shot.x, shot.z, shot.dirX, shot.dirZ);
+  const reach = Math.hypot(shot.x - cx, shot.z - cz);
+  const yaw = Math.atan2(shot.dirX, shot.dirZ);
+  let last: Projectile | null = null;
+  for (let i = 0; i < shot.count; i++) {
+    const a = yaw + fanOffset(i, shot.count, shot.spread);
+    const dx = Math.sin(a);
+    const dz = Math.cos(a);
+    last = system.spawn(def, ownerId, cx + dx * reach, cz + dz * reach, dx, dz);
+  }
+  return last!;
 }
 

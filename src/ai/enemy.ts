@@ -89,7 +89,7 @@ export class Enemy {
   phaseSerial = 0;
   /** 召喚（ボス）の判定が出るたびに増える（Game が手下を出すため）と、その内容 */
   summonSerial = 0;
-  summon: { readonly type: string; readonly count: number; readonly radius: number } | null = null;
+  summon: { readonly type: string; readonly count: number; readonly radius: number; readonly max: number } | null = null;
   /** いまの技（複数の技を持つ敵は、攻撃に入るたびに選び直す。ほかは def.attack のまま）と、直前の技 */
   private move: EnemyAttackDef;
   private lastMove: EnemyAttackDef | null = null;

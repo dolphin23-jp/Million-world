@@ -10,7 +10,7 @@ interface BarTarget {
   readonly health: { hp: number; max: number };
   readonly dead: boolean;
   readonly body: { x: number; z: number };
-  readonly def: { height: number };
+  readonly def: { height: number; boss?: boolean };
   /** 体勢ゲージ（重装型だけ。ratio 0..1）。あれば HP バーの下に細いバーを出す */
   readonly poise?: { readonly ratio: number } | null;
 }
@@ -49,7 +49,8 @@ export class EnemyBars {
       const bar = this.bars[i]!;
       const t = targets[i];
       // ロック対象の HP は画面上部のバーに出すので、頭上のバーは出さない
-      const visible = t !== undefined && !t.dead && t.health.hp < t.health.max && t.id !== skipId;
+      // ボスの HP は画面上部の専用のバーに出すので、頭上のバーは出さない
+      const visible = t !== undefined && !t.dead && t.health.hp < t.health.max && t.id !== skipId && !t.def.boss;
       if (!visible) {
         if (bar.shown) {
           bar.el.style.display = 'none';

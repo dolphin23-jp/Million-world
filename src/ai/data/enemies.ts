@@ -5,7 +5,7 @@
 
 import { type HitboxDef } from '../../combat/hit';
 import type { ProjectileId } from '../../combat/data/projectiles';
-import { POISE_BREAK, type PoiseDef } from '../../combat/data/poise';
+import { BOSS_POISE_BREAK, POISE_BREAK, type PoiseDef } from '../../combat/data/poise';
 
 const deg = (d: number) => (d * Math.PI) / 180;
 
@@ -71,7 +71,7 @@ export interface EnemyAttackDef {
    * 召喚（ボスの号令。ADR-029）: 判定が出る瞬間（startupFrames）に、周り（敵の中心から radius m の円周に等間隔）へ type の敵を count 体呼ぶ。
    * 実際に出すのは Game（Enemy.summonSerial / summon を読む。生きている同種の敵が多すぎれば出さない）
    */
-  summon?: { type: string; count: number; radius: number };
+  summon?: { type: string; count: number; radius: number; /** 生きている同種の敵がこの数以上なら呼ばない（手下が増えすぎない） */ max: number };
   /**
    * 複数の技を持つ敵（moves）で、この技が選べる最小の段階（0 = 最初から。EnemyDef.phases の段階）、
    * 選べる距離の下限（中心間 m。上限は range）、選ばれやすさ（既定 1）、技の名前
@@ -159,6 +159,107 @@ export interface EnemyDef {
 
 /** 近接の判定を持たない攻撃（飛び道具）が hitbox に置く、大きさ 0 の判定 */
 const NO_HITBOX: HitboxDef = { kind: 'arc', range: 0, halfAngle: 0 };
+
+/**
+ * ボス「夜行の大将」の技（ADR-029）。どれも常時スーパーアーマー・体勢で割り込む前提（armorBreakDamage 9999）。
+ *  - 地ならし: 近距離の全周・ガード不能（岩鬼と同じ円の予告。半径 3.6m = 床の輪の最大）
+ *  - 鬼火の連弾: 遠距離から、扇に 5 発（床に 5 本の帯。パリィで弾き返せば体勢も削れる）
+ *  - 号令（段階 1〜）: 吠えて、周りに小蝙蝠を 3 体呼ぶ（生きている蝙蝠が多いと呼ばない）
+ *  - 鬼火の輪（段階 2〜）: 全周に 8 発（輪の隙間か、ロール・ガードで）
+ */
+const BOSS_ARMOR = { armorFromFrame: 0, armorBreakDamage: 9999, armorKnockbackScale: 0.08 } as const;
+const BOSS_POUND: EnemyAttackDef = {
+  id: 'pound',
+  pose: 'slam',
+  range: 4.4,
+  rangeMin: 0,
+  weight: 1.2,
+  windupFrames: 66,
+  windupTrackFrames: 36,
+  ...BOSS_ARMOR,
+  startupFrames: 6,
+  activeFrames: 5,
+  recoverFrames: 74,
+  cooldownFrames: 70,
+  hitbox: { kind: 'arc', range: 3.6, halfAngle: Math.PI },
+  damage: 36,
+  knockback: 3.6,
+  hitStop: 14,
+  lunge: 0,
+  telegraph: { kind: 'circle' },
+  unblockable: true,
+  groundImpact: 1.6,
+};
+const BOSS_VOLLEY: EnemyAttackDef = {
+  id: 'volley',
+  pose: 'cast',
+  range: 14,
+  rangeMin: 4.5,
+  weight: 1.5,
+  windupFrames: 50,
+  windupTrackFrames: 32,
+  ...BOSS_ARMOR,
+  startupFrames: 2,
+  activeFrames: 1,
+  recoverFrames: 40,
+  cooldownFrames: 60,
+  hitbox: NO_HITBOX,
+  damage: 0,
+  knockback: 0,
+  hitStop: 0,
+  lunge: 0,
+  telegraph: { kind: 'lane', width: 0.8 },
+  projectile: 'wisp',
+  projectileCount: 5,
+  projectileSpread: 1.3,
+  muzzleOffset: 1.0,
+};
+const BOSS_SUMMON: EnemyAttackDef = {
+  id: 'summon',
+  pose: 'roar',
+  range: 30,
+  rangeMin: 0,
+  minPhase: 1,
+  weight: 0.8,
+  windupFrames: 64,
+  windupTrackFrames: 0,
+  ...BOSS_ARMOR,
+  startupFrames: 4,
+  activeFrames: 1,
+  recoverFrames: 50,
+  cooldownFrames: 90,
+  hitbox: NO_HITBOX,
+  damage: 0,
+  knockback: 0,
+  hitStop: 0,
+  lunge: 0,
+  summon: { type: 'bat', count: 3, radius: 3.4, max: 6 },
+};
+const BOSS_RING: EnemyAttackDef = {
+  id: 'ring',
+  pose: 'roar',
+  range: 14,
+  rangeMin: 0,
+  minPhase: 2,
+  weight: 1.3,
+  windupFrames: 58,
+  windupTrackFrames: 20,
+  ...BOSS_ARMOR,
+  startupFrames: 2,
+  activeFrames: 1,
+  recoverFrames: 46,
+  cooldownFrames: 70,
+  hitbox: NO_HITBOX,
+  damage: 0,
+  knockback: 0,
+  hitStop: 0,
+  lunge: 0,
+  telegraph: { kind: 'lane', width: 0.8 },
+  projectile: 'wisp',
+  projectileCount: 8,
+  projectileSpread: Math.PI * 2,
+  muzzleOffset: 1.1,
+};
 
 export const ENEMIES = {
   /** 子鬼。M2 の最初の敵（プリミティブ製の仮の見た目。src/game/enemy-visual.ts） */
@@ -365,6 +466,36 @@ export const ENEMIES = {
       hitStop: 3,
       lunge: 2.8,
     },
+  },
+  /**
+   * ボス「夜行の大将」（ADR-029。M5-5）: これまでの敵の要素を 1 体に集めた最後の相手。岩鬼の体（ひるまない・体勢ゲージ・ガード不能の地ならし）、提灯の鬼火（扇・輪）、小蝙蝠の召喚。
+   * HP 900・体勢 140（崩すと 2 秒の反撃の窓 1.6 倍）。HP が 66% と 33% で段階が上がり、技が増え（号令・鬼火の輪）、技の間隔が縮む（0.85 → 0.65 倍）。
+   * 倒すと手下（呼んだ小蝙蝠）は消える。遅い（1.9 m/s）が、遠距離から連弾・輪を撃つので、近づく判断が要る。
+   */
+  boss: {
+    id: 'boss',
+    name: '夜行の大将',
+    hp: 900,
+    radius: 1.25,
+    height: 3.9,
+    hitStunFrames: 20,
+    knockbackFrames: 14,
+    knockbackScale: 0.08,
+    deathFrames: 130,
+    turnSpeed: 2,
+    moveSpeed: 1.9,
+    aggroRange: 30,
+    stopDistance: 3.6,
+    spawnIdleFrames: 90,
+    hyperArmor: true,
+    boss: true,
+    poise: { max: 140, regenDelayFrames: 160, regenPerFrame: 0.4, breakEffect: BOSS_POISE_BREAK },
+    phases: [
+      { hpBelow: 0.66, cooldownScale: 0.85 },
+      { hpBelow: 0.33, cooldownScale: 0.65 },
+    ],
+    attack: BOSS_POUND,
+    moves: [BOSS_POUND, BOSS_VOLLEY, BOSS_SUMMON, BOSS_RING],
   },
 } as const satisfies Record<string, EnemyDef>;
 
