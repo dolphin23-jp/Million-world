@@ -108,6 +108,50 @@ describe('DEX: 攻撃の速さ・パリィの受付', () => {
   });
 });
 
+describe('DEX: 会心率・会心ダメージ（ADR-035）', () => {
+  /** 的を (0, 1.4) に置いて最初の攻撃を当てる。rng で会心を決める */
+  function firstHitWith(m: Parameters<Player['setModifiers']>[0], rng: () => number): HitEvent {
+    const p = new Player();
+    p.setModifiers(m);
+    const e = new Enemy(DUMMY, 1, 0, 1.4);
+    e.place(0, 1.4, Math.PI);
+    let ev: HitEvent | null = null;
+    step(p, { attackPressed: true });
+    for (let i = 0; i < 60 && !ev; i++) {
+      step(p);
+      e.step(DT, p.body.x, p.body.z, false);
+      resolvePlayerAttack(p, [e] as CombatTarget[], (h) => (ev = h), rng);
+    }
+    return ev!;
+  }
+
+  it('Player の会心率・会心ダメージは Modifiers から読む。初期は 5% / ×1.5、DEX を振ると伸びる', () => {
+    const p = new Player();
+    expect(p.critRate).toBeCloseTo(0.05, 9);
+    expect(p.critDamage).toBeCloseTo(1.5, 9);
+    p.setModifiers(mods('dex', 20));
+    expect(p.critRate).toBeCloseTo(0.15, 9);
+    expect(p.critDamage).toBeCloseTo(1.8, 9);
+  });
+
+  it('DEX を振ると、会心したときのダメージが大きくなる（会心しないときは変わらない）', () => {
+    const base = ATTACKS.combo1!.damage;
+    const plain = firstHitWith(mods('dex', 20), () => 0.99);
+    expect(plain.damage).toBe(base);
+    expect(plain.crit).toBeUndefined();
+    const lo = firstHitWith(BASE_MODIFIERS, () => 0);
+    const hi = firstHitWith(mods('dex', 20), () => 0);
+    expect(lo.crit).toBe(true);
+    expect(lo.damage).toBe(Math.round(base * 1.5));
+    expect(hi.damage).toBe(Math.round(base * 1.8));
+  });
+
+  it('DEX を振ると、会心の出やすさが上がる（同じ乱数 0.1 で、初期は通常・DEX 20 は会心）', () => {
+    expect(firstHitWith(BASE_MODIFIERS, () => 0.1).crit).toBeUndefined();
+    expect(firstHitWith(mods('dex', 20), () => 0.1).crit).toBe(true);
+  });
+});
+
 describe('AGI: 移動・回避の無敵・ミスティカル', () => {
   it('走る速さが伸びる', () => {
     const run = (m: Parameters<Player['setModifiers']>[0]) => {

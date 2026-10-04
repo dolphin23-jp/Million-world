@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Encounter, rankOf, spawnPoint, type EncounterEvent } from './encounter';
-import { DEMO_ENCOUNTER, RANKS, type EncounterDef } from '../ai/data/encounters';
+import { DEMO_ENCOUNTER, RANKS, encounterForTier, type EncounterDef } from '../ai/data/encounters';
+import { TIERS, tierDef } from '../ai/data/tiers';
 
 const DEF: EncounterDef = {
   waves: [[{ type: 'imp', offset: 0, radius: 6 }], [{ type: 'imp', offset: 0, radius: 6 }, { type: 'imp', offset: 1, radius: 6 }]],
@@ -128,6 +129,36 @@ describe('rankOf', () => {
       expect(RANKS[i]!.maxSeconds).toBeGreaterThan(RANKS[i - 1]!.maxSeconds);
       expect(RANKS[i]!.maxDamage).toBeGreaterThan(RANKS[i - 1]!.maxDamage);
     }
+  });
+});
+
+describe('敵の段階（ADR-036）', () => {
+  it('encounterForTier は、ウェーブの並びは同じで tier が付く。Encounter.tier は段階（既定 1）', () => {
+    const def = encounterForTier(3);
+    expect(def.tier).toBe(3);
+    expect(def.waves).toBe(DEMO_ENCOUNTER.waves);
+    expect(new Encounter().tier).toBe(1);
+    expect(new Encounter(def).tier).toBe(3);
+    expect(new Encounter(encounterForTier(99)).tier).toBe(TIERS.length);
+    expect(DEMO_ENCOUNTER.tier).toBeUndefined();
+  });
+  it('段階が上がると、評価の基準（時間・被ダメージ）が緩む。段 1 は従来どおり', () => {
+    const s = RANKS[0];
+    expect(rankOf(s.maxSeconds, s.maxDamage, 1)).toBe('S');
+    expect(rankOf(s.maxSeconds * 1.2, s.maxDamage, 1)).not.toBe('S');
+    // 段 2 は時間の基準が 1.5 倍、被ダメージが 1.3 倍
+    expect(rankOf(s.maxSeconds * tierDef(2).rankTime, s.maxDamage * tierDef(2).rankDamage, 2)).toBe('S');
+    expect(rankOf(s.maxSeconds * tierDef(2).rankTime + 1, 0, 2)).not.toBe('S');
+    expect(rankOf(1e6, 1e6, 4)).toBe('C');
+  });
+  it('リザルトに挑んだ段階が入る', () => {
+    const enc = new Encounter(encounterForTier(2));
+    enc.step(0, true);
+    for (let i = 0; i < 400; i++) enc.step(0, true);
+    expect(enc.result()!.tier).toBe(2);
+    const plain = new Encounter();
+    for (let i = 0; i < 400; i++) plain.step(0, true);
+    expect(plain.result()!.tier).toBe(1);
   });
 });
 

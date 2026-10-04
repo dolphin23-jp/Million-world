@@ -1,4 +1,5 @@
 import { DEMO_ENCOUNTER, RANKS, type EncounterDef, type WaveEnemy } from '../ai/data/encounters';
+import { tierDef } from '../ai/data/tiers';
 
 /**
  * 戦闘の進行（純粋ロジック。three にも DOM にも依存しない）。ウェーブの出し方、勝敗、リザルトの集計。
@@ -24,6 +25,8 @@ export interface ResultSummary {
   parries: number;
   /** 勝ったときだけ */
   rank: string | null;
+  /** 挑んだ敵の段階（1 始まり。ADR-036） */
+  tier: number;
 }
 
 export class Encounter {
@@ -40,6 +43,11 @@ export class Encounter {
   private deadTimer = 0;
 
   constructor(readonly def: EncounterDef = DEMO_ENCOUNTER) {}
+
+  /** 敵の段階（1 始まり） */
+  get tier(): number {
+    return tierDef(this.def.tier ?? 1).tier;
+  }
 
   get waveCount(): number {
     return this.def.waves.length;
@@ -121,14 +129,16 @@ export class Encounter {
       hitsTaken: this.hitsTaken,
       damageTaken: this.damageTaken,
       parries: this.parries,
-      rank: this.phase === 'victory' ? rankOf(seconds, this.damageTaken) : null,
+      rank: this.phase === 'victory' ? rankOf(seconds, this.damageTaken, this.tier) : null,
+      tier: this.tier,
     };
   }
 }
 
-/** 評価。RANKS を上から見て、時間も被ダメージも上限以下になる最初のランク。どれも満たさなければ C */
-export function rankOf(seconds: number, damageTaken: number): string {
-  for (const r of RANKS) if (seconds <= r.maxSeconds && damageTaken <= r.maxDamage) return r.rank;
+/** 評価。RANKS を上から見て、時間も被ダメージも上限以下になる最初のランク。どれも満たさなければ C。段階が上がると、敵が硬く痛いぶん上限が緩む（TierDef.rankTime / rankDamage。ADR-036） */
+export function rankOf(seconds: number, damageTaken: number, tier = 1): string {
+  const t = tierDef(tier);
+  for (const r of RANKS) if (seconds <= r.maxSeconds * t.rankTime && damageTaken <= r.maxDamage * t.rankDamage) return r.rank;
   return 'C';
 }
 

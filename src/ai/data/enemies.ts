@@ -69,6 +69,12 @@ export interface EnemyAttackDef {
   /** 弾の出る位置を、弾のデータの銃口（Projectile.muzzle）から、さらに前へずらす距離（m）。体の大きな敵が自分の体の外から撃つ */
   muzzleOffset?: number;
   /**
+   * 弾のダメージ・弾き返したときのダメージの倍率（既定 1。敵の段階で強くなる。ADR-036）。
+   * 弾のダメージは弾のデータ（PROJECTILES）にあるので、攻撃のダメージ（damage）ではなく、ここで倍率を掛ける
+   */
+  projectileDamageScale?: number;
+  projectileReflectScale?: number;
+  /**
    * 召喚（ボスの号令。ADR-029）: 判定が出る瞬間（startupFrames）に、周り（敵の中心から radius m の円周に等間隔）へ type の敵を count 体呼ぶ。
    * 実際に出すのは Game（Enemy.summonSerial / summon を読む。生きている同種の敵が多すぎれば出さない）
    */
@@ -160,6 +166,8 @@ export interface EnemyDef {
    * 呼ばれた手下（Game の summonedIds）は、ここの値にかかわらず 0（呼ばせて稼げないように）
    */
   xp?: number;
+  /** 敵の段階（ADR-036。色違いの強化版。省略 = 1）。id は元の種類のまま（見た目・効果音・召喚の種類はここで決まる） */
+  tier?: number;
   /** 倒したときのアイテムのドロップ（ADR-030）。種類ごとに別々の確率で抽選する。無ければ落とさない（ボス・呼ばれた手下は落とさない） */
   drops?: readonly DropDef[];
   attack: EnemyAttackDef;

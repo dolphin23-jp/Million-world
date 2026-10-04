@@ -38,8 +38,8 @@ export class DamageNumbers {
   }
 
   /** world は命中位置。style で大きさと色が変わる（guard = ガードで受けた削り、riposte = 弾かれた敵への反撃） */
-  spawn(x: number, y: number, z: number, value: number, style: HitStyle | 'hurt' | 'guard' | 'riposte' | 'heal'): void {
-    this.put(x, y, z, String(Math.round(value)), style);
+  spawn(x: number, y: number, z: number, value: number, style: HitStyle | 'hurt' | 'guard' | 'riposte' | 'heal' | 'crit'): void {
+    this.put(x, y, z, style === 'crit' ? `${Math.round(value)}!` : String(Math.round(value)), style);
   }
 
   /** 数字ではなく文字（パリィの「PARRY」など）を同じ要領で浮かべる。scale は文字の大きさの倍率（大剣のパリィは大きく） */
@@ -47,18 +47,18 @@ export class DamageNumbers {
     this.put(x, y, z, text, style, scale);
   }
 
-  private put(x: number, y: number, z: number, text: string, style: HitStyle | 'hurt' | 'guard' | 'riposte' | 'parry' | 'warn' | 'break' | 'mystic' | 'heal' | 'item' | 'skill' | 'armor' | 'level', scale = 1): void {
+  private put(x: number, y: number, z: number, text: string, style: HitStyle | 'hurt' | 'guard' | 'riposte' | 'crit' | 'parry' | 'warn' | 'break' | 'mystic' | 'heal' | 'item' | 'skill' | 'armor' | 'level', scale = 1): void {
     // 空きがなければ一番古いものを使う（リングバッファ）
     const it = this.items[this.next]!;
     this.next = (this.next + 1) % this.items.length;
     it.active = true;
     it.age = 0;
-    it.life = style === 'kill' ? LIFE * 1.25 : LIFE;
+    it.life = style === 'kill' || style === 'crit' ? LIFE * 1.25 : LIFE;
     it.x = x;
     it.y = y;
     it.z = z;
     it.jitter = (Math.random() - 0.5) * 36;
-    it.scale = (style === 'kill' ? 1.6 : style === 'heavy' || style === 'riposte' ? 1.3 : style === 'parry' || style === 'warn' || style === 'break' || style === 'mystic' || style === 'heal' || style === 'skill' || style === 'armor' || style === 'level' ? 1.15 : style === 'guard' ? 0.8 : 1) * scale;
+    it.scale = (style === 'crit' ? 1.75 : style === 'kill' ? 1.6 : style === 'heavy' || style === 'riposte' ? 1.3 : style === 'parry' || style === 'warn' || style === 'break' || style === 'mystic' || style === 'heal' || style === 'skill' || style === 'armor' || style === 'level' ? 1.15 : style === 'guard' ? 0.8 : 1) * scale;
     it.el.textContent = text;
     it.el.className = `dmg dmg-${style}`;
     it.el.style.display = '';

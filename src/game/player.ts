@@ -322,6 +322,15 @@ export class Player {
     return this.mods.knockback;
   }
 
+  /** 会心率・会心ダメージの倍率（DEX・パッシブ。AttackerView）。resolvePlayerAttack が命中ごとに抽選する */
+  get critRate(): number {
+    return this.mods.critRate;
+  }
+
+  get critDamage(): number {
+    return this.mods.critDamage;
+  }
+
   /** 受けるダメージ（VIT による軽減。ダメージのある攻撃は最低 1 は通る） */
   private takenDamage(damage: number): number {
     if (damage <= 0) return 0;

@@ -54,6 +54,8 @@ export interface HitEvent {
   /** 命中位置（XZ）。相手の円の、攻撃者に近い側の縁 */
   x: number;
   z: number;
+  /** 会心（プレイヤーの攻撃のみ。ADR-035）。会心のときだけ true で付く（付かなければ通常の命中） */
+  crit?: true;
 }
 
 /** 円 target がヒットボックスに当たっているか */
@@ -142,7 +144,7 @@ export function makeHitEvent(
   attackerId: number,
   origin: HitOrigin,
   target: Circle & { id: number },
-  hit: { damage: number; knockback: number; hitStop: number },
+  hit: { damage: number; knockback: number; hitStop: number; crit?: boolean },
 ): HitEvent {
   let dx = target.x - origin.x;
   let dz = target.z - origin.z;
@@ -165,5 +167,6 @@ export function makeHitEvent(
     dirZ: dz,
     x: target.x - dx * target.r,
     z: target.z - dz * target.r,
+    ...(hit.crit ? { crit: true as const } : {}),
   };
 }

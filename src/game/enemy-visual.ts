@@ -6,6 +6,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { addOutline, createToonMaterial, type ToonMaterial } from '../render/toon';
 import { PROJECTILES, PROJECTILE_HEIGHT } from '../combat/data/projectiles';
 import { WISP_COLORS, glowTexture } from '../render/projectiles';
+import { tierDef } from '../ai/data/tiers';
 
 /**
  * 敵（子鬼・暴れ猪・提灯・岩鬼・小蝙蝠・ボス）の見た目。プリミティブ製の仮モデルだが、トゥーン着色・輪郭線・影の枠の中に置く（CLAUDE.md 原則 3）。
@@ -147,7 +148,51 @@ export const BOSS_COLORS: OgrePalette = {
 };
 /** ボスの拡大率（岩鬼の部品をそのまま大きくする）。背の大提灯の色 */
 const BOSS_SCALE = 1.3;
-const BOSS_LANTERN = { paper: 0xd9473b, glowDim: 0x7a2a1a, glowHot: 0xffb070 } as const;
+const BOSS_LANTERN = { paper: 0xd9473b, glowDim: 0x7a2a1a, glowHot: 0xffb070 };
+
+/**
+ * 敵の段階（色違いの強化版。ADR-036）ごとの色: 種類ごとに、段 2（紅）・段 3（蒼）・段 4（黒）で置き換える色（書いていない色は元のまま）。
+ * 紅 = 赤〜橙、蒼 = 青〜青緑、黒 = 墨色に紫の縁・赤い目（上位ほど暗く、目が光る）。元の色と被らないよう、種類ごとに決めている
+ */
+type Colors = Record<string, number>;
+const TIER_COLORS: Record<string, readonly [Colors, Colors, Colors]> = {
+  imp: [
+    { body: 0xc2453f, bodyRim: 0xffd2c8 },
+    { body: 0x3f84c2, bodyRim: 0xcfe9ff },
+    { body: 0x3a3347, bodyRim: 0xcbb8ff, eye: 0xff4a3a, cream: 0xd9d2c0 },
+  ],
+  boar: [
+    { body: 0xb8532f, bodyRim: 0xffd9c4, accent: 0xffd04a },
+    { body: 0x3a56b8, bodyRim: 0xd0dcff, accent: 0x7affd9 },
+    { body: 0x2e2c33, bodyRim: 0xb7a8ff, accent: 0xff4a4a, eye: 0xff4a3a },
+  ],
+  lantern: [
+    { paper: 0xe8963b, paperRim: 0xfff0c0, rib: 0x9a5a1c },
+    { paper: 0x3b82d9, paperRim: 0xd0e8ff, rib: 0x1f4a8a, eye: 0xe8f6ff },
+    { paper: 0x3a2f45, paperRim: 0xcbb8ff, rib: 0x1a1424, gold: 0xffd060, eye: 0xff6a5a },
+  ],
+  bat: [
+    { body: 0x7a2f46, wing: 0xc2455a, wingRim: 0xffd0d8 },
+    { body: 0x2f6a5a, wing: 0x4ac79a, wingRim: 0xd0fff0 },
+    { body: 0x2a2433, wing: 0x4a3f66, wingRim: 0xbfa8ff, eye: 0xff4a3a },
+  ],
+  ogre: [
+    { skin: 0xc2503f, skinRim: 0xffd0c0, crackHot: 0xffd24a },
+    { skin: 0x4a8aa8, skinRim: 0xcdeaff, armor: 0x6a7aa0, crackDim: 0x1a3a6a, crackHot: 0x6ad0ff },
+    { skin: 0x4a3f55, skinRim: 0xcbb8ff, armor: 0x2a2d3c, metal: 0x1f2230, gold: 0xffd060, eye: 0xff4a3a, crackDim: 0x4a1030, crackHot: 0xff5a5a },
+  ],
+  boss: [
+    { skin: 0xa8302a, skinRim: 0xffc8b0, armor: 0x3a2a2e, eye: 0xffd24a, crackHot: 0xffa03a, glowHot: 0xffd070 },
+    { skin: 0x3f4aa0, skinRim: 0xc8d0ff, armor: 0x25283f, eye: 0xbfe8ff, crackDim: 0x1a2a6a, crackHot: 0x7ab8ff, glowDim: 0x1a3a7a, glowHot: 0x9ad0ff },
+    { skin: 0x2e2236, skinRim: 0xd3b8ff, armor: 0x12131c, metal: 0x2a2c3c, gold: 0xffd060, eye: 0xff3030, crackDim: 0x3a0a28, crackHot: 0xff3a6a, glowDim: 0x3a1050, glowHot: 0xff80ff },
+  ],
+};
+
+/** 元の色に、種類・段階の色違いを重ねる（段 1・書いていない種類は元のまま） */
+function tinted<T extends Colors>(kind: string, tier: number, base: T): T {
+  const over = tier >= 2 ? TIER_COLORS[kind]?.[tier - 2] : undefined;
+  return over ? { ...base, ...over } : base;
+}
 
 /** 小蝙蝠の体の中心の高さ（宙に浮く）と体の半径。倒れて落ちるときの落下量に使う */
 const BAT_Y = 1.0;
@@ -204,15 +249,29 @@ export class EnemyVisual {
   /** 待機のゆらぎ用の時間（ヒットストップで止まる） */
   private idleTime = Math.random() * 10;
 
-  constructor(private readonly kind: EnemyId = 'imp') {
-    this.root.name = `enemy-${kind}`;
+  /** この敵の（段階の色を重ねた）縁の光の色と、ボスの背の提灯の光の色 */
+  private readonly rim: number;
+  private lanternGlow = BOSS_LANTERN;
+
+  /** tier = 敵の段階（色違いの強化版。ADR-036）。2 以上は種類ごとの色に替わり、ひと回り大きい */
+  constructor(private readonly kind: EnemyId = 'imp', private readonly tier = 1) {
+    this.root.name = tier > 1 ? `enemy-${kind}-t${tier}` : `enemy-${kind}`;
     this.root.add(this.pivot);
+    this.rim = (kind === 'boar' ? this.colors(BOAR_COLORS).bodyRim : kind === 'lantern' ? this.colors(LANTERN_COLORS).paperRim : kind === 'ogre' ? this.colors(OGRE_COLORS).skinRim : kind === 'boss' ? this.colors(BOSS_COLORS).skinRim : kind === 'bat' ? this.colors(BAT_COLORS).wingRim : this.colors(IMP_COLORS).bodyRim) as number;
     if (kind === 'boar') this.buildBoar();
     else if (kind === 'lantern') this.buildLantern();
-    else if (kind === 'ogre') this.buildOgre(OGRE_COLORS, false);
-    else if (kind === 'boss') this.buildOgre(BOSS_COLORS, true);
+    else if (kind === 'ogre') this.buildOgre(this.colors(OGRE_COLORS), false);
+    else if (kind === 'boss') this.buildOgre(this.colors(BOSS_COLORS), true);
     else if (kind === 'bat') this.buildBat();
     else this.build();
+    // 色違いの上位種はひと回り大きい（ボスは buildBossExtras が BOSS_SCALE を掛けるので、そこへさらに掛ける）
+    const size = tierDef(tier).size;
+    if (size !== 1) this.root.scale.multiplyScalar(size);
+  }
+
+  /** 元の色に、この敵の段階の色違いを重ねたもの */
+  private colors<T extends Colors>(base: T): T {
+    return tinted(this.kind, this.tier, base);
   }
 
   dispose(): void {
@@ -232,8 +291,7 @@ export class EnemyVisual {
   }
 
   private toon(color: number, over: Partial<Parameters<typeof createToonMaterial>[0]> = {}): ToonMaterial {
-    const rim = this.kind === 'boar' ? BOAR_COLORS.bodyRim : this.kind === 'lantern' ? LANTERN_COLORS.paperRim : this.kind === 'ogre' ? OGRE_COLORS.skinRim : this.kind === 'boss' ? BOSS_COLORS.skinRim : this.kind === 'bat' ? BAT_COLORS.wingRim : IMP_COLORS.bodyRim;
-    const m = createToonMaterial({ color, steps: 3, shadowLevel: 0.5, rimColor: rim, rimStrength: 0.4, ...over });
+    const m = createToonMaterial({ color, steps: 3, shadowLevel: 0.5, rimColor: this.rim, rimStrength: 0.4, ...over });
     this.flashables.push({ mat: m, baseEmissive: m.emissive.clone(), baseIntensity: m.emissiveIntensity });
     return m;
   }
@@ -253,7 +311,7 @@ export class EnemyVisual {
   private build(): void {
     const body = this.toon(0xffffff, { vertexColors: true });
     const eyeMat = this.toon(0xffffff, { vertexColors: true, steps: 2, shadowLevel: 0.9, rimStrength: 0, emissive: IMP_COLORS.eye, emissiveIntensity: 0.9 });
-    const C = IMP_COLORS;
+    const C = this.colors(IMP_COLORS);
     // 頭の原点（部品の位置は体（足元が原点）の座標で書く）
     const H = { x: 0, y: 1.42, z: 0.02 };
     const onHead = (x: number, y: number, z: number): [number, number, number] => [H.x + x, H.y + y, H.z + z];
@@ -308,7 +366,7 @@ export class EnemyVisual {
    * 描画呼び出しは、動かない部分（輪郭線あり）・細部・目・脚 4 本の 7 メッシュ。
    */
   private buildBoar(): void {
-    const C = BOAR_COLORS;
+    const C = this.colors(BOAR_COLORS);
     const body = this.toon(0xffffff, { vertexColors: true });
     const eyeMat = this.toon(0xffffff, { vertexColors: true, steps: 2, shadowLevel: 0.9, rimStrength: 0, emissive: C.eye, emissiveIntensity: 0.9 });
     const Y = BOAR_BODY_Y;
@@ -367,7 +425,7 @@ export class EnemyVisual {
    * 胴は内側の火で薄く発光している（emissive）。描画呼び出しは、動かない部分・細部・目・房・溜めの鬼火で 5 メッシュ前後。
    */
   private buildLantern(): void {
-    const C = LANTERN_COLORS;
+    const C = this.colors(LANTERN_COLORS);
     const body = this.toon(0xffffff, { vertexColors: true, emissive: 0xff7a3a, emissiveIntensity: 0.3 });
     const eyeMat = this.toon(0xffffff, { vertexColors: true, steps: 2, shadowLevel: 0.9, rimStrength: 0, emissive: C.eye, emissiveIntensity: 0.9 });
     // 紙の胴の高さ方向の半径: 楕円（縦 1.18 倍）
@@ -519,7 +577,8 @@ export class EnemyVisual {
    * 鬼火を溜める玉は、提灯と同じものを前に出す。
    */
   private buildBossExtras(body: ToonMaterial): void {
-    const C = BOSS_COLORS;
+    const C = this.colors(BOSS_COLORS);
+    this.lanternGlow = this.colors(BOSS_LANTERN);
     const spikes: Part[] = [
       ...[-1, 1].flatMap((side) => [0, 1, 2].map((i): Part => ({ geo: new THREE.ConeGeometry(0.09, 0.34, 6), color: C.gold, pos: [side * (0.95 + i * 0.12), 2.28 - i * 0.07, -0.05 + i * 0.12], rot: [0.2, 0, -side * (0.7 + i * 0.25)] }))),
       { geo: new THREE.ConeGeometry(0.1, 0.4, 6), color: C.gold, pos: onBossHead(0, 0.5, 0.0), rot: [0, 0, 0] },
@@ -532,7 +591,7 @@ export class EnemyVisual {
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 1.5, 6), new THREE.MeshBasicMaterial({ color: C.dark, fog: false }));
     pole.position.set(0, -0.75, 0.05);
     lantern.add(pole);
-    const paperMat = new THREE.MeshBasicMaterial({ color: BOSS_LANTERN.glowDim, toneMapped: false, fog: false });
+    const paperMat = new THREE.MeshBasicMaterial({ color: this.lanternGlow.glowDim, toneMapped: false, fog: false });
     const paper = new THREE.Mesh(new THREE.SphereGeometry(0.46, 16, 12), paperMat);
     paper.scale.set(1, 1.2, 1);
     paper.position.set(0, 0.2, 0);
@@ -544,7 +603,7 @@ export class EnemyVisual {
       cap.position.set(0, y, 0);
       lantern.add(cap);
     }
-    const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: BOSS_LANTERN.glowHot, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, opacity: 0.55 }));
+    const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: this.lanternGlow.glowHot, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, opacity: 0.55 }));
     halo.scale.set(2.2, 2.2, 1);
     halo.position.set(0, 0.2, 0);
     halo.renderOrder = 7;
@@ -563,7 +622,7 @@ export class EnemyVisual {
    * pivot ごと中心を軸に傾く（急降下の前傾・仰け反り・落ちるときの回転）。翼は armL / armR を使う。群れで 6〜7 体出るので、描画呼び出しは 1 体あたり 5 メッシュ前後に抑える。
    */
   private buildBat(): void {
-    const C = BAT_COLORS;
+    const C = this.colors(BAT_COLORS);
     const body = this.toon(0xffffff, { vertexColors: true });
     const eyeMat = this.toon(0xffffff, { vertexColors: true, steps: 2, shadowLevel: 0.9, rimStrength: 0, emissive: C.eye, emissiveIntensity: 0.9 });
     const solid: Part[] = [
@@ -873,7 +932,7 @@ export class EnemyVisual {
       const phase = e.phase;
       const casting = e.state === 'windup' && (atk.pose === 'cast' || atk.pose === 'roar') ? clamp(e.stateFrame / atk.windupFrames, 0, 1) : 0;
       const heat = clamp(0.25 + 0.28 * phase + 0.45 * casting + (dead ? -0.3 : 0), 0, 1) + 0.06 * Math.sin(this.idleTime * 9);
-      this.bossLanternMat.color.setHex(BOSS_LANTERN.glowDim).lerp(_crackHot.setHex(BOSS_LANTERN.glowHot), clamp(heat, 0, 1));
+      this.bossLanternMat.color.setHex(this.lanternGlow.glowDim).lerp(_crackHot.setHex(this.lanternGlow.glowHot), clamp(heat, 0, 1));
       this.bossLantern.scale.setScalar(1 + 0.16 * casting);
       this.bossLantern.rotation.set(Math.sin(this.idleTime * 1.7) * 0.06 - pitch * 0.5, 0, Math.sin(this.idleTime * 1.3) * 0.08);
     }

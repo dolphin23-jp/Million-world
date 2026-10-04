@@ -1,4 +1,5 @@
 import { clamp } from '../core/math';
+import { CRIT } from './data/crit';
 import { HIT_FEEDBACK } from './data/hit-feedback';
 import type { HitEvent } from './hit';
 
@@ -18,16 +19,20 @@ export interface HitFeedback {
   /** エフェクトの強さ（0.3〜1.2。1 でおよそダメージ 40 相当） */
   power: number;
   style: HitStyle;
+  /** 会心の命中か（ダメージ数字・音・エフェクトを会心の見た目にする。ADR-035） */
+  crit: boolean;
 }
 
-export function hitFeedback(ev: Pick<HitEvent, 'damage' | 'hitStop'>, killed: boolean): HitFeedback {
+export function hitFeedback(ev: Pick<HitEvent, 'damage' | 'hitStop' | 'crit'>, killed: boolean): HitFeedback {
   const f = HIT_FEEDBACK;
+  const crit = ev.crit === true;
   const shake = f.shake.base + f.shake.perDamage * ev.damage;
   return {
     hitStop: ev.hitStop + (killed ? f.killExtraHitStop : 0),
-    shakeAmp: shake * (killed ? f.shake.killScale : 1),
+    shakeAmp: shake * (killed ? f.shake.killScale : 1) * (crit ? CRIT.shakeScale : 1),
     shakeSeconds: f.shakeSeconds.base + f.shakeSeconds.perDamage * ev.damage,
-    power: clamp(ev.damage / f.power.damage, f.power.min, f.power.max),
+    power: clamp((ev.damage / f.power.damage) * (crit ? CRIT.powerScale : 1), f.power.min, f.power.max * (crit ? CRIT.powerScale : 1)),
     style: killed ? 'kill' : ev.damage >= f.heavyDamage ? 'heavy' : 'light',
+    crit,
   };
 }

@@ -46,7 +46,7 @@
       <div id="mystical-gauge" data-state="ready"><div class="mystical-fill"></div></div>
       <div id="hp-player" class="hp"><div class="hp-lag"></div><div class="hp-fill"></div></div>
       <!-- レベルと経験値（HP バーの左。ADR-033）。値は src/ui/hud.ts の setGrowth -->
-      <div id="lv-box"><span class="lv-num">Lv 1</span><div class="lv-bar"><div class="lv-fill"></div></div></div>
+      <div id="lv-box"><span class="lv-num">Lv 1</span><div class="lv-bar"><div class="lv-fill"></div></div><span class="tier-badge" data-tier="1"></span></div>
       <div id="hp-boss" class="hp" style="display: none"><div class="hp-lag"></div><div class="hp-fill"></div><div class="poise"><div class="poise-fill"></div></div><span class="hp-name"></span></div>
       <div id="hp-target" class="hp" style="display: none"><div class="hp-lag"></div><div class="hp-fill"></div><div class="poise"><div class="poise-fill"></div></div><span class="hp-name"></span></div>
       <div id="debug"></div>
@@ -71,6 +71,8 @@
     <div id="result" class="hidden">
       <div class="result-card">
         <div class="result-title"></div>
+        <!-- 挑んだ敵の段階と、勝って次の段階が解放されたときのお知らせ（ADR-036）。src/ui/hud.ts の showResult が書く -->
+        <div class="result-tier" data-tier="1"></div>
         <div class="result-rank"><span></span></div>
         <div class="result-rows">
           <div><dt>撃破</dt><dd id="r-kills"></dd></div>
@@ -80,7 +82,11 @@
           <div><dt>被弾</dt><dd id="r-hits"></dd></div>
           <div><dt>パリィ</dt><dd id="r-parries"></dd></div>
         </div>
-        <button id="result-retry" type="button">もう一度</button>
+        <div class="result-unlock hidden"></div>
+        <div class="result-buttons">
+          <button id="result-retry" type="button">もう一度</button>
+          <button id="result-next" type="button" class="hidden">次の段階へ</button>
+        </div>
       </div>
     </div>
 
@@ -91,6 +97,8 @@
       </div>
       <!-- 装備の選択。src/ui/hud.ts の setupLoadoutPicker が中身を作る -->
       <div id="loadout-pick"></div>
+      <!-- 敵の段階（色違いの強化版）の選択。解放済みの段階だけ選べる。src/ui/hud.ts の setupTierPicker が中身を作る（ADR-036） -->
+      <div id="tier-pick"></div>
       <div class="start-hint">タップして開始</div>
     </div>
 
