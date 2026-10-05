@@ -4,7 +4,7 @@ import type { Obstacle, WorldDef } from '../world';
  * 闘技場の障害物（M7-1。ADR-039）。当たり（World）と見た目（Arena）を同じ表から作る = 見えている物と止まる物がずれない。
  * 数値は仮置き（実機で配置・高さを見て調整）。三者の高さの目安（`world.ts` の STEP_UP = 0.45、弾の高さ PROJECTILE_HEIGHT = 1.1）:
  *  - 岩・低い壁（上面 0.85〜0.9）: 弾は上を通る・いずれまたいで越えられる（M7-2 のジャンプ・乗り越え）
- *  - 箱（上面 1.5）: 弾を遮る・乗り越え / 登りの練習台（M7-3）
+ *  - 箱（上面 1.5）・石の壇（上面 2.2）: 弾を遮る・**登れる縁**（climbable。跳んでも乗れない高さを、掴んで登る。M7-3b）
  *  - 柱（上面 3.2〜4.5）: 弾を遮る・登れない
  */
 export const ARENA_RADIUS = 14;
@@ -53,7 +53,10 @@ for (const angle of [150, 330]) {
   const wall = polar(200, 9.5);
   props.push({ style: 'wall', obstacle: { kind: 'box', x: wall.x, z: wall.z, hx: 2.2, hz: 0.3, yaw: tangentYaw(200), top: 0.9 } });
   const block = polar(340, 9);
-  props.push({ style: 'block', obstacle: { kind: 'box', x: block.x, z: block.z, hx: 1, hz: 1, yaw: 0.4, top: 1.5 } });
+  props.push({ style: 'block', obstacle: { kind: 'box', x: block.x, z: block.z, hx: 1, hz: 1, yaw: 0.4, top: 1.5, climbable: true } });
+  // 石の壇（上面 2.2。縁の柱の手前。高い縁を掴んで登る）
+  const terrace = polar(292.5, 9.4);
+  props.push({ style: 'block', obstacle: { kind: 'box', x: terrace.x, z: terrace.z, hx: 1.5, hz: 1, yaw: tangentYaw(292.5), top: 2.2, climbable: true } });
 }
 
 export const ARENA_PROPS: readonly PropDef[] = props;

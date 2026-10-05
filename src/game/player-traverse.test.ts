@@ -5,13 +5,13 @@ import { TRAVERSE } from '../combat/data/traverse';
 import { MOVE } from '../combat/data/attacks';
 import { World, type Obstacle } from '../world/world';
 
-/** 乗り上がり・乗り越え（M7-3）。カメラ yaw = π のとき、スティックの上は +Z */
+/** 乗り上がり・乗り越え・掴んで登る（M7-3）。カメラ yaw = π のとき、スティックの上は +Z */
 const DT = 1 / 60;
 const CAM_YAW = Math.PI;
 const step = (p: Player, over: Partial<InputIntent> = {}, n = 1): void => {
   for (let i = 0; i < n; i++) p.step(DT, { ...createEmptyIntent(), ...over }, CAM_YAW);
 };
-const box = (x: number, z: number, hx: number, hz: number, top: number): Obstacle => ({ kind: 'box', x, z, hx, hz, yaw: 0, top });
+const box = (x: number, z: number, hx: number, hz: number, top: number, climbable = false): Obstacle => ({ kind: 'box', x, z, hx, hz, yaw: 0, top, climbable });
 const circle = (x: number, z: number, r: number, top: number): Obstacle => ({ kind: 'circle', x, z, r, top });
 const worldOf = (...obstacles: Obstacle[]): World => new World({ radius: 14, obstacles });
 const playerIn = (w: World, z: number): Player => {
@@ -180,8 +180,106 @@ describe('乗り越え（走って低くて薄い壁へ）', () => {
   });
 });
 
+describe('掴んで登る（登れる縁。M7-3b）', () => {
+  // 登れる箱（上面 1.5・奥行き 2。面は z = 4）と、壇（上面 2.2・奥行き 2）
+  const block = (top = 1.5): World => worldOf(box(0, 5, 2, 1, top, true));
+
+  it('登れる縁に押し込み続けると「登り」が始まり、1.5 の箱の上に立つ（高さ = 上面。そのまま立っていられる）', () => {
+    const p = playerIn(block(), 4 - MOVE.radius - 0.01);
+    step(p, { moveY: 1 }, TRAVERSE.holdFrames + 1);
+    expect(p.state).toBe('traverse');
+    expect(p.traverseClip!.spec.kind).toBe('climb');
+    expect(p.traverseClip!.spec.height).toBeCloseTo(1.5);
+    const n = untilDone(p, { moveY: 1 });
+    expect(n).toBeGreaterThan(40); // 乗り上がり（0.7 秒）より長い 1 秒前後
+    expect(n).toBeLessThan(90);
+    expect(p.state).toBe('idle');
+    expect(p.grounded).toBe(true);
+    expect(p.y).toBeCloseTo(1.5, 6);
+    expect(p.body.z).toBeCloseTo(4 + TRAVERSE.standZ, 2);
+    expect(p.landSerial).toBe(1);
+    step(p, {}, 30);
+    expect(p.y).toBeCloseTo(1.5, 6);
+    expect(p.grounded).toBe(true);
+  });
+
+  it('壇（上面 2.2）も登れる。高さはほぼ単調に上がり（ぶら下がりの沈みは 6cm 未満）、1 ステップの移動は走る速さの 3 倍を超えない（跳びつきの瞬間を含む）', () => {
+    const p = playerIn(block(2.2), 4 - MOVE.radius - 0.01);
+    step(p, { moveY: 1 }, TRAVERSE.holdFrames + 1);
+    expect(p.traverseClip!.spec.kind).toBe('climb');
+    expect(p.traverseClip!.spec.height).toBeCloseTo(2.2);
+    let peak = p.y;
+    let sag = 0; // これまでの最高から下がった量の最大（ぶら下がりの勢いを止める沈みだけ）
+    let maxMove = 0;
+    let prevZ = p.body.z;
+    while (p.state === 'traverse') {
+      step(p, { moveY: 1 });
+      peak = Math.max(peak, p.y);
+      sag = Math.max(sag, peak - p.y);
+      maxMove = Math.max(maxMove, Math.abs(p.body.z - prevZ) / DT);
+      prevZ = p.body.z;
+    }
+    expect(sag).toBeLessThan(0.06);
+    expect(maxMove).toBeLessThan(MOVE.runSpeed * 3);
+    expect(p.y).toBeCloseTo(2.2, 6);
+    expect(p.grounded).toBe(true);
+  });
+
+  it('縁にぶら下がっている間は、足が地面を離れている（跳びつく高さなら）。腕で支えるので、落ちない', () => {
+    const p = playerIn(block(2.2), 4 - MOVE.radius - 0.01);
+    step(p, { moveY: 1 }, TRAVERSE.holdFrames + 1);
+    // 構えのあと、跳びついて縁を掴む（0.083 + 0.16 秒）。そのあとぶら下がる
+    step(p, { moveY: 1 }, 20);
+    expect(p.state).toBe('traverse');
+    expect(p.y).toBeGreaterThan(0.3);
+    const y1 = p.y;
+    step(p, { moveY: 1 }, 3);
+    expect(p.state).toBe('traverse');
+    expect(p.y).toBeGreaterThan(y1 - 0.15); // ぶら下がりの沈みは小さい（重力で落ち続けない）
+  });
+
+  it('登りの最中は、攻撃・回避・ジャンプ・ガードの入力を受け付けない。終わってから先行入力が出る', () => {
+    const p = playerIn(block(), 4 - MOVE.radius - 0.01);
+    step(p, { moveY: 1 }, TRAVERSE.holdFrames + 1);
+    step(p, { dodgePressed: true });
+    step(p, { jumpPressed: true });
+    step(p, { guardPressed: true, guardHeld: true });
+    expect(p.state).toBe('traverse');
+    step(p, { attackPressed: true });
+    untilDone(p);
+    expect(p.state === 'attack' || p.attackQueued).toBe(true);
+  });
+
+  it('被弾すると中断してひるみ、足場から離れていれば落ちて地面（または箱の上）に着く。空中で固まらない', () => {
+    const p = playerIn(block(2.2), 4 - MOVE.radius - 0.01);
+    step(p, { moveY: 1 }, TRAVERSE.holdFrames + 1);
+    step(p, { moveY: 1 }, 24); // ぶら下がりの途中
+    expect(p.state).toBe('traverse');
+    expect(p.y).toBeGreaterThan(0.3);
+    p.takeHit({ attackerId: 1, targetId: p.body.id, damage: 1, knockback: 0, hitStop: 0, dirX: 0, dirZ: 1, x: 0, z: 0 });
+    expect(p.state).toBe('hit');
+    expect(p.traversing).toBe(false);
+    step(p, {}, 120);
+    expect(p.grounded).toBe(true);
+    expect(['idle', 'land']).toContain(p.state);
+    // 箱の中にめり込まない（外の地面か、上面の上に立つ）
+    const inside = Math.abs(p.body.x) < 2 + MOVE.radius - 1e-3 && Math.abs(p.body.z - 5) < 1 + MOVE.radius - 1e-3 && p.y < 2;
+    expect(inside).toBe(false);
+  });
+
+  it('登った上から歩いて出て、縁から降りられる（上面から地面へ。登りがまた始まらない）', () => {
+    const p = playerIn(block(), 4 - MOVE.radius - 0.01);
+    step(p, { moveY: 1 }, TRAVERSE.holdFrames + 1);
+    untilDone(p, { moveY: 1 });
+    for (let i = 0; i < 120; i++) step(p, { moveY: 1 }); // 奥へ歩いて向こうの縁から降りる
+    expect(p.y).toBe(0);
+    expect(p.body.z).toBeGreaterThan(6);
+    expect(p.state).not.toBe('traverse');
+  });
+});
+
 describe('対象外', () => {
-  it('石の箱（1.5）・高い柱は越えられない（押し込んでも始まらず、足も地面のまま）', () => {
+  it('石の箱（1.5。登れる縁でない）・高い柱は越えられない（押し込んでも始まらず、足も地面のまま）', () => {
     for (const o of [box(0, 5, 2, 1, 1.5), circle(0, 5, 0.6, 4.5)]) {
       const p = playerIn(worldOf(o), 3);
       step(p, { moveY: 1 }, 90);
