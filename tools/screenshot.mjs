@@ -1084,6 +1084,79 @@ try {
     g.applyGrowth(); // 後の撮影シーンにレベルを持ち越さない
   });
 
+  // 世界の障害物（M7-1。ADR-039）: 俯瞰で闘技場の柱・岩・壁・箱を撮り、(1) 体が柱にぶつかって止まる (2) 柱の陰の弾は消える (3) 低い岩の上を弾が通る、を確かめる
+  const worldInfo = await page.evaluate((solo) => {
+    const g = window.__mw.game;
+    g.restart({ ...solo, maxAttackers: 0 });
+    g.setLoadout('sword');
+    g.stepNow(1);
+    const w = g.world;
+    const col = w.obstacles.find((o) => o.kind === 'circle' && o.top === 3.2); // 折れた柱（斜めの 4 本のうち最初）
+    const rock = w.obstacles.find((o) => o.kind === 'circle' && o.top < 1);
+    // (1) 柱へ向かって走る: 柱の中心の真横から押し込んでも、中心から（柱の半径 + 体の半径）より近づかない
+    g.player.body.x = col.x - 3;
+    g.player.body.z = col.z + 0.3;
+    g.player.yaw = Math.PI / 2;
+    g.cam.yaw = Math.PI;
+    g.enemies[0].enemy.place(0, -9, 0);
+    // 画面の右がワールドの +X か −X かは向きの約束次第なので、まず 10 フレーム動かして柱へ近づく向きの符号を決める
+    let dirSign = 1;
+    {
+      const x0 = g.player.body.x;
+      for (let i = 0; i < 10; i++) {
+        g.inject({ moveX: 1, moveY: 0 });
+        g.stepNow(1);
+      }
+      if (g.player.body.x < x0) dirSign = -1;
+      g.player.body.x = col.x - 3;
+      g.player.body.z = col.z + 0.3;
+    }
+    const trail = [];
+    for (let i = 0; i < 90; i++) {
+      g.inject({ moveX: dirSign, moveY: 0 });
+      g.stepNow(1);
+      if (i % 15 === 14) trail.push(Number(Math.hypot(g.player.body.x - col.x, g.player.body.z - col.z).toFixed(2)));
+    }
+    const d1 = Math.hypot(g.player.body.x - col.x, g.player.body.z - col.z);
+    const need = col.r + g.player.body.r;
+    // (2) 柱の向こう側へ鬼火を撃つ（弾の高さ 1.1 < 柱の上面 3.2）: 柱の手前で消える。(3) 低い岩（上面 0.85）の上は通る
+    const ends = [];
+    const hit = { t: 0, x: 0, z: 0, nx: 0, nz: 0, index: -1 };
+    const blocked = w.raycast(col.x - 3, col.z, col.x + 3, col.z, 1.1, hit);
+    const overRock = w.raycast(rock.x - 3, rock.z, rock.x + 3, rock.z, 1.1, hit);
+    const cb = (_p, r) => ends.push(r);
+    // 弾のデータ（鬼火と同じ形。数値は撃ち方だけに効く）
+    const wisp = { id: 'wisp', speed: 8, damage: 1, knockback: 0, hitStop: 0, lifetimeFrames: 600, radius: 0.3, reflect: { damage: 1, speedScale: 1, knockback: 0, hitStop: 0, lifetimeFrames: 60 } };
+    const p1 = g.projectiles.spawn(wisp, 1, col.x - 3, col.z, 1, 0);
+    const p2 = g.projectiles.spawn(wisp, 1, rock.x - 3, rock.z, 1, 0);
+    for (let i = 0; i < 90; i++) g.projectiles.step(1 / 60, g.world, cb);
+    return { d1, trail, need, blocked, overRock, ends, p1x: p1.x, p1alive: p1.alive, p2alive: p2.alive, p2x: p2.x, colX: col.x, rockX: rock.x, props: w.obstacles.length };
+  }, SOLO);
+  console.log(`[world] ${JSON.stringify(worldInfo)}`);
+  const nearest = Math.min(...worldInfo.trail); // 柱へ走り込み、ぴったり接して（= 半径の和）、柱の脇へ滑って抜ける
+  if (nearest < worldInfo.need - 1e-6 || nearest > worldInfo.need + 0.05 || !worldInfo.blocked || worldInfo.overRock || worldInfo.p1alive || worldInfo.p1x > worldInfo.colX - 0.7 || worldInfo.ends[0] !== 'wall') {
+    console.error('[world] 柱にめり込んでいる（または柱まで届いていない）・柱が弾を遮っていない・低い岩が弾を遮っている');
+    process.exitCode = 3;
+  }
+  await page.evaluate(() => {
+    const g = window.__mw.game;
+    g.player.body.x = 0;
+    g.player.body.z = -2;
+    g.player.yaw = 0;
+    g.cam.yaw = Math.PI;
+    g.cam.pitch = 0.95;
+    g.cam.distance = 21;
+    g.stepNow(1);
+    g.renderNow(10);
+  });
+  await sleep(200);
+  await page.screenshot({ path: 'artifacts/shot-world-overview.png' });
+  await page.evaluate(() => {
+    const g = window.__mw.game;
+    g.cam.pitch = 0.2;
+    g.cam.distance = 4.9;
+  });
+
   // 操作ガイド（ADR-024）: ロックして 1 段目を出し、次段の受付が開いた絵（連携の履歴・続けられる技・受付の帯）と、右上の「技表」を開いた絵
   await page.evaluate((solo) => {
     const g = window.__mw.game;

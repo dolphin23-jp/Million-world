@@ -13,6 +13,7 @@ import { createEmptyIntent, type InputIntent } from '../input/intent';
 import type { HitEvent } from '../combat/hit';
 import type { LoadoutId } from '../combat/data/loadouts';
 import { ARENA_RADIUS } from '../world/arena';
+import { openWorld } from '../world/world';
 
 /**
  * 提灯（遠距離型。ADR-026）と本物の Player の結合テスト。Game.step と同じ順序で 1 フレームずつ進める。
@@ -67,7 +68,7 @@ function scene(loadout: LoadoutId = 'sword', z = 6.5): Scene {
         const s = enemy.shot;
         system.spawn(PROJECTILES[s.projectile], enemy.id, s.x, s.z, s.dirX, s.dirZ);
       }
-      system.step(DT, ARENA_RADIUS, (_p, r) => sc.ends.push(r));
+      system.step(DT, openWorld(ARENA_RADIUS), (_p, r) => sc.ends.push(r));
       const onEnd = (_p: Projectile, r: ProjectileEnd): void => void sc.ends.push(r);
       resolvePlayerAttack(player, [enemy as CombatTarget], () => undefined);
       cutProjectiles(system, player, onEnd);

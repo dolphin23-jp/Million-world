@@ -12,6 +12,7 @@ import { createEmptyIntent, type InputIntent } from '../input/intent';
 import { HitTracker, type HitEvent, type Hurtbox } from '../combat/hit';
 import type { EnemyAttackerView, DefenderView } from './combat';
 import { ARENA_RADIUS } from '../world/arena';
+import { openWorld } from '../world/world';
 
 /**
  * ミスティカルドッジ（ジャスト回避。ADR-030）と本物の Player・Enemy・弾の結合テスト。Game.step と同じ順序で進める:
@@ -66,7 +67,7 @@ function scene(type: 'boar' | 'lantern' = 'boar', z = 6.5): Scene {
         const s = enemy.shot;
         system.spawn(PROJECTILES[s.projectile], enemy.id, s.x, s.z, s.dirX, s.dirZ);
       }
-      if (enemiesRun) system.step(DT, ARENA_RADIUS);
+      if (enemiesRun) system.step(DT, openWorld(ARENA_RADIUS));
       const onEnd = (_p: Projectile, _r: ProjectileEnd): void => undefined;
       resolvePlayerAttack(player, [enemy as CombatTarget], () => undefined);
       cutProjectiles(system, player, onEnd);

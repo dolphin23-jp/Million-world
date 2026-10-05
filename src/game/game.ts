@@ -8,7 +8,8 @@ import { PostPipeline } from '../render/post';
 import { AdaptiveResolution, buildLevels } from '../render/adaptive-resolution';
 import { SkyDome } from '../render/sky';
 import { Arena } from '../world/arena';
-import { clampInsideArena, pushOutOfCircle, separateCircles } from '../world/collision';
+import { pushOutOfCircle, separateCircles } from '../world/collision';
+import { FLYING_Y, type World } from '../world/world';
 import { Player } from './player';
 import { resolveEnemyAttacks, resolvePlayerAttack } from './combat';
 import { cutProjectiles, resolveProjectilesOnPlayer, resolveReflectedProjectiles, type ProjectileHandlers } from './projectile-combat';
@@ -175,6 +176,8 @@ export class Game {
   readonly post: PostPipeline;
   readonly sky: SkyDome;
   readonly arena: Arena;
+  /** 世界への問い合わせ（体の押し出し・弾や視線の遮り・出現位置。Arena の障害物と同じデータ。ADR-039） */
+  readonly world: World;
   readonly player: Player;
   readonly enemies: EnemyEntry[] = [];
   /** enemies の sim だけを並べた配列（毎ステップ配列を作らないため。spawn / 取り除きで同期する） */
@@ -304,6 +307,7 @@ export class Game {
     this.scene.add(sun.target);
 
     this.arena = new Arena();
+    this.world = this.arena.world;
     this.scene.add(this.arena.group);
 
     this.player = new Player();
@@ -446,7 +450,7 @@ export class Game {
   /** ウェーブの敵を出す（出現位置はプレイヤーから見てアリーナの向こう側。encounter.ts の spawnPoint） */
   private spawnWave(index: number): void {
     for (const w of this.encounter.def.waves[index] ?? []) {
-      const p = spawnPoint(w, this.player.body.x, this.player.body.z, this.arena.radius);
+      const p = spawnPoint(w, this.player.body.x, this.player.body.z, this.world.radius);
       this.spawnEnemy(w.type, p.x, p.z);
     }
   }
@@ -887,7 +891,7 @@ export class Game {
     for (const e of this.enemySims) if (!e.dead && e.def.id === type) alive++;
     const n = Math.min(req.count, Math.max(0, req.max - alive));
     if (n <= 0) return;
-    summonPoints(boss.body.x, boss.body.z, n, req.radius, boss.summonSerial, this.arena.radius, this.summonBuf);
+    summonPoints(boss.body.x, boss.body.z, n, req.radius, boss.summonSerial, this.world.radius, this.summonBuf);
     for (let i = 0; i < n; i++) {
       const p = this.summonBuf[i]!;
       this.summonedIds.add(this.spawnEnemy(type, p.x, p.z, tier).id);
@@ -1035,7 +1039,7 @@ export class Game {
     this.enemyEvents();
     // 敵の弾: 撃たれた弾を作って 1 ステップ飛ばす（寿命・アリーナの縁で消える）
     this.spawnProjectiles();
-    if (enemiesRun) this.projectiles.step(dt, this.arena.radius, this.onProjectileEndCb);
+    if (enemiesRun) this.projectiles.step(dt, this.world, this.onProjectileEndCb);
     // 先にプレイヤーの攻撃を解決する。同じフレームに当たり合うなら、プレイヤーが先に当てて敵の攻撃を中断する（敵の弾は斬り落とされる）
     resolvePlayerAttack(this.player, this.enemySims, (ev, enemy, result, riposte) => this.onPlayerHit(ev, enemy, result, riposte), this.critRng);
     cutProjectiles(this.projectiles, this.player, this.onProjectileEndCb);
@@ -1059,8 +1063,9 @@ export class Game {
         if (!b.dead && (a.def.flying ?? false) === (b.def.flying ?? false)) separateCircles(a.body, b.body);
       }
     }
-    for (const { enemy } of this.enemies) clampInsideArena(enemy.body, 0, 0, this.arena.radius);
-    clampInsideArena(this.player.body, 0, 0, this.arena.radius);
+    // 障害物（柱・岩・壁・箱）とアリーナの縁: 体は障害物の外へ押し出され、縁の内側へ収まる。飛んでいる敵は低い障害物の上を通る（足の高さ FLYING_Y）
+    for (const { enemy } of this.enemies) this.world.moveCircle(enemy.body, enemy.def.flying ? FLYING_Y : 0);
+    this.world.moveCircle(this.player.body);
 
     // 演出が終わった敵を取り除く
     for (let i = this.enemies.length - 1; i >= 0; i--) {
