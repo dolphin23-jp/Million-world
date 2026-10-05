@@ -43,6 +43,8 @@ export class HeroVisual {
   private seenSerial = -1;
   private seenHit = 0;
   private seenEquip = -1;
+  /** 空中で、上昇のクリップ（jump）を再生中か（false = 落下の fall）。上昇から落下へ切り替わる瞬間を検出する */
+  private airRising = false;
   private seenGuardHit = 0;
   private seenParry = 0;
   /** ガードで受け止めた・パリィした瞬間の盾（剣）の閃光（1 → 0 に減衰。実時間） */
@@ -246,6 +248,8 @@ export class HeroVisual {
       const rate = Math.max(HERO.runRateMin, p.speed / HERO.runCycleSpeed);
       this.animator.setRate(rate);
     }
+    // 空中: 上昇（跳び上がりの姿勢）から落下（足を伸ばす姿勢）への切り替え。頂点で速度が下向きに変わる瞬間
+    if (p.state === 'air' && p.rising !== this.airRising) this.playAir(p);
     // ミキサーが骨へ書き直さない値の上に補正が重ならないよう、更新の前に戻して、更新のあとにかけ直す
     this.posture?.release();
     this.animator.update(dt);
@@ -260,6 +264,12 @@ export class HeroVisual {
   private clipName(base: string, p: Player): string {
     const v = base + p.loadout.clipVariant;
     return p.loadout.clipVariant !== '' && this.animator.has(v) ? v : base;
+  }
+
+  /** 空中のクリップ: 上昇中（踏み切りの沈みを含む）は jump、落下は fall。どちらも終端の姿勢で止まる */
+  private playAir(p: Player): void {
+    this.airRising = p.rising;
+    this.animator.play(this.clipName(this.airRising ? 'jump' : 'fall', p), { loop: false, fade: this.airRising ? 0.05 : 0.1, rate: 1, clamp: true, restart: true });
   }
 
   /** ガードで受け止めた・パリィしたときの反動の動きと閃光 */
@@ -294,6 +304,13 @@ export class HeroVisual {
       }
       case 'dodge':
         this.animator.play(this.clipName(p.dodgeKind === 'back' ? 'dodgeBack' : 'dodge', p), { loop: false, fade: 0.06, rate: 1, clamp: true, restart: true });
+        break;
+      case 'air':
+        this.playAir(p);
+        break;
+      case 'land':
+        // 着地: 足が着いて膝と腰を沈め、立ち上がる（硬直のあと idle / run へつなぐ）
+        this.animator.play(this.clipName('land', p), { loop: false, fade: 0.03, rate: 1, clamp: true, restart: true });
         break;
       case 'charge':
         // 構えは終端の姿勢で止まる（clamp）。離すまで保つ

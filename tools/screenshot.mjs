@@ -1157,6 +1157,76 @@ try {
     g.cam.distance = 4.9;
   });
 
+  // ジャンプ（M7-2。ADR-040）: 低い岩（上面 0.85）へ走って跳び乗る。空中・岩の上の絵と、数値（頂点・乗れたか・箱には乗れないか）
+  const jumpA = await page.evaluate((solo) => {
+    const g = window.__mw.game;
+    g.restart({ ...solo, maxAttackers: 0 });
+    g.setLoadout('sword');
+    g.stepNow(1);
+    for (const e of g.enemies) e.enemy.place(0, -12, 0); // 敵は遠く（岩へ跳ぶ邪魔をしない）
+    const rock = g.world.obstacles.find((o) => o.kind === 'circle' && o.top < 1);
+    const p = g.player;
+    g.cam.yaw = Math.PI; // スティックの上 = +Z
+    g.cam.pitch = 0.2;
+    g.cam.distance = 6.5;
+    // 岩の手前 2.6m から +Z へ走り、助走ののちに跳ぶ。頂点（上昇が止まる）まで進めて、その絵を撮る
+    p.body.x = rock.x;
+    p.body.z = rock.z - 2.6;
+    p.yaw = 0;
+    p.velX = p.velZ = 0;
+    g.stepNow(1);
+    for (let i = 0; i < 12; i++) { g.inject({ moveY: 1 }); g.stepNow(1); }
+    g.inject({ moveY: 1, jumpPressed: true });
+    g.stepNow(1);
+    let peak = 0;
+    for (let i = 0; i < 60; i++) {
+      g.inject({ moveY: 1 });
+      g.stepNow(1);
+      peak = Math.max(peak, p.y);
+      if (p.velY < 0 && !p.grounded) break;
+    }
+    // 絵は横から（走ってきた向きが画面の左右になる）。走り終えたあとなので、カメラの向きを変えても sim には響かない
+    g.cam.yaw = Math.PI * 0.5;
+    g.renderNow(8);
+    return { peak, y: p.y, state: p.state, rockX: rock.x, rockZ: rock.z, rockTop: rock.top };
+  }, SOLO);
+  await sleep(150);
+  await page.screenshot({ path: 'artifacts/shot-jump-air.png' });
+  const jumpB = await page.evaluate((a) => {
+    const g = window.__mw.game;
+    const p = g.player;
+    let peak = a.peak;
+    for (let i = 0; i < 60 && !(p.grounded && p.y > 0.5); i++) { g.inject({ moveY: 1 }); g.stepNow(1); peak = Math.max(peak, p.y); }
+    g.stepNow(2);
+    g.renderNow(10);
+    return { peak, y: p.y, grounded: p.grounded, dist: Math.hypot(p.body.x - a.rockX, p.body.z - a.rockZ), state: p.state };
+  }, jumpA);
+  await sleep(150);
+  await page.screenshot({ path: 'artifacts/shot-jump-rock.png' });
+  // 石の箱（上面 1.5）は、立ったままの跳躍では乗れない
+  const jumpC = await page.evaluate(() => {
+    const g = window.__mw.game;
+    const p = g.player;
+    const b = g.world.obstacles.find((o) => o.kind === 'box' && o.top > 1.4);
+    p.body.x = b.x;
+    p.body.z = b.z - 3.2;
+    p.y = 0;
+    p.velX = p.velZ = 0;
+    p.yaw = 0;
+    g.stepNow(30);
+    for (let i = 0; i < 10; i++) { g.inject({ moveY: 1 }); g.stepNow(1); }
+    g.inject({ moveY: 1, jumpPressed: true });
+    g.stepNow(1);
+    let blockPeak = 0;
+    for (let i = 0; i < 70; i++) { g.inject({ moveY: 1 }); g.stepNow(1); blockPeak = Math.max(blockPeak, p.y); }
+    return { blockTop: b.top, blockPeak, blockFinalY: p.y };
+  });
+  console.log(`[jump] ${JSON.stringify({ peak: jumpB.peak, air: { y: jumpA.y, state: jumpA.state }, onRock: { y: jumpB.y, grounded: jumpB.grounded, dist: jumpB.dist, rockTop: jumpA.rockTop }, ...jumpC })}`);
+  if (jumpB.peak < 1.2 || jumpB.peak > 1.4 || !jumpB.grounded || Math.abs(jumpB.y - jumpA.rockTop) > 1e-6 || jumpC.blockFinalY !== 0) {
+    console.error('[jump] 頂点が想定（約 1.33m）と違う・低い岩に乗れない・石の箱に乗れてしまう');
+    process.exitCode = 3;
+  }
+
   // 操作ガイド（ADR-024）: ロックして 1 段目を出し、次段の受付が開いた絵（連携の履歴・続けられる技・受付の帯）と、右上の「技表」を開いた絵
   await page.evaluate((solo) => {
     const g = window.__mw.game;

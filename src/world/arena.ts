@@ -94,7 +94,6 @@ export class Arena {
     const blockTopMat = createToonMaterial({ color: 0xe6dcc3, steps: 2, shadowLevel: 0.6 });
     const pillarGeo = new THREE.CylinderGeometry(0.45, 0.55, 4.2, 10);
     const capGeo = new THREE.BoxGeometry(1.3, 0.35, 1.3);
-    const rockGeo = new THREE.DodecahedronGeometry(1, 0);
     const add = (mesh: THREE.Mesh, thickness = 0.03): void => {
       mesh.castShadow = true;
       mesh.receiveShadow = true;
@@ -124,11 +123,9 @@ export class Arena {
         chip.rotation.y = 0.7;
         add(chip, 0.02);
       } else if (prop.style === 'rock' && o.kind === 'circle') {
-        // 低い岩: 十二面体を、上面が o.top になるよう縦に潰す（下半分は床の下）
-        const rock = new THREE.Mesh(rockGeo, rockMat);
-        rock.scale.set(o.r * 1.08, o.top, o.r * 1.08);
-        rock.position.set(o.x, 0, o.z);
-        rock.rotation.y = o.x * 3.1 + o.z;
+        // 低い岩: ごつごつした多角柱。上面は当たりと同じ高さ o.top の平らな面（ジャンプで上に乗れる高さなので、足の置き場が見た目とずれないように）
+        const rock = new THREE.Mesh(makeRockGeometry(o.r, o.top, o.x * 3.1 + o.z), rockMat);
+        rock.position.set(o.x, o.top / 2, o.z);
         add(rock);
       } else if ((prop.style === 'wall' || prop.style === 'block') && o.kind === 'box') {
         const mat = prop.style === 'wall' ? columnMat : blockMat;
@@ -136,9 +133,10 @@ export class Arena {
         body.position.set(o.x, o.top / 2, o.z);
         body.rotation.y = o.yaw;
         add(body);
-        // 上面の縁取り（明るい帯。登れる高さが見て分かるように）
+        // 上面の縁取り（明るい帯。乗れる・登れる高さが見て分かるように）
         const trim = new THREE.Mesh(new THREE.BoxGeometry(o.hx * 2 + 0.08, 0.1, o.hz * 2 + 0.08), blockTopMat);
-        trim.position.set(o.x, o.top + 0.04, o.z);
+        // 帯の上面は面より 1cm だけ高い（同じ高さだと重なってちらつく）。人が乗る面なので、それ以上は盛らない
+        trim.position.set(o.x, o.top - 0.04, o.z);
         trim.rotation.y = o.yaw;
         trim.castShadow = false;
         add(trim, 0.02);
@@ -174,4 +172,25 @@ export class Arena {
       c.position.y = 2.2 + Math.sin(timeSec * 1.6 + i * 1.3) * 0.25;
     });
   }
+}
+
+/**
+ * 低い岩の形: 八角柱を側面だけ不規則にゆがめた多角柱（中ほどが少しふくらむ）。上面の高さは top のまま平ら（乗れる面）。
+ * 半径 r は当たりの円の半径（上面の縁は r の 0.94〜1.06 倍に収まる）。seed でゆがみが岩ごとに変わる
+ */
+function makeRockGeometry(r: number, top: number, seed: number): THREE.BufferGeometry {
+  const geo = new THREE.CylinderGeometry(r * 0.94, r * 1.06, top, 8, 2);
+  const pos = geo.getAttribute('position');
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const z = pos.getZ(i);
+    if (x === 0 && z === 0) continue; // 上面・底面の中心
+    const a = Math.atan2(z, x);
+    const t = pos.getY(i) / top + 0.5; // 0 = 底、1 = 上面
+    const k = (1 + 0.07 * Math.sin(a * 3 + seed) + 0.05 * Math.sin(a * 5 + seed * 2)) * (1 + 0.1 * Math.sin(Math.PI * t));
+    pos.setX(i, x * k);
+    pos.setZ(i, z * k);
+  }
+  geo.computeVertexNormals();
+  return geo;
 }

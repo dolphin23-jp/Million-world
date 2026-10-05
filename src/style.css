@@ -128,8 +128,8 @@ body {
   width: 72px;
   height: 72px;
   font-size: 14px;
-  right: calc(130px + var(--safe-right));
-  bottom: calc(176px + var(--safe-bottom));
+  right: calc(142px + var(--safe-right));
+  bottom: calc(188px + var(--safe-bottom));
 }
 .tbtn-guard {
   /* ガード（攻撃の左・回避の下）。押している間だけ構える（ADR-020） */
