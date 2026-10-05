@@ -1452,6 +1452,114 @@ try {
     process.exitCode = 3;
   }
 
+  // 高さと視線（M7-4b。ADR-044）: (1) 石の壇（2.2m）の上のプレイヤーに、地面の子鬼は構えず（届かない）、背の高い岩鬼は届く
+  // (2) 折れた柱の陰のプレイヤーに、提灯は見える位置まで回り込んでから撃つ (3) 柱の陰の敵はロックできない
+  const oneEnemy = (type) => ({ waves: [[{ type, offset: 0, radius: 6 }]], waveGapFrames: 100, victoryDelayFrames: 75, defeatDelayFrames: 150, maxAttackers: 2 });
+  const onTerrace = (type) => page.evaluate(([cfg, type]) => {
+    const g = window.__mw.game;
+    g.restart(cfg);
+    g.setLoadout('sword');
+    g.stepNow(1);
+    const t = g.world.obstacles.find((o) => o.kind === 'box' && o.top > 2 && o.climbable);
+    const len = Math.hypot(t.x, t.z);
+    const ux = t.x / len; // 壇の中心 → 外向き
+    const uz = t.z / len;
+    const p = g.player;
+    p.body.x = t.x;
+    p.body.z = t.z;
+    p.y = t.top;
+    p.grounded = true;
+    p.velY = 0;
+    p.yaw = Math.atan2(-ux, -uz);
+    const e = g.enemies[0].enemy;
+    // 敵は壇の内側の面（壇の奥行き 1m + 体の半径 + すき間）に、プレイヤーの方を向いて立つ
+    const d = t.hz + e.def.radius + 0.4;
+    e.place(t.x - ux * d, t.z - uz * d, Math.atan2(ux, uz));
+    g.stepNow(2);
+    let attacked = false;
+    let hits = 0;
+    const hp0 = p.health.hp;
+    for (let i = 0; i < 60 * 5; i++) {
+      g.stepNow(1);
+      if (e.state === 'windup' || e.state === 'attack') attacked = true;
+      hits = hp0 - p.health.hp;
+    }
+    g.cam.yaw = Math.atan2(uz, -ux) + 0.4;
+    g.cam.pitch = 0.2;
+    g.cam.distance = 6.5;
+    g.renderNow(14);
+    return { attacked, hpLost: hits, y: p.y, grounded: p.grounded, state: e.state };
+  }, [oneEnemy(type), type]);
+  const safeImp = await onTerrace('imp');
+  await sleep(150);
+  await page.screenshot({ path: 'artifacts/shot-terrace-safe.png' });
+  const safeOgre = await onTerrace('ogre');
+  console.log(`[reach] terrace imp ${JSON.stringify(safeImp)} ogre ${JSON.stringify(safeOgre)}`);
+  if (safeImp.attacked || safeImp.hpLost > 0 || Math.abs(safeImp.y - 2.2) > 1e-6 || !safeOgre.attacked) {
+    console.error('[reach] 壇の上のプレイヤーに、地面の子鬼が構える・当たる／背の高い岩鬼が構えない（縦の届き）');
+    process.exitCode = 3;
+  }
+
+  const lanternHidden = await page.evaluate((cfg) => {
+    const g = window.__mw.game;
+    g.restart(cfg);
+    g.setLoadout('sword');
+    g.stepNow(1);
+    const col = g.world.obstacles.find((o) => o.kind === 'circle' && o.top > 3 && o.top < 4 && Math.abs(o.x - o.z) < 1e-6 && o.x > 0);
+    const len = Math.hypot(col.x, col.z);
+    const ux = col.x / len;
+    const uz = col.z / len;
+    const p = g.player;
+    p.body.x = col.x - ux * 2.2;
+    p.body.z = col.z - uz * 2.2;
+    p.yaw = Math.atan2(ux, uz);
+    const e = g.enemies[0].enemy;
+    e.place(col.x + ux * 3, col.z + uz * 3, Math.atan2(-ux, -uz));
+    g.stepNow(2);
+    const sightAtStart = e.sight;
+    // 柱の陰のまま鬼火を撃っていないか: 予備動作に入るまで進めて、そのときの位置と視線を調べる
+    let windupAt = -1;
+    for (let i = 0; i < 60 * 15 && windupAt < 0; i++) {
+      g.stepNow(1);
+      if (e.state === 'windup') windupAt = i;
+    }
+    const offLine = Math.abs((e.body.x - col.x) * -uz + (e.body.z - col.z) * ux); // 柱を通る径からの横ずれ
+    const sightAtWindup = e.sight;
+    // ロック: 柱の陰の敵はロックできない
+    e.place(col.x + ux * 3, col.z + uz * 3, 0);
+    for (let k = 0; k < 4; k++) g.stepNow(1);
+    g.inject({ lockPressed: true });
+    g.stepNow(1);
+    const lockedBehind = g.lockOn.locked;
+    // 上から、柱・プレイヤー・提灯が収まるように（注視点を固定する。撮ったあとに外す）
+    g.cam.pin((p.body.x + e.body.x) / 2, 0.5, (p.body.z + e.body.z) / 2);
+    g.cam.yaw = Math.atan2(-uz, ux) + Math.PI / 2;
+    g.cam.pitch = 1.0;
+    g.cam.distance = 12;
+    g.renderNow(14);
+    return { sightAtStart, windupAt, sightAtWindup, offLine, lockedBehind };
+  }, oneEnemy('lantern'));
+  await sleep(150);
+  await page.screenshot({ path: 'artifacts/shot-sight-lantern.png' });
+  const lockOpen = await page.evaluate(() => {
+    const g = window.__mw.game;
+    g.cam.unpin();
+    const e = g.enemies[0].enemy;
+    // 柱の陰から出して、ロックできるか
+    e.place(e.body.x, e.body.z, 0);
+    const p = g.player;
+    e.place(p.body.x + 3, p.body.z - 3, 0);
+    g.stepNow(2);
+    g.inject({ lockPressed: true });
+    g.stepNow(1);
+    return { locked: g.lockOn.locked };
+  });
+  console.log(`[sight] ${JSON.stringify({ ...lanternHidden, lockOpen: lockOpen.locked })}`);
+  if (lanternHidden.sightAtStart || lanternHidden.windupAt < 0 || !lanternHidden.sightAtWindup || lanternHidden.offLine < 1 || lanternHidden.lockedBehind) {
+    console.error('[sight] 柱の陰の提灯が回り込まずに撃つ・視線の外で構える／柱の陰の敵をロックできてしまう');
+    process.exitCode = 3;
+  }
+
   // 操作ガイド（ADR-024）: ロックして 1 段目を出し、次段の受付が開いた絵（連携の履歴・続けられる技・受付の帯）と、右上の「技表」を開いた絵
   await page.evaluate((solo) => {
     const g = window.__mw.game;

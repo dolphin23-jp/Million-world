@@ -13,6 +13,8 @@ export interface LockCandidate {
   id: number;
   x: number;
   z: number;
+  /** プレイヤーから見えているか（視線が柱・高い箱に遮られていない）。false の敵は、選べない・切替先にならない。省略 = 見えている（M7-4b。ADR-044） */
+  visible?: boolean;
 }
 
 /** カメラが方向 (dx, dz) を正面に見るときの yaw */
@@ -26,13 +28,14 @@ export function angleFromCamera(camYaw: number, dx: number, dz: number): number 
 }
 
 /**
- * ロック対象を選ぶ（ロックボタンを押したとき）。maxRange 以内で、点数（距離を、画面の正面からずれるほど割り増し）が最小の敵。
+ * ロック対象を選ぶ（ロックボタンを押したとき）。見えている（visible が false でない）敵のうち、maxRange 以内で、点数（距離を、画面の正面からずれるほど割り増し）が最小の敵。
  * 対象がなければ null。
  */
 export function pickTarget(px: number, pz: number, camYaw: number, cands: readonly LockCandidate[]): number | null {
   let best: number | null = null;
   let bestScore = Infinity;
   for (const c of cands) {
+    if (c.visible === false) continue;
     const dx = c.x - px;
     const dz = c.z - pz;
     const d = Math.hypot(dx, dz);
@@ -60,7 +63,7 @@ export function switchTarget(currentId: number, dir: 1 | -1, px: number, pz: num
   let bestDelta = Infinity;
   let bestDist = Infinity;
   for (const c of cands) {
-    if (c.id === currentId) continue;
+    if (c.id === currentId || c.visible === false) continue;
     const dx = c.x - px;
     const dz = c.z - pz;
     const d = Math.hypot(dx, dz);

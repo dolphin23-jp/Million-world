@@ -6,6 +6,8 @@ import type { GuardOutcome } from '../combat/guard';
 import type { DamageResult } from '../combat/health';
 import { collectHits, hitboxHits, makeHitEvent, type HitEvent, type HitOrigin, type HitTracker, type Hurtbox } from '../combat/hit';
 import type { EnemyAttackDef } from '../ai/data/enemies';
+import { REACH } from '../combat/data/reach';
+import { verticalReach } from '../combat/reach';
 import type { Circle } from '../world/collision';
 
 /**
@@ -35,6 +37,8 @@ export interface AttackerView {
   readonly body: Circle;
   readonly yaw: number;
   readonly hitTracker: HitTracker;
+  /** 足の高さ（m。ジャンプ・登った縁の上のとき > 0。省略 = 0）。近接が縦に届くかの判定に使う（M7-4b。ADR-044） */
+  readonly y?: number;
 }
 
 /** 反撃のときに攻撃へ掛ける倍率（ParryEffectDef がそのまま満たす） */
@@ -45,6 +49,9 @@ export interface RiposteScale {
 
 export interface CombatTarget {
   readonly body: Hurtbox;
+  /** 足の高さと背の高さ（m。省略 = 地面・プレイヤーの背）。攻撃が縦に届くかの判定に使う（M7-4b。ADR-044） */
+  readonly y?: number;
+  readonly height?: number;
   takeHit(ev: HitEvent): DamageResult;
   /** パリィで弾かれて動けない間（stagger・down の反撃の受付中）はその倍率。その間に当てた攻撃は反撃（ダメージが大きく、ノックバックは小さい） */
   readonly riposte?: RiposteScale | null;
@@ -91,7 +98,9 @@ export function resolvePlayerAttack<T extends CombatTarget>(
   _origin.yaw = attacker.yaw + (win?.yawOffset ?? 0);
   _boxes.length = 0;
   _hit.length = 0;
-  for (const t of targets) _boxes.push(t.body);
+  // 縦に届く相手だけ（登った縁の上から小さい敵へは届かず、敵からも届かない。届かなかった相手は記録されず、あとで届けば当たる）
+  const ay = attacker.y ?? 0;
+  for (const t of targets) if (verticalReach(ay, REACH.playerHeight, t.y ?? 0, t.height ?? REACH.playerHeight)) _boxes.push(t.body);
   const n = collectHits(_origin, win?.hitbox ?? atk.hitbox, _boxes, attacker.hitTracker, _hit);
   for (const box of _hit) {
     const target = targets.find((t) => t.body === box);
@@ -122,6 +131,9 @@ export interface EnemyAttackerView {
   readonly body: Circle;
   readonly yaw: number;
   readonly hitTracker: HitTracker;
+  /** 足の高さと背の高さ（m。省略 = 地面・プレイヤーの背）。近接が縦に届くかの判定に使う（M7-4b） */
+  readonly y?: number;
+  readonly height?: number;
   /** パリィで弾かれた（effect の反応: 体勢を崩す・倒れる）。なければパリィは通常のガードになる */
   parried?(ev: HitEvent, effect: ParryEffectDef): void;
 }
@@ -152,6 +164,8 @@ export function resolveEnemyAttacks<E extends EnemyAttackerView>(
   let total = 0;
   for (const enemy of enemies) {
     if (!enemy.attackActive) continue;
+    // 縦に届かない（登った縁の上・跳んでいて低い攻撃の上）なら当たらない。記録もしない（降りてきて、持続が残っていれば当たる）
+    if (!verticalReach(enemy.y ?? 0, enemy.height ?? REACH.playerHeight, victim.y ?? 0, REACH.playerHeight, enemy.attackDef.reachTop)) continue;
     _origin.x = enemy.body.x;
     _origin.z = enemy.body.z;
     _origin.yaw = enemy.yaw;
