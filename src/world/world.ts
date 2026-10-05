@@ -18,6 +18,8 @@ export interface CircleObstacle {
   z: number;
   r: number;
   top: number;
+  /** 掴んで登れる縁か（M7-3。ステージのデータで明示した面だけ登れる）。省略 = 登れない（乗り上がり・乗り越えができる高さの低い物は、これに関わらず越えられる） */
+  climbable?: boolean;
 }
 
 /** 箱（壁・台・箱）。中心 (x, z)・半径の半分 hx / hz（箱の局所の x / z）・向き yaw（rad。three の rotation.y と同じ）・上面の高さ top */
@@ -29,6 +31,8 @@ export interface BoxObstacle {
   hz: number;
   yaw: number;
   top: number;
+  /** 掴んで登れる縁か（CircleObstacle.climbable と同じ） */
+  climbable?: boolean;
 }
 
 export type Obstacle = CircleObstacle | BoxObstacle;
@@ -69,6 +73,29 @@ export interface RayHit {
 
 export function createRayHit(): RayHit {
   return { t: 0, x: 0, z: 0, nx: 0, nz: 0, index: -1 };
+}
+
+/** probeLedge の結果（out に書く。毎回確保しない） */
+export interface LedgeHit {
+  /** 当たった障害物の番号（World.obstacles の添字） */
+  index: number;
+  /** 始点から面までの距離（m） */
+  dist: number;
+  /** 面の上の点と、面の外向きの法線（単位ベクトル） */
+  x: number;
+  z: number;
+  nx: number;
+  nz: number;
+  /** 上面の高さ */
+  top: number;
+  /** 面から法線の逆向きに入って反対側へ抜けるまでの奥行き（m。壁の厚み・円柱の直径） */
+  depth: number;
+  /** 掴んで登れる縁か（Obstacle.climbable） */
+  climbable: boolean;
+}
+
+export function createLedgeHit(): LedgeHit {
+  return { index: -1, dist: 0, x: 0, z: 0, nx: 0, nz: 0, top: 0, depth: 0, climbable: false };
 }
 
 const EPS = 1e-9;
@@ -166,12 +193,55 @@ export class World {
     return best < Infinity;
   }
 
+  /**
+   * 乗り上がり・乗り越え・登りの縁を探す（M7-3）: 点 (x, z) から向き (dirX, dirZ)（単位ベクトル）へ maxDist までの線分が、足の高さ y で体を止める障害物
+   * （上面が y + STEP_UP より高いもの）の面に最初に当たるか。当たったら、面の位置・外向きの法線・上面の高さ・奥行きを out に書いて true
+   */
+  probeLedge(x: number, z: number, dirX: number, dirZ: number, maxDist: number, y: number, out: LedgeHit): boolean {
+    if (!this.raycast(x, z, x + dirX * maxDist, z + dirZ * maxDist, y + STEP_UP, LEDGE_RAY)) return false;
+    const o = this.obstacles[LEDGE_RAY.index]!;
+    out.index = LEDGE_RAY.index;
+    out.dist = LEDGE_RAY.t * maxDist;
+    out.x = LEDGE_RAY.x;
+    out.z = LEDGE_RAY.z;
+    out.nx = LEDGE_RAY.nx;
+    out.nz = LEDGE_RAY.nz;
+    out.top = o.top;
+    out.depth = this.depthAlong(LEDGE_RAY.index, o, LEDGE_RAY.x, LEDGE_RAY.z, -LEDGE_RAY.nx, -LEDGE_RAY.nz);
+    out.climbable = o.climbable === true;
+    return true;
+  }
+
   /** 2 点のあいだに、高さ y の視線・射線を遮る障害物が無いか（ロックオン・敵の視界・遠距離の敵の射線） */
   lineOfSight(ax: number, az: number, bx: number, bz: number, y: number, scratch: RayHit = SCRATCH): boolean {
     return !this.raycast(ax, az, bx, bz, y, scratch);
   }
 
   // ---------------------------------------------------------------- 内部
+
+  /** 障害物 o の面の上の点 (px, pz) から、向き (dx, dz)（単位ベクトル。障害物の内側へ向かう）に進んで反対側へ抜けるまでの距離 */
+  private depthAlong(i: number, o: Obstacle, px: number, pz: number, dx: number, dz: number): number {
+    if (o.kind === 'circle') {
+      // 面の上の点から内側へ: |p − c + s d|² = r² の 0 でない解 s = −2 (p − c)·d
+      return Math.max(0, -2 * ((px - o.x) * dx + (pz - o.z) * dz));
+    }
+    const cs = this.cos[i]!;
+    const sn = this.sin[i]!;
+    const lx = (px - o.x) * cs - (pz - o.z) * sn;
+    const lz = (px - o.x) * sn + (pz - o.z) * cs;
+    const ldx = dx * cs - dz * sn;
+    const ldz = dx * sn + dz * cs;
+    let best = Infinity;
+    if (Math.abs(ldx) > EPS) {
+      const t = ((ldx > 0 ? o.hx : -o.hx) - lx) / ldx;
+      if (t > 1e-9) best = Math.min(best, t);
+    }
+    if (Math.abs(ldz) > EPS) {
+      const t = ((ldz > 0 ? o.hz : -o.hz) - lz) / ldz;
+      if (t > 1e-9) best = Math.min(best, t);
+    }
+    return Number.isFinite(best) ? best : 0;
+  }
 
   private overlaps(i: number, o: Obstacle, c: Circle): boolean {
     if (o.kind === 'circle') {
@@ -298,6 +368,8 @@ export class World {
 }
 
 const SCRATCH = createRayHit();
+/** probeLedge が使う線分の当たり（毎回確保しない） */
+const LEDGE_RAY = createRayHit();
 /** groundHeight が使う支えの円（毎回確保しない） */
 const SUPPORT: Circle = { x: 0, z: 0, r: SUPPORT_RADIUS };
 
