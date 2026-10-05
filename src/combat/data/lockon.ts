@@ -15,4 +15,6 @@ export const LOCKON = {
   distanceMax: 2.5,
   /** 対象切替の連続を防ぐ間隔（sim フレーム） */
   switchCooldownFrames: 14,
+  /** ロック中の対象が、柱などに遮られて見えない時間がこれ（sim フレーム）を超えたら、ロックを解く（見える別の敵がいれば移る。M7-4b。ADR-044） */
+  hiddenBreakFrames: 90,
 } as const;

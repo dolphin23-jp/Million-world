@@ -51,6 +51,8 @@ import { DamageNumbers } from '../ui/damage-numbers';
 import { EnemyBars } from '../ui/enemy-bars';
 import { LockMarker } from '../ui/lock-marker';
 import { LockOn } from '../combat/lockon-state';
+import type { LockCandidate } from '../combat/lockon';
+import { canSee, sightHeight } from '../combat/reach';
 import { Encounter, spawnPoint, type EncounterEvent } from './encounter';
 import { DEMO_ENCOUNTER, encounterForTier, type EncounterDef } from '../ai/data/encounters';
 import type { Hurtbox } from '../combat/hit';
@@ -250,7 +252,9 @@ export class Game {
   /** ロックオンの状態。対象は敵の id */
   readonly lockOn = new LockOn();
   /** ロックできる敵の体（生きているものだけ。毎ステップ作り直して使い回す） */
-  private readonly lockCands: Hurtbox[] = [];
+  /** ロックできる敵（毎ステップ作り直す。見えているかも持つ）。オブジェクトは使い回す（毎ステップ確保しない） */
+  private readonly lockCands: LockCandidate[] = [];
+  private readonly lockPool: LockCandidate[] = [];
   private lockIndicator = false;
   readonly swordTrail = new SwordTrail();
   readonly input = new InputAggregator();
@@ -1009,7 +1013,16 @@ export class Game {
     // ロックオン: 対象の選択・切替・解除。ロック中はカメラが対象の方を向き（ヨーの入力は使わない）、プレイヤーは対象を照準にする
     if (this.player.dead) this.lockOn.release();
     this.lockCands.length = 0;
-    for (const e of this.enemySims) if (!e.dead) this.lockCands.push(e.body);
+    for (const e of this.enemySims) {
+      if (e.dead) continue;
+      const c = this.lockPool[this.lockCands.length] ?? (this.lockPool[this.lockCands.length] = { id: 0, x: 0, z: 0, visible: true });
+      c.id = e.id;
+      c.x = e.body.x;
+      c.z = e.body.z;
+      // 柱・高い箱の陰の敵は、ロックできない（視線を調べる高さは敵の視界と同じ）
+      c.visible = canSee(this.world, this.player.body.x, this.player.body.z, e.body.x, e.body.z, sightHeight(this.player.y, e.y));
+      this.lockCands.push(c);
+    }
     const lockEvent = this.lockOn.update({
       pressed: intent.lockPressed,
       switchDir: intent.lockSwitch,
@@ -1042,7 +1055,7 @@ export class Game {
 
     const alive = !this.player.dead;
     // 攻撃権: 同時に予備動作〜攻撃に入れる敵の数を制限する（残りは近くで構えて待つ）
-    if (enemiesRun) stepSwarm(this.enemySims, dt, this.player.body.x, this.player.body.z, alive, this.encounter.def.maxAttackers);
+    if (enemiesRun) stepSwarm(this.enemySims, dt, this.player.body.x, this.player.body.z, alive, this.encounter.def.maxAttackers, this.player.y);
     this.soundEnemyStates();
     this.enemyEvents();
     // 敵の弾: 撃たれた弾を作って 1 ステップ飛ばす（寿命・アリーナの縁で消える）

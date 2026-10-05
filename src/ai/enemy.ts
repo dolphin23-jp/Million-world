@@ -9,6 +9,9 @@ import type { EnemyAttackDef, EnemyDef } from './data/enemies';
 import { fanOffset } from '../combat/projectile';
 import { FLYING_Y, type World } from '../world/world';
 import { createSteerState, steerYaw } from './steering';
+import { PROJECTILE_HEIGHT } from '../combat/data/projectiles';
+import { REACH } from '../combat/data/reach';
+import { canSee, sightHeight, verticalReach } from '../combat/reach';
 
 /**
  * 敵の sim 側（three に依存しない。見た目は src/game/enemy-visual.ts）。
@@ -17,7 +20,9 @@ import { createSteerState, steerYaw } from './steering';
  *   idle（出現直後の待ち。プレイヤーが範囲内なら chase）
  *   chase（プレイヤーの方を向いて近づく。stopDistance で止まり、攻撃の距離で待ちが明けていれば windup。
  *     距離を取る敵（retreatDistance）は、近づかれると向きを保ったまま後ろへ下がる。
- *     世界（world）があれば、近づくあいだ障害物に塞がれていたら、通れる向きへ回り込む = 迂回。M7-4a。ADR-043）
+ *     世界（world）があれば、近づくあいだ障害物に塞がれていたら、通れる向きへ回り込む = 迂回。M7-4a。ADR-043。
+ *     プレイヤーが見えない（視線が柱・高い箱に遮られる）あいだ、また届かない高さ（登った縁の上など）にいるあいだは、攻撃の予備動作に入らない。
+ *     見えないあいだは、止まる距離・周回・後退より優先して見える位置まで寄る。M7-4b。ADR-044）
  *   windup（予備動作 = テレグラフ。windupTrackFrames まではプレイヤーを向き続け、そのあと向きを固定する）
  *   attack（startup → active（判定が出る。前へ踏み込む）→ recover = 硬直）→ chase
  *     飛び道具の攻撃（projectile）は、近接の判定が出ず、startup で固定した向きへ弾を 1 つ撃つ（fireSerial / shot。弾の sim は src/combat/projectile.ts）
@@ -85,6 +90,12 @@ export class Enemy {
    */
   world: World | null = null;
   private readonly steer = createSteerState();
+  /** プレイヤーが見えているか（world があれば、毎ステップ視線を調べる。なければ常に true）。見えないあいだは攻撃に入らず、見える位置まで寄る */
+  sight = true;
+  /** 技のどれかに召喚・飛び道具があるか、近接の技があるか、飛び道具の技だけか（届き・視線の判定。def から決まる） */
+  private readonly hasMelee: boolean;
+  private readonly hasRanged: boolean;
+  private readonly rangedOnly: boolean;
   /** 次の予備動作に入れるまでの残り（硬直が明けてから数える） */
   private cooldown = 0;
   /** 攻撃の踏み込みの向き（予備動作で固定した向き） */
@@ -130,12 +141,46 @@ export class Enemy {
     this.orbitSide = id % 2 === 0 ? 1 : -1;
     this.move = def.attack;
     this.rngState = (Math.imul(id + 1, 2654435761) >>> 0) || 1;
+    const moves = def.moves ?? [def.attack];
+    this.hasMelee = moves.some((m) => !m.projectile && !m.summon);
+    this.hasRanged = moves.some((m) => m.projectile !== undefined || m.summon !== undefined);
+    this.rangedOnly = moves.every((m) => m.projectile !== undefined);
     this.prevX = x;
     this.prevZ = z;
   }
 
   get id(): number {
     return this.body.id;
+  }
+
+  /** 足の高さ（m。飛ぶ敵は FLYING_Y、歩く敵は地面）と、背の高さ。近接の縦の届き・視線の高さに使う（M7-4b） */
+  get y(): number {
+    return this.def.flying ? FLYING_Y : 0;
+  }
+
+  get height(): number {
+    return this.def.height;
+  }
+
+  /**
+   * 足の高さ targetY のプレイヤーに、技のどれかで届くか（予備動作に入ってよいか。M7-4b）。召喚（どこにいても）、飛び道具（足が弾の高さ以下。弾は足の下を通る）、
+   * 近接（背の高さ + 腕で縦に重なる。技ごとの低さ reachTop は見ない = 低い突進を持つ敵も、跳んでいる相手に構えはする）
+   */
+  canReach(targetY: number): boolean {
+    if (this.hasRanged) {
+      const moves = this.def.moves ?? [this.def.attack];
+      for (const m of moves) {
+        if (m.summon) return true;
+        if (m.projectile && targetY <= PROJECTILE_HEIGHT) return true;
+      }
+    }
+    return this.hasMelee && verticalReach(this.y, this.def.height, targetY, REACH.playerHeight);
+  }
+
+  /** 視線を調べる高さ。飛び道具だけの敵は弾の高さ（柱は遮るが、低い岩・壁の上は通る）。ほかは、敵とプレイヤーの目の高い方（低い岩・壁・登った縁は遮らない） */
+  private sightY(targetY: number): number {
+    if (this.rangedOnly) return PROJECTILE_HEIGHT;
+    return sightHeight(this.y, targetY);
   }
 
   get dead(): boolean {
@@ -309,7 +354,7 @@ export class Enemy {
    * canAttack は攻撃権（Game が、同時に攻撃している敵の数が上限未満かで決める）。false のあいだは、攻撃の距離に入っても
    * 予備動作に入らず、近くで構えて待つ
    */
-  step(dt: number, targetX: number, targetZ: number, targetAlive = true, canAttack = true): void {
+  step(dt: number, targetX: number, targetZ: number, targetAlive = true, canAttack = true, targetY = 0): void {
     this.prevX = this.body.x;
     this.prevZ = this.body.z;
     this.prevYaw = this.yaw;
@@ -322,6 +367,9 @@ export class Enemy {
     const wantYaw = Math.atan2(dx, dz);
     let moveX = 0;
     let moveZ = 0;
+    // 視線: 柱・高い箱に遮られていれば、見えるまで寄る（止まる距離・周回・後退より優先）。world がなければ遮るものは無い
+    this.sight = this.world === null || canSee(this.world, this.body.x, this.body.z, targetX, targetZ, this.sightY(targetY));
+    const seeking = !this.sight;
     if (this.cooldown > 0) this.cooldown--;
     if (this.poise && !this.held && this.state !== 'dead') this.poise.step();
 
@@ -336,24 +384,24 @@ export class Enemy {
           break;
         }
         // 近づくあいだは、障害物に塞がれていれば通れる向きへ回り込む（周回・後退・止まる距離の中では、プレイヤーの方を向く）
-        this.faceTarget(this.approachYaw(wantYaw, dist, targetX, targetZ), dt);
-        if (def.orbitSpeed !== undefined && dist < def.stopDistance + 1.8) {
+        this.faceTarget(this.approachYaw(wantYaw, dist, targetX, targetZ, seeking), dt);
+        if (def.orbitSpeed !== undefined && dist < def.stopDistance + 1.8 && !seeking) {
           // 周回: 輪（stopDistance）を保ちながら、プレイヤーの周りを回る（向いている方向に対して横）
           const radial = clamp((dist - def.stopDistance) * 2.5, -def.moveSpeed, def.moveSpeed);
           const side = this.orbitSide * def.orbitSpeed;
           moveX = Math.sin(this.yaw) * radial + Math.cos(this.yaw) * side;
           moveZ = Math.cos(this.yaw) * radial - Math.sin(this.yaw) * side;
-        } else if (def.retreatDistance !== undefined && dist < def.retreatDistance) {
+        } else if (def.retreatDistance !== undefined && dist < def.retreatDistance && !seeking) {
           // 近づかれたら、向きを保ったまま後ろへ下がる（距離を取って撃つ敵）
           const v = def.retreatSpeed ?? def.moveSpeed;
           moveX = -Math.sin(this.yaw) * v;
           moveZ = -Math.cos(this.yaw) * v;
-        } else if (dist > def.stopDistance) {
+        } else if (dist > def.stopDistance || seeking) {
           // 向いている方向へ進む（向き直りが追いつくまでは膨らんで追う）
           moveX = Math.sin(this.yaw) * def.moveSpeed;
           moveZ = Math.cos(this.yaw) * def.moveSpeed;
         }
-        if (this.cooldown <= 0 && canAttack) {
+        if (this.cooldown <= 0 && canAttack && this.sight && this.canReach(targetY)) {
           const next = this.pickMove(dist);
           if (next) {
             this.move = next;
@@ -426,11 +474,14 @@ export class Enemy {
   }
 
   /** chase で向く向き: 近づいている最中（周回・後退・止まる距離の外）で、世界があれば、障害物を避ける向き。それ以外はプレイヤーの方（wantYaw） */
-  private approachYaw(wantYaw: number, dist: number, targetX: number, targetZ: number): number {
+  private approachYaw(wantYaw: number, dist: number, targetX: number, targetZ: number, seeking: boolean): number {
     const def = this.def;
-    if (!this.world || dist <= def.stopDistance) return wantYaw;
-    if (def.orbitSpeed !== undefined && dist < def.stopDistance + 1.8) return wantYaw;
-    if (def.retreatDistance !== undefined && dist < def.retreatDistance) return wantYaw;
+    if (!this.world) return wantYaw;
+    if (!seeking) {
+      if (dist <= def.stopDistance) return wantYaw;
+      if (def.orbitSpeed !== undefined && dist < def.stopDistance + 1.8) return wantYaw;
+      if (def.retreatDistance !== undefined && dist < def.retreatDistance) return wantYaw;
+    }
     return steerYaw(this.world, this.body.x, this.body.z, def.radius, def.flying ? FLYING_Y : 0, targetX, targetZ, this.steer, this.orbitSide);
   }
 

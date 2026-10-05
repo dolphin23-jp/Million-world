@@ -56,6 +56,11 @@ export interface EnemyAttackDef {
    */
   groundImpact?: number;
   /**
+   * 近接の届く高さの上限（敵の足から。m。M7-4b。ADR-044）。なければ背の高さ + 腕を伸ばした分（REACH）まで届く。
+   * 低い攻撃（地を這う突進）に指定すると、足がこの高さより上の相手（跳んでいる）には当たらない = 跳んで避けられる
+   */
+  reachTop?: number;
+  /**
    * 飛び道具を撃つ攻撃（ADR-026）。攻撃に入って startupFrames で、予備動作で固定した向きへ弾を撃つ（近接の判定は出ない。hitbox・damage・knockback・hitStop・lunge は使わない）。
    * 帯（telegraph）の長さは弾の飛ぶ距離
    */
@@ -356,6 +361,8 @@ export const ENEMIES = {
       hitStop: 9,
       lunge: 6,
       telegraph: { kind: 'lane', width: 2.1 },
+      // 地を這う突進（背 1.15m の猪が足元をなぎ払う）: 足が 0.6m より上（跳んでいる）なら当たらない = 跳んで避けられる（M7-4b）
+      reachTop: 0.6,
     },
   },
   /**
