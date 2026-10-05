@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Quaternion, Vector3 } from 'three';
-import { AuthoredSampler, bakeAttack, TWO_HAND_POLE, type AuthoredAttack, type LeftHold, type TwoHand } from './authoring';
+import { AuthoredSampler, bakeAttack, rootYCurve, rootZCurve, TWO_HAND_POLE, type AuthoredAttack, type LeftHold, type TwoHand } from './authoring';
 import { AUTHORED_ATTACKS, hasShieldVariant } from './data/authored';
 import { SHIELD_CARRY, SHIELD_IDLE } from './data/guard';
 import { polarToVector, swordRotation } from './ik';
@@ -432,3 +432,80 @@ describe('twoHanded（両手持ち。左手が柄を握る。大剣。ADR-021）
     }
   });
 });
+
+describe('rootY・世界座標の手（M7-3）', () => {
+  it('rootYCurve / rootZCurve: 最初のキーの前は 0、キー間はイージング、最後のキー以降は保持。rootY と rootZ は別の列', () => {
+    const def: AuthoredAttack = {
+      name: 't',
+      duration: 1,
+      keys: [
+        { t: 0.2, ease: 'lin', rootY: 0.4, rootZ: 0.1 },
+        { t: 0.6, ease: 'lin', rootY: 1.0, rootZ: 0.9 },
+      ],
+    };
+    const y = rootYCurve(def);
+    const z = rootZCurve(def);
+    expect(y(0)).toBe(0);
+    expect(y(0.1)).toBeCloseTo(0.2, 9);
+    expect(y(0.4)).toBeCloseTo(0.7, 9);
+    expect(y(0.9)).toBeCloseTo(1.0, 9);
+    expect(z(0.4)).toBeCloseTo(0.5, 9);
+    // サンプラの値も同じ
+    expect(sampleAt(def, 0.4).rootY).toBeCloseTo(0.7, 9);
+    expect(sampleAt(def, 0.4).rootZ).toBeCloseTo(0.5, 9);
+  });
+
+  it('gripAt: 最初のキーより前は最初のキーの位置のまま（原点へ弧を描かない）。混ぜ具合 k は 0 → 1 に寄り、null で 0 へ戻って位置は保たれる', () => {
+    const def: AuthoredAttack = {
+      name: 't',
+      duration: 1,
+      keys: [
+        { t: 0.2, ease: 'lin', gripAt: [-0.2, 1.0, 0.4], gripAtBlade: [0, 0, 1], gripAtFace: [0, 1, 0] },
+        { t: 0.5, ease: 'lin', gripAt: [-0.2, 1.4, 0.4] },
+        { t: 0.8, ease: 'lin', gripAt: null },
+      ],
+    };
+    const early = sampleAt(def, 0.1);
+    expect(early.gripAt!.k).toBeCloseTo(0.5, 9); // 0 → 1（0 〜 0.2）の途中
+    expect(early.gripAt!.pos.distanceTo(new Vector3(-0.2, 1.0, 0.4))).toBeLessThan(1e-9);
+    const hold = sampleAt(def, 0.35);
+    expect(hold.gripAt!.k).toBeCloseTo(1, 9);
+    expect(hold.gripAt!.pos.y).toBeCloseTo(1.2, 9);
+    const rel = sampleAt(def, 0.65);
+    expect(rel.gripAt!.k).toBeCloseTo(0.5, 9);
+    expect(rel.gripAt!.pos.y).toBeCloseTo(1.4, 9); // 離しても位置は最後のまま
+    expect(sampleAt(def, 0.95).gripAt!.k).toBeCloseTo(0, 9);
+    // 世界の剣の向きは最初のキーで指定した向き（前のキーを引き継ぐ）
+    const want = swordRotation(new Vector3(0, 0, 1), new Vector3(0, 1, 0), new Quaternion());
+    expect(Math.abs(sampleAt(def, 0.35).gripAt!.q.dot(want))).toBeGreaterThan(0.9999);
+  });
+
+  it('最初の gripAt の剣の向き（gripAtBlade / gripAtFace）が片方でも欠けていれば、エラー', () => {
+    const def: AuthoredAttack = { name: 't', duration: 1, keys: [{ t: 0.2, gripAt: [-0.2, 1, 0.4], gripAtBlade: [0, 0, 1] }] };
+    expect(() => new AuthoredSampler(rig, def)).toThrow(/gripAtBlade/);
+  });
+
+  it('leftAt: 世界座標の左手首。k の寄せ・離しは gripAt と同じ', () => {
+    const def: AuthoredAttack = { name: 't', duration: 1, keys: [{ t: 0.3, ease: 'lin', leftAt: [0.2, 1.0, 0.4] }, { t: 0.6, ease: 'lin', leftAt: null }] };
+    expect(sampleAt(def, 0.3).leftAt!.k).toBeCloseTo(1, 9);
+    expect(sampleAt(def, 0.3).leftAt!.pos.x).toBeCloseTo(0.2, 9);
+    expect(sampleAt(def, 0.45).leftAt!.k).toBeCloseTo(0.5, 9);
+    expect(sampleAt(def, 0.9).leftAt!.k).toBeCloseTo(0, 9);
+  });
+
+  it('焼いたクリップ: 世界座標の右手が、ルートが上がっても同じ世界の点にある（rootY を引いた腰の位置で、手が一定）', () => {
+    // 腰を沈めながら（hips.y）ルートを上げ、右手は世界の 1 点に付けておく。手首は届く範囲のはずなので、gripError は 0
+    const def: AuthoredAttack = {
+      name: 't',
+      duration: 0.4,
+      keys: [
+        { t: 0, gripAt: [-0.2, 1.1, 0.35], gripAtBlade: [0, 0, 1], gripAtFace: [0, 1, 0], hips: { y: -0.2 } },
+        { t: 0.4, ease: 'lin', rootY: 0.3, hips: { y: -0.2 } },
+      ],
+    };
+    const { stats } = bakeAttack(rig, def, 60);
+    expect(stats.maxGripError).toBeLessThan(1e-3);
+    expect(stats.armRClampedFrames).toBe(0);
+  });
+});
+

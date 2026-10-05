@@ -77,14 +77,14 @@ export function zeroInput(): PoseInput {
 }
 
 /** 出力の親ローカル回転から世界の回転・位置を再構成する（FK） */
-export function fk(rig: Rig, out: PoseOutput, rootZ: number) {
+export function fk(rig: Rig, out: PoseOutput, rootZ: number, rootY = 0) {
   const Q: Quaternion[] = [];
   const P: Vector3[] = [];
   rig.names.forEach((_, i) => {
     const p = rig.parent[i]!;
     if (p < 0) {
       Q.push(out.quats[i]!.clone());
-      P.push(out.hipsPos.clone().add(new Vector3(0, 0, rootZ)));
+      P.push(out.hipsPos.clone().add(new Vector3(0, rootY, rootZ)));
     } else {
       Q.push(Q[p]!.clone().multiply(out.quats[i]!));
       P.push(P[p]!.clone().add(rig.pos[i]!.clone().applyQuaternion(Q[p]!)));
