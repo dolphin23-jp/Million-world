@@ -8,6 +8,8 @@ import { guardOutcome as resolveGuardOutcome, guardedDamage, type GuardOutcome }
 import { afterDodgeOf, classifyStick, pickAttack, pickChargeRelease, pickFollowUp, type AfterDodge, type StickDir } from '../combat/moveset';
 import { applyDamage, createHealth, type DamageResult } from '../combat/health';
 import { BASE_MODIFIERS, type Modifiers } from '../combat/modifiers';
+import { JUMP } from '../combat/data/jump';
+import { AIR_STEP_UP, STEP_UP, openWorld, type World } from '../world/world';
 import { HitTracker, isActiveFrame, type HitEvent, type Hurtbox } from '../combat/hit';
 import { Knockback } from '../combat/knockback';
 import type { SkillRun } from '../combat/skills';
@@ -23,7 +25,10 @@ import { HeroVisual } from './hero-visual';
  * 見た目は補間係数 alpha で sim ステップ間を滑らかにし、状態の変化を見てクリップを切り替える。
  */
 
-export type PlayerState = 'idle' | 'run' | 'attack' | 'charge' | 'guard' | 'dodge' | 'hit' | 'dead';
+export type PlayerState = 'idle' | 'run' | 'attack' | 'charge' | 'guard' | 'dodge' | 'hit' | 'dead' | 'air' | 'land';
+
+/** 世界を渡されなかったとき（単体テスト）の、障害物の無い平らな世界 */
+const FLAT_WORLD: World = openWorld(1e6);
 
 /** スーパーアーマーが攻撃を耐えたあとの短い無敵（フレーム）。続けて当たって一気に削られないようにする */
 const ARMOR_INVULN_FRAMES = 24;
@@ -49,6 +54,15 @@ export class Player {
   yaw = 0;
   velX = 0;
   velZ = 0;
+  /**
+   * 縦の動き（M7-2。ADR-040）: 足の高さ y（m。地面 = 0。障害物の上に乗ると上面の高さ）・縦の速さ velY（上向きが正）・足場に立っているか。
+   * 重力と足場の判定は、状態（攻撃・回避・ひるみ…）に関わらず毎ステップ進む（縁から出れば落ちる）。ジャンプを始められるのは立っている・走っているとき
+   */
+  y = 0;
+  velY = 0;
+  grounded = true;
+  /** 世界（障害物・足場の高さ）。Game が渡す。渡さなければ障害物の無い平らな世界 */
+  world: World = FLAT_WORLD;
   state: PlayerState = 'idle';
   stateFrame = 0;
   attack: AttackDef | null = null;
@@ -129,8 +143,18 @@ export class Player {
 
   // 補間用の前ステップ
   private prevX = 0;
+  private prevY = 0;
   private prevZ = 0;
   private prevYaw = 0;
+
+  /** ジャンプの先行入力・縁の猶予・踏み切りの沈みの残りフレーム（JUMP）*/
+  private jumpBuffer = 0;
+  private coyote = 0;
+  private jumpDelay = 0;
+  /** 跳んだたび・着地したたびに増える（Game が音・砂ぼこりを出すのに読む）。着地の落下の速さ（m/s）は lastLandSpeed */
+  jumpSerial = 0;
+  landSerial = 0;
+  lastLandSpeed = 0;
 
   // ---- 見た目 ----
   readonly root = new THREE.Group();
@@ -159,6 +183,7 @@ export class Player {
 
   step(dt: number, intent: InputIntent, cameraYaw: number): void {
     this.prevX = this.body.x;
+    this.prevY = this.y;
     this.prevZ = this.body.z;
     this.prevYaw = this.yaw;
 
@@ -179,13 +204,25 @@ export class Player {
     if (intent.guardPressed) this.guardBuffer = GUARD_BUFFER_FRAMES;
     else if (this.guardBuffer > 0) this.guardBuffer--;
     if (this.guardLock > 0) this.guardLock--;
+    // ジャンプの先行入力（押した瞬間から JUMP.jumpBuffer フレーム）と、縁の猶予（足場から離れているあいだだけ減る）
+    if (intent.jumpPressed) this.jumpBuffer = JUMP.jumpBuffer;
+    else if (this.jumpBuffer > 0) this.jumpBuffer--;
+    if (!this.grounded && this.coyote > 0) this.coyote--;
 
     switch (this.state) {
       case 'idle':
       case 'run':
+        if (!this.grounded) {
+          // 足場の縁から歩いて出た（落ちる）。ひるみ・回避などのあとに足場が無くなっていた場合もここ
+          this.setState('air');
+          this.stepAir(dt, mx, mz, mLen);
+          break;
+        }
         this.stepLocomotion(dt, mx, mz, mLen);
         if (intent.dodgePressed) {
           this.beginDodge(mx, mz, mLen);
+        } else if (this.jumpBuffer > 0) {
+          this.beginJump();
         } else if (this.pendingSkill) {
           this.beginSkill(this.pendingSkill, mx, mz, mLen);
         } else if (this.canGuard()) {
@@ -206,6 +243,12 @@ export class Player {
       case 'dodge':
         this.stepDodge(dt, mx, mz, mLen, intent);
         break;
+      case 'air':
+        this.stepAir(dt, mx, mz, mLen);
+        break;
+      case 'land':
+        this.stepLand(dt, mx, mz, mLen, intent);
+        break;
       case 'hit':
         // ひるみ: 操作できない。ノックバックの速度で動き、終わったら待機へ（先行入力は残る）
         this.velX = this.knockback.velX;
@@ -222,6 +265,9 @@ export class Player {
 
     this.body.x += this.velX * dt;
     this.body.z += this.velZ * dt;
+    // 障害物の外へ押し出して（足の高さで、止める障害物と乗れる段差が決まる）、足場に立つ・落ちる。押し出された先でまた別の障害物に重なるなら Game がもう一度押し出す
+    this.world.moveCircle(this.body, this.y, this.grounded ? STEP_UP : AIR_STEP_UP);
+    this.stepVertical(dt);
     this.speed = Math.hypot(this.velX, this.velZ);
     this.stateFrame++;
     if (this.hurtInvuln > 0) this.hurtInvuln--;
@@ -291,6 +337,7 @@ export class Player {
     this.guardStun = 0;
     this.guardBuffer = 0;
     this.hurtInvuln = HIT_STUN.invulnFrames;
+    this.jumpDelay = 0;
     this.velX = 0;
     this.velZ = 0;
     // 攻撃してきた側を向いて受ける（ひるみのアニメは正面から受けた姿）
@@ -408,6 +455,10 @@ export class Player {
     this.knockback.cancel();
     this.velX = 0;
     this.velZ = 0;
+    this.y = this.prevY = 0;
+    this.velY = 0;
+    this.grounded = true;
+    this.jumpBuffer = this.coyote = this.jumpDelay = 0;
     this.body.x = this.prevX = 0;
     this.body.z = this.prevZ = 0;
     this.yaw = this.prevYaw = 0;
@@ -419,14 +470,15 @@ export class Player {
     this.body.invulnerable = this.invulnerable;
   }
 
-  private stepLocomotion(dt: number, mx: number, mz: number, mLen: number): void {
+  /** 走る・止まる。speedScale は着地の硬直中の移動の遅さ。changeState = false なら、状態（idle / run）は切り替えない（着地の硬直中） */
+  private stepLocomotion(dt: number, mx: number, mz: number, mLen: number, speedScale = 1, changeState = true): void {
     if (mLen > 0.01) {
       const targetYaw = Math.atan2(mx, mz);
       this.yaw = rotateTowards(this.yaw, targetYaw, MOVE.turnSpeed * dt);
-      const speed = MOVE.runSpeed * this.loadout.runSpeedScale * this.mods.moveSpeed;
+      const speed = MOVE.runSpeed * this.loadout.runSpeedScale * this.mods.moveSpeed * speedScale;
       this.velX = approach(this.velX, mx * speed, MOVE.accel * dt);
       this.velZ = approach(this.velZ, mz * speed, MOVE.accel * dt);
-      this.setState('run');
+      if (changeState) this.setState('run');
     } else {
       this.velX = approach(this.velX, 0, MOVE.decel * dt);
       this.velZ = approach(this.velZ, 0, MOVE.decel * dt);
@@ -435,9 +487,131 @@ export class Player {
       if (Math.hypot(this.velX, this.velZ) < 0.05) {
         this.velX = 0;
         this.velZ = 0;
-        this.setState('idle');
+        if (changeState) this.setState('idle');
       }
     }
+  }
+
+  // ======================= 縦の動き（ジャンプ・落下・着地。M7-2） =======================
+
+  /** 跳ぶ（踏み切りの沈みに入る）。沈みが終わると launch。走っている勢いはそのまま保つ */
+  private beginJump(): void {
+    this.jumpBuffer = 0;
+    this.jumpDelay = JUMP.squatFrames;
+    this.setState('air', true);
+    // 沈みなし（0 フレーム）の設定なら、すぐ跳ぶ
+    if (this.jumpDelay === 0) this.launch();
+  }
+
+  private launch(): void {
+    this.velY = JUMP.speed;
+    this.grounded = false;
+    this.coyote = 0;
+    this.jumpBuffer = 0;
+    this.jumpSerial++;
+  }
+
+  /**
+   * 空中（踏み切りの沈みを含む）。沈みのあいだは地面に付いたまま。跳んだあとは勢いを保ち、スティックで少し曲げられる（上限は走る速さ）。
+   * 足場の縁から歩いて落ちた直後（縁の猶予 JUMP.coyote）なら、ジャンプを押して跳べる
+   */
+  private stepAir(dt: number, mx: number, mz: number, mLen: number): void {
+    if (this.jumpDelay > 0) {
+      if (--this.jumpDelay === 0) this.launch();
+      return;
+    }
+    if (this.jumpBuffer > 0 && this.coyote > 0) this.launch();
+    if (mLen > 0.01) {
+      const speed = MOVE.runSpeed * this.loadout.runSpeedScale * this.mods.moveSpeed;
+      this.yaw = rotateTowards(this.yaw, Math.atan2(mx, mz), MOVE.turnSpeed * JUMP.airTurnScale * dt);
+      this.velX = approach(this.velX, mx * speed, JUMP.airAccel * dt);
+      this.velZ = approach(this.velZ, mz * speed, JUMP.airAccel * dt);
+    } else {
+      this.velX = approach(this.velX, 0, JUMP.airDrag * dt);
+      this.velZ = approach(this.velZ, 0, JUMP.airDrag * dt);
+    }
+  }
+
+  /**
+   * 着地の硬直: ゆっくりなら動ける。cancelFrame から攻撃・回避・ガード・剣技で、jumpFrame から再びジャンプで、硬直を切り上げられる。
+   * 空中で押した攻撃・ガード・ジャンプの先行入力は、ここで出る
+   */
+  private stepLand(dt: number, mx: number, mz: number, mLen: number, intent: InputIntent): void {
+    const f = this.stateFrame;
+    const l = JUMP.land;
+    this.stepLocomotion(dt, mx, mz, mLen, l.moveScale, false);
+    if (!this.grounded) {
+      // 着地の硬直のうちに足場の縁から出た（落ちる）
+      this.setState('air');
+      return;
+    }
+    if (f >= l.cancelFrame) {
+      if (intent.dodgePressed) {
+        this.beginDodge(mx, mz, mLen);
+        return;
+      }
+      if (this.pendingSkill) {
+        this.beginSkill(this.pendingSkill, mx, mz, mLen);
+        return;
+      }
+      if (this.canGuard()) {
+        this.beginGuard();
+        return;
+      }
+      if (this.attackBuffered) {
+        this.beginAttackFromInput(mx, mz, mLen);
+        return;
+      }
+    }
+    if (this.jumpBuffer > 0 && f >= l.jumpFrame) {
+      this.beginJump();
+      return;
+    }
+    if (f >= l.frames) this.setState(mLen > 0.01 ? 'run' : 'idle');
+  }
+
+  /**
+   * 足場・重力（状態に関わらず毎ステップ）。立っているあいだは足場の高さへ吸い付く（STEP_UP までの段差は乗る・降りる。それ以上の落差は落ちる）。
+   * 宙にいるあいだは重力で落ち、足場に当たったら着地する（上昇中は着地しない = 跳び上がって縁を越えられる）。
+   */
+  private stepVertical(dt: number): void {
+    const w = this.world;
+    if (this.grounded) {
+      const ground = w.groundHeight(this.body.x, this.body.z, this.y, STEP_UP);
+      if (this.y - ground <= STEP_UP) {
+        this.y = ground;
+        this.velY = 0;
+        return;
+      }
+      // 足場の縁から出て、段差より深く落ちる
+      this.grounded = false;
+      this.velY = 0;
+      this.coyote = JUMP.coyote;
+    }
+    const ground = w.groundHeight(this.body.x, this.body.z, this.y, AIR_STEP_UP);
+    this.velY = Math.max(-JUMP.maxFallSpeed, this.velY - JUMP.gravity * dt);
+    const ny = this.y + this.velY * dt;
+    if (this.velY <= 0 && ny <= ground) {
+      this.lastLandSpeed = -this.velY;
+      this.y = ground;
+      this.velY = 0;
+      this.grounded = true;
+      this.coyote = 0;
+      this.landSerial++;
+      if (this.state === 'air') this.setState('land', true);
+    } else {
+      this.y = ny;
+    }
+  }
+
+  /** 体を押し出すときに使う、足元の段差の許容（立っているときは STEP_UP、宙にいるときは AIR_STEP_UP）。Game の最後の押し出しが使う */
+  get stepUp(): number {
+    return this.grounded ? STEP_UP : AIR_STEP_UP;
+  }
+
+  /** 上昇中か（跳び上がる・踏み切りの沈み。見た目が上昇と落下で姿勢を替えるのに読む） */
+  get rising(): boolean {
+    return this.state === 'air' && (this.velY > 0 || this.jumpDelay > 0);
   }
 
   /**
@@ -894,7 +1068,7 @@ export class Player {
   // ======================= render =======================
 
   getInterpolatedPosition(alpha: number, out: THREE.Vector3): THREE.Vector3 {
-    out.set(lerp(this.prevX, this.body.x, alpha), 0, lerp(this.prevZ, this.body.z, alpha));
+    out.set(lerp(this.prevX, this.body.x, alpha), lerp(this.prevY, this.y, alpha), lerp(this.prevZ, this.body.z, alpha));
     return out;
   }
 
@@ -905,7 +1079,7 @@ export class Player {
 
   /** 毎描画フレーム。animDt はヒットストップ等のスケール済み時間、frameDt は実時間（フラッシュの減衰用） */
   syncVisual(alpha: number, animDt: number, frameDt: number): void {
-    this.root.position.set(lerp(this.prevX, this.body.x, alpha), 0, lerp(this.prevZ, this.body.z, alpha));
+    this.root.position.set(lerp(this.prevX, this.body.x, alpha), lerp(this.prevY, this.y, alpha), lerp(this.prevZ, this.body.z, alpha));
     this.root.rotation.y = lerpAngle(this.prevYaw, this.yaw, alpha) + HERO.forwardYawOffset;
     this.visual?.update(this, animDt, frameDt);
   }

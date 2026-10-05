@@ -1,6 +1,7 @@
 import { hitboxHits, type HitEvent, type HitOrigin } from '../combat/hit';
 import { end, reflect, segmentHitsCircle, type Projectile, type ProjectileEnd, type ProjectileSystem } from '../combat/projectile';
 import type { ParryEffectDef } from '../combat/data/guard';
+import { PROJECTILE_HEIGHT } from '../combat/data/projectiles';
 import type { DamageResult } from '../combat/health';
 import type { Circle } from '../world/collision';
 import { PLAYER_ID, type AttackerView, type CombatTarget, type DefenderView } from './combat';
@@ -8,7 +9,7 @@ import { PLAYER_ID, type AttackerView, type CombatTarget, type DefenderView } fr
 /**
  * 飛び道具の命中の解決（ADR-026）。弾そのものの動きは src/combat/projectile.ts、ここは「誰に当たるか・防がれるか」を決める。
  *
- * - 敵の弾 → プレイヤー: 近接の攻撃と同じ防御の判定（guardOutcome）を通る。無敵（回避の無敵フレーム・被弾後）の間はすり抜ける。
+ * - 敵の弾 → プレイヤー: 足が弾の高さ（PROJECTILE_HEIGHT）より上なら跳び越えて当たらない。当たるときは、近接の攻撃と同じ防御の判定（guardOutcome）を通る。無敵（回避の無敵フレーム・被弾後）の間はすり抜ける。
  *     パリィ = 弾き返す（撃った敵の方へ、速く・強くして飛ばし直す。ダメージなし）、ガード = 受け止める（削りだけ通って弾は消える）、どちらでもなければ被弾して弾は消える
  * - 弾き返した弾（player の陣営）→ 敵: 最初に当たった敵 1 体に大きなダメージ（反撃と同じ扱い）
  * - プレイヤーの攻撃の判定 → 敵の弾: 振りの範囲に入った弾は斬り落とされて消える（ダメージも弾き返しもなし）
@@ -53,6 +54,8 @@ export function resolveProjectilesOnPlayer(
   let total = 0;
   for (const p of system.pool) {
     if (!p.alive || p.team !== 'enemy') continue;
+    // 足が弾の高さより上（弾を跳び越えた）: 弾は足の下を通る。当たらず、避けた扱い（ジャスト回避）にもならない
+    if ((victim.y ?? 0) > PROJECTILE_HEIGHT) continue;
     if (victim.body.invulnerable) {
       // 回避の無敵フレーム・被弾後の無敵・ミスティカル・死亡: すり抜ける（弾は残る）。回避の無敵で避けたなら、ジャスト回避の合図を出す
       if (victim.dodging && handlers.onJustDodge && segmentHitsCircle(p.prevX, p.prevZ, p.x, p.z, victim.body, p.def.radius)) handlers.onJustDodge(p);

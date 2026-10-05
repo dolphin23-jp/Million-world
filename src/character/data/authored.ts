@@ -23,6 +23,7 @@ import { HIRYU, HIRYU_4, HIRYU_7, KENZAN, KENZAN_4, KENZAN_5, OUZU, OUZU_3, OUZU
 import { CROSS, CROSS_2, CROSS_3, GALE, GALE_6, GALE_8, IAI, IAI_4, IAI_7 } from './skill-sword-ex';
 import { GSK_ISSEN, GSK_ISSEN_BACK, GSK_ISSEN_LUNGE, GSK_RIP, GSK_SLAM, GSK_SLAM_LEAP, GSK_SWEEP1, GSK_SWEEP2 } from './skill-greatsword';
 import { GS_GUARD, GS_GUARD_HIT, GS_PARRY } from './gs-guard';
+import { FALL_CLIP, GS_FALL, GS_JUMP, GS_LAND, JUMP_CLIP, LAND_CLIP } from './jump';
 
 /** 手付けアニメ（authoring.ts）で作る攻撃と回避。HeroVisual が読込時に焼いて、名前でクリップとして登録する */
 export const AUTHORED_ATTACKS: Record<string, AuthoredAttack> = {
@@ -81,6 +82,13 @@ export const AUTHORED_ATTACKS: Record<string, AuthoredAttack> = {
   heavy: HEAVY,
   dodge: DODGE_CLIP,
   dodgeBack: DODGE_BACK,
+  // ジャンプ（M7-2。跳び上がり → 落下 → 着地。大剣は '@greatsword' の版）
+  jump: JUMP_CLIP,
+  fall: FALL_CLIP,
+  land: LAND_CLIP,
+  'jump@greatsword': GS_JUMP,
+  'fall@greatsword': GS_FALL,
+  'land@greatsword': GS_LAND,
   guardShield: SHIELD_GUARD,
   guardShieldHit: SHIELD_GUARD_HIT,
   guardShieldParry: SHIELD_PARRY,

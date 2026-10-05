@@ -216,6 +216,33 @@ export class GroundFx {
     }
   }
 
+  /**
+   * 足元の小さな砂ぼこり（ジャンプの踏み切り・着地。輪・ひび・破片なし）。足の高さ y（障害物の上に乗っているときの足場の高さ）で、
+   * power（0〜1）に応じた数の砂が低く外へ広がる。大きな burst と同じ砂のスプライトの組を使う
+   */
+  puff(x: number, y: number, z: number, power: number): void {
+    const k = Math.max(0, Math.min(1, power));
+    const n = Math.round(5 + k * 9);
+    for (let i = 0; i < n; i++) {
+      const p = this.dust[this.nextDust]!;
+      this.nextDust = (this.nextDust + 1) % this.dust.length;
+      const a = Math.random() * Math.PI * 2;
+      const speed = (0.6 + Math.random() * 1.2) * (0.7 + k * 0.7);
+      p.active = true;
+      p.age = 0;
+      p.life = 0.35 + Math.random() * 0.3;
+      p.size = 0.2 + Math.random() * 0.15;
+      p.grow = 0.7 + Math.random() * 0.6;
+      p.vx = Math.sin(a) * speed;
+      p.vz = Math.cos(a) * speed;
+      p.vy = 0.2 + Math.random() * 0.5;
+      p.gravity = 0.5;
+      p.peak = 0.4 + Math.random() * 0.12;
+      p.sprite.position.set(x + Math.sin(a) * 0.2, y + 0.08, z + Math.cos(a) * 0.2);
+      p.sprite.visible = true;
+    }
+  }
+
   /** 毎描画フレーム（実時間） */
   update(frameDt: number): void {
     for (const r of this.rings) {

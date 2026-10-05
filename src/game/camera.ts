@@ -20,6 +20,8 @@ export const CAMERA = {
   defaultPitch: 0.38,
   /** 追従の速さ（大きいほど速い） */
   followLambda: 14,
+  /** 縦（足の高さ。ジャンプ・段差・障害物の上）の追従の速さ。水平より遅くして、跳ぶたびに画面が上下に揺れすぎないようにする（M7-2） */
+  followLambdaY: 6,
   fov: 50,
   /** ボスがいるあいだ（ADR-029）、背の高い（3.9m）ボスの頭まで映るよう、カメラを引く距離（m）と、注視点を上げる高さ（m） */
   bossPullBack: 2.4,
@@ -114,7 +116,7 @@ export class ThirdPersonCamera {
       this.initialized = true;
     } else {
       this.follow.x = damp(this.follow.x, _target.x, CAMERA.followLambda, frameDt);
-      this.follow.y = damp(this.follow.y, _target.y, CAMERA.followLambda, frameDt);
+      this.follow.y = damp(this.follow.y, _target.y, CAMERA.followLambdaY, frameDt);
       this.follow.z = damp(this.follow.z, _target.z, CAMERA.followLambda, frameDt);
     }
     const cp = Math.cos(this.pitch);

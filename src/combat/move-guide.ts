@@ -61,7 +61,7 @@ export interface GuideView {
   charge: GuideCharge | null;
 }
 
-export type GuidePlayerState = 'idle' | 'run' | 'attack' | 'charge' | 'guard' | 'dodge' | 'hit' | 'dead';
+export type GuidePlayerState = 'idle' | 'run' | 'attack' | 'charge' | 'guard' | 'dodge' | 'hit' | 'dead' | 'air' | 'land';
 
 export interface GuideContext {
   state: GuidePlayerState;

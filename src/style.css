@@ -123,6 +123,14 @@ body {
   right: calc(48px + var(--safe-right));
   bottom: calc(160px + var(--safe-bottom));
 }
+.tbtn-jump {
+  /* ジャンプ（回避の上・ロックの左。M7-2。置き場所は実機で決める。ここの right / bottom だけを触ればよい） */
+  width: 72px;
+  height: 72px;
+  font-size: 14px;
+  right: calc(142px + var(--safe-right));
+  bottom: calc(188px + var(--safe-bottom));
+}
 .tbtn-guard {
   /* ガード（攻撃の左・回避の下）。押している間だけ構える（ADR-020） */
   width: 72px;

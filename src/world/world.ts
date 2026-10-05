@@ -5,7 +5,8 @@ import { clampInsideArena, type Circle } from './collision';
  * three にも DOM にも依存しない純粋なクラス（見た目は Arena が同じデータから作る）。
  *
  * 世界 = 円形の境界（中心は原点）+ 静的な障害物（円柱・箱）。障害物は上面の高さ `top` を持ち、問い合わせは足の高さ `y`（既定 0）を取る:
- *  - 体の押し出し（moveCircle）: 上面が y + STEP_UP より高い障害物だけが体を止める。上面が低ければ、またいで・上に立てる（縦の動きは M7-2。いまは y = 0 のまま）
+ *  - 体の押し出し（moveCircle）: 上面が y + stepUp（既定 STEP_UP）より高い障害物だけが体を止める。上面が低ければ、またいで・上に立てる
+ *  - 足場（groundHeight）: 体の下にある、上に立てる面の高さ（縦の動き M7-2: ジャンプで障害物の上に乗る・縁から落ちる）
  *  - 遮り（raycast / lineOfSight）: 高さ y の線を、上面が y より高い障害物が遮る（柱は鬼火を防ぐが、低い岩の上は飛び越える）
  * 障害物はすべて地面から立ち上がるものとして扱う（底の高さは持たない。浮いた足場・天井は ステージの定義（M9）で足す）。
  */
@@ -43,6 +44,15 @@ export const FLYING_Y = 1.8;
 
 /** 足がこの高さ（m）までの段差は、押し戻されずに乗れる（上面が y + STEP_UP 以下の障害物は体を止めない） */
 export const STEP_UP = 0.45;
+
+/**
+ * 空中（ジャンプ・落下中）の足が、障害物の縁にかかれる高さ（m）。上面が足より少し高いだけなら、押し戻されずに縁に乗れる（地上の STEP_UP より小さい。
+ * 大きいと、跳んだ直後に低い壁の中へ体がめり込んで見える）
+ */
+export const AIR_STEP_UP = 0.12;
+
+/** 足場（上に立てる障害物の上面）を探すときの、体の中心から測る支えの半径（m）。縁から足が少しはみ出して立てる / 縁を越えると落ちる */
+export const SUPPORT_RADIUS = 0.22;
 
 /** raycast の結果（out に書く。毎回確保しない） */
 export interface RayHit {
@@ -94,13 +104,13 @@ export class World {
    * 円（体）を、足の高さ y で体を止める障害物の外へ押し出し、境界の内側へ収める。動いたら true。
    * 障害物どうしが近く、押し出した先でまた別の障害物に重なることがあるので、2 回まわす
    */
-  moveCircle(c: Circle, y = 0): boolean {
+  moveCircle(c: Circle, y = 0, stepUp = STEP_UP): boolean {
     let moved = false;
     for (let pass = 0; pass < 2; pass++) {
       let any = false;
       for (let i = 0; i < this.obstacles.length; i++) {
         const o = this.obstacles[i]!;
-        if (o.top <= y + STEP_UP) continue;
+        if (o.top <= y + stepUp) continue;
         if (this.pushOut(i, o, c)) any = true;
       }
       if (!any) break;
@@ -111,13 +121,31 @@ export class World {
   }
 
   /** 円が、足の高さ y で体を止める障害物のどれかに重なっているか（出現位置の確認など。動かさない） */
-  overlapsObstacle(c: Circle, y = 0): boolean {
+  overlapsObstacle(c: Circle, y = 0, stepUp = STEP_UP): boolean {
     for (let i = 0; i < this.obstacles.length; i++) {
       const o = this.obstacles[i]!;
-      if (o.top <= y + STEP_UP) continue;
+      if (o.top <= y + stepUp) continue;
       if (this.overlaps(i, o, c)) return true;
     }
     return false;
+  }
+
+  /**
+   * 足場の高さ: 点 (x, z) を中心にした支えの円（半径 SUPPORT_RADIUS）が重なっている障害物のうち、上面が足の高さ y + stepUp 以下のものの、いちばん高い上面。
+   * 重なる足場がなければ 0（地面）。足の高さより上面が低い障害物は、上から降りて立てる面。y + stepUp より高い障害物は、体を止める壁で、足場には数えない
+   * （moveCircle と同じ境目）。体の高さ（頭）は見ない: 天井・低い梁は作らない約束（障害物はすべて地面から立ち上がる）
+   */
+  groundHeight(x: number, z: number, y: number, stepUp = STEP_UP): number {
+    let h = 0;
+    const c = SUPPORT;
+    c.x = x;
+    c.z = z;
+    for (let i = 0; i < this.obstacles.length; i++) {
+      const o = this.obstacles[i]!;
+      if (o.top <= h || o.top > y + stepUp) continue;
+      if (this.overlaps(i, o, c)) h = o.top;
+    }
+    return h;
   }
 
   /**
@@ -270,6 +298,8 @@ export class World {
 }
 
 const SCRATCH = createRayHit();
+/** groundHeight が使う支えの円（毎回確保しない） */
+const SUPPORT: Circle = { x: 0, z: 0, r: SUPPORT_RADIUS };
 
 /** 障害物の無い世界（半径だけ。テスト・障害物の無いステージ用） */
 export function openWorld(radius: number): World {
