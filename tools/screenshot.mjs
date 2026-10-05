@@ -1227,6 +1227,84 @@ try {
     process.exitCode = 3;
   }
 
+  // 乗り上がり・乗り越え（M7-3。ADR-041）: 低い岩（上面 0.85）へ走り込んで乗り上がる / 低くて薄い壁（上面 0.9・厚み 0.6）へ走り込んで乗り越える。
+  // 始まり（種別）・終わり（岩の上に立つ / 壁の向こうへ着地して走り続ける）と、最中の絵
+  const travInit = (kind) => page.evaluate(([solo, kind]) => {
+    const g = window.__mw.game;
+    g.restart({ ...solo, maxAttackers: 0 });
+    g.setLoadout('sword');
+    g.stepNow(1);
+    for (const e of g.enemies) e.enemy.place(0, -12, 0);
+    const o = g.world.obstacles.find((b) => (kind === 'mantle' ? b.kind === 'circle' && b.top < 1 : b.kind === 'box' && b.top < 1 && b.hz < 0.5));
+    // 障害物の中心 → 闘技場の中心の向き（面の正面）から、3m 手前で向かい合う
+    const len = Math.hypot(o.x, o.z);
+    const dir = { x: -o.x / len, z: -o.z / len }; // 中心 → 障害物と逆。走る向きは障害物へ（外向き）: 下で反転
+    const run = { x: -dir.x, z: -dir.z };
+    const p = g.player;
+    p.body.x = o.x - run.x * 3.3;
+    p.body.z = o.z - run.z * 3.3;
+    p.yaw = Math.atan2(run.x, run.z);
+    p.velX = p.velZ = 0;
+    g.stepNow(2);
+    g.__trav = { run, top: o.top, ox: o.x, oz: o.z };
+    return { run, top: o.top };
+  }, [SOLO, kind]);
+  const travRun = (frames, stopWhen) => page.evaluate(([frames, stopWhen]) => {
+    const g = window.__mw.game;
+    const p = g.player;
+    const { run } = g.__trav;
+    const yaw = g.cam.yaw;
+    // スティック: 世界の向き run を、カメラの向きに合わせて倒す（前 = (−sin yaw, −cos yaw)、右 = (cos yaw, −sin yaw)）
+    const stick = { moveX: run.x * Math.cos(yaw) - run.z * Math.sin(yaw), moveY: -run.x * Math.sin(yaw) - run.z * Math.cos(yaw) };
+    let started = null;
+    for (let i = 0; i < frames; i++) {
+      g.inject(stick);
+      g.stepNow(1);
+      if (!started && p.state === 'traverse') started = { frame: i, kind: p.traverseClip.spec.kind, name: p.traverseClip.name };
+      if (stopWhen === 'traverse-mid' && started && i - started.frame >= 14) break;
+      if (stopWhen === 'done' && started && p.state !== 'traverse') break;
+    }
+    return { started, state: p.state, y: p.y, grounded: p.grounded, x: p.body.x, z: p.body.z, speed: Math.hypot(p.velX, p.velZ), landSerial: p.landSerial };
+  }, [frames, stopWhen]);
+  const travCam = (flip = false) => page.evaluate((flip) => {
+    const g = window.__mw.game;
+    const { run } = g.__trav;
+    // 走る向きを画面の横にする（flip = 反対側から。壁は闘技場の縁にあり、外側のカメラは柱にめり込むので、内側から撮る）
+    g.cam.yaw = Math.atan2(-run.z, run.x) + (flip ? Math.PI : 0);
+    g.cam.pitch = 0.22;
+    g.cam.distance = 5.5;
+    g.renderNow(8);
+  }, flip);
+  await travInit('mantle');
+  const mantleMid = await travRun(120, 'traverse-mid');
+  await travCam();
+  await sleep(150);
+  await page.screenshot({ path: 'artifacts/shot-traverse-mantle.png' });
+  const mantleEnd = await travRun(120, 'done');
+  console.log(`[traverse] mantle ${JSON.stringify({ started: mantleMid.started, endState: mantleEnd.state, y: mantleEnd.y, grounded: mantleEnd.grounded, land: mantleEnd.landSerial })}`);
+  await travInit('vault');
+  const vaultMid = await travRun(120, 'traverse-mid');
+  await travCam(true);
+  await sleep(150);
+  await page.screenshot({ path: 'artifacts/shot-traverse-vault.png' });
+  const vaultEnd = await travRun(120, 'done');
+  const vaultAfter = await page.evaluate(() => {
+    const g = window.__mw.game;
+    const p = g.player;
+    const o = g.__trav;
+    // 壁の向こう側（障害物の中心から面の正面と逆の向きへ）にいるか
+    const beyond = (p.body.x - o.ox) * o.run.x + (p.body.z - o.oz) * o.run.z;
+    return { beyond, y: p.y, state: p.state };
+  });
+  console.log(`[traverse] vault ${JSON.stringify({ started: vaultMid.started, endState: vaultEnd.state, y: vaultEnd.y, speed: vaultEnd.speed, ...vaultAfter })}`);
+  if (
+    mantleMid.started?.kind !== 'mantle' || !mantleEnd.grounded || Math.abs(mantleEnd.y - 0.85) > 1e-6 || mantleEnd.state !== 'idle' ||
+    vaultMid.started?.kind !== 'vault' || vaultEnd.y !== 0 || vaultEnd.state !== 'run' || vaultAfter.beyond < 0.5
+  ) {
+    console.error('[traverse] 低い岩に乗り上がれない・薄い壁を乗り越えられない（種別・終点の高さ・向こう側への着地・走り続け）');
+    process.exitCode = 3;
+  }
+
   // 操作ガイド（ADR-024）: ロックして 1 段目を出し、次段の受付が開いた絵（連携の履歴・続けられる技・受付の帯）と、右上の「技表」を開いた絵
   await page.evaluate((solo) => {
     const g = window.__mw.game;

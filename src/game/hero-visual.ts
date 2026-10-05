@@ -3,12 +3,13 @@ import type { Player } from './player';
 import type { ToonMaterial } from '../render/toon';
 import type { CharacterAsset } from '../character/loader';
 import { Animator, overlayPose } from '../character/animator';
-import { bakeAttack, type BakeStats, type FrameTrace } from '../character/authoring';
+import { bakeAttack, type AuthoredAttack, type BakeStats, type FrameTrace } from '../character/authoring';
 import { AUTHORED_ATTACKS, GREATSWORD_VARIANT, SHIELD_VARIANT, hasShieldVariant } from '../character/data/authored';
 import { GS_CARRY, GS_IDLE } from '../character/data/greatsword';
 import { SHIELD_CARRY, SHIELD_IDLE } from '../character/data/guard';
 import type { WeaponId } from '../combat/data/loadouts';
 import { HERO } from '../character/data/hero';
+import { traverseDef, traverseName, type TraverseSpec } from '../character/data/traverse';
 import { captureRig, type CapturedRig } from '../character/rig-capture';
 import { BONE } from '../character/rig';
 import { PostureTrim } from '../character/posture';
@@ -43,6 +44,8 @@ export class HeroVisual {
   private seenSerial = -1;
   private seenHit = 0;
   private seenEquip = -1;
+  /** 乗り上がり・乗り越えのあいだ、剣・盾を隠しているか（両手を自由に使う。M7-3） */
+  private weaponsHidden = false;
   /** 空中で、上昇のクリップ（jump）を再生中か（false = 落下の fall）。上昇から落下へ切り替わる瞬間を検出する */
   private airRising = false;
   private seenGuardHit = 0;
@@ -71,7 +74,7 @@ export class HeroVisual {
   readonly authoredStats: Record<string, BakeStats> = {};
   readonly authoredTrace: Record<string, FrameTrace[]> = {};
 
-  constructor(asset: CharacterAsset) {
+  constructor(asset: CharacterAsset, traverseSpecs: readonly TraverseSpec[] = []) {
     this.root = asset.root;
     this.skinMats = asset.meshes.map((m) => m.material as ToonMaterial);
     this.animator = new Animator(asset.root, asset.clips);
@@ -112,6 +115,8 @@ export class HeroVisual {
     const carry = this.animator.getClip(GS_CARRY.name);
     const run = this.animator.getClip(HERO.clips.run);
     if (carry && run) this.animator.addClip(HERO.clips.run + GREATSWORD_VARIANT, overlayPose(HERO.clips.run + GREATSWORD_VARIANT, run, carry, ARM_BONES, carry.duration));
+    // 乗り上がり・乗り越え（M7-3）: 世界の障害物の高さ・厚みの分を焼いておく（ほかの組み合わせは使うときに焼く）
+    for (const spec of traverseSpecs) this.ensureTraverse(traverseName(spec), traverseDef(spec));
     // 武器: ボーン空間は cm（Armature 0.01 倍）なのでソケットを 100 倍にして m 単位の剣を置く。片手剣・大剣とも同じ右手のソケット（装備しているほうだけ見せる）
     const bone = asset.bones.get(HERO.sword.bone);
     const socket = new THREE.Group();
@@ -232,15 +237,19 @@ export class HeroVisual {
   update(p: Player, dt: number, frameDt: number): void {
     if (p.equipSerial !== this.seenEquip) {
       this.seenEquip = p.equipSerial;
-      this.shield.visible = p.loadout.offhand === 'shield';
       this.weapon = this.weapons[p.loadout.weapon];
-      for (const [id, w] of Object.entries(this.weapons)) w.group.visible = id === p.loadout.weapon;
+      this.syncWeapons(p);
       // 装備を替えたのは待機か走りのあいだ（Player.equip）。その状態のクリップを装備の版（盾・大剣の待機や走り）で選び直す
       this.onStateEnter(p);
     }
     if (p.stateSerial !== this.seenSerial) {
       this.seenSerial = p.stateSerial;
       this.onStateEnter(p);
+    }
+    // 乗り上がり・乗り越えのあいだは剣・盾を隠す（手付けのクリップは両手を自由に使うため）
+    if ((p.state === 'traverse') !== this.weaponsHidden) {
+      this.weaponsHidden = p.state === 'traverse';
+      this.syncWeapons(p);
     }
     this.onGuardEvents(p);
     this.updateGlow(p, frameDt);
@@ -258,6 +267,21 @@ export class HeroVisual {
       this.lean = approach(this.lean, target, frameDt * (target > this.lean ? POSTURE_SPEED.toward : POSTURE_SPEED.away));
       this.posture.apply(this.lean);
     }
+  }
+
+  /** 乗り上がり・乗り越えのクリップを焼いて登録する（同じ名前なら何もしない）。武器を隠して両手を自由に使うので、武器の版は無い */
+  private ensureTraverse(name: string, def: AuthoredAttack): void {
+    if (this.animator.has(name)) return;
+    const baked = bakeAttack(this.capture.rig, def, 60, this.capture.extras);
+    this.animator.addClip(name, baked.clip);
+    this.authoredStats[name] = baked.stats;
+    this.authoredTrace[name] = baked.trace;
+  }
+
+  /** 装備している剣・盾を見せる（乗り上がり・乗り越えのあいだは隠す） */
+  private syncWeapons(p: Player): void {
+    this.shield.visible = !this.weaponsHidden && p.loadout.offhand === 'shield';
+    for (const [id, w] of Object.entries(this.weapons)) w.group.visible = !this.weaponsHidden && id === p.loadout.weapon;
   }
 
   /** 手付けクリップの名前（盾を持つときは、左腕を盾の位置に固定して焼き直した版があればそれ） */
@@ -312,6 +336,15 @@ export class HeroVisual {
         // 着地: 足が着いて膝と腰を沈め、立ち上がる（硬直のあと idle / run へつなぐ）
         this.animator.play(this.clipName('land', p), { loop: false, fade: 0.03, rate: 1, clamp: true, restart: true });
         break;
+      case 'traverse': {
+        // 乗り上がり・乗り越え: 高さ・前進量ごとのクリップ。初めて使う仕様のときに焼く（同じ仕様は使い回す）
+        const c = p.traverseClip;
+        if (c) {
+          this.ensureTraverse(c.name, c.def);
+          this.animator.play(c.name, { loop: false, fade: 0.05, rate: 1, clamp: true, restart: true });
+        }
+        break;
+      }
       case 'charge':
         // 構えは終端の姿勢で止まる（clamp）。離すまで保つ
         this.animator.play(this.clipName(p.charge!.clip.name, p), { loop: false, fade: 0.05, rate: 1, clamp: true, restart: true });

@@ -26,6 +26,9 @@
  *                                --height は使われない（追尾の位置が注視点）。--cam front|side|back|three で見る向きを変える
  *   --skill <id>                 スキルボタンで使うスキルを選ぶ（剣技の動きを見るとき。script に {"skillPressed":true} を書く。ADR-031）
  *   --skill-level <n>            そのスキルのレベル（1〜10。Lv4・Lv7 で動きが進化する。ADR-034）。省略 = Lv1
+ *   --ledge H,D[,W]              乗り上がり・乗り越え（M7-3）の検査用: キャラの正面（体が接する距離）に、高さ H・奥行き D・幅 2W（既定 3）の箱を置く
+ *                                （キャラの世界だけに足す。見た目は単純な箱）。--script で前へ押し込む（"0-60:{"dir":[0,1]}"）と、乗り上がり（立ち止まって押す）が始まる。
+ *                                走り込んで乗り越え（薄い箱）を見るときは --start -1.5（始点の z。助走）を足す。例: --ledge 0.9,0.6 --start -1.8 --script '0-90:{"dir":[0,1]}'
  *   --aim 0,4                    ロックオン中にする（対象の位置 x,z。サンドボックスには敵がいないので、ロック中だけに出る技を撮るため）
  *
  *   例: 回避  node tools/motion-sheet.mjs dodge --script '0:{"dodgePressed":true,"dir":[0,1]}' --end 36 --focus 1.4
@@ -65,6 +68,8 @@ const weapon = opt('weapon', null);
 const clipName = opt('clip', null);
 const track = opt('track', null);
 const aim = opt('aim', null) ? opt('aim').split(',').map(Number) : null;
+const ledge = opt('ledge', null) ? opt('ledge').split(',').map(Number) : null;
+const startZ = Number(opt('start', 0));
 const skillId = opt('skill', null);
 const skillLevel = Number(opt('skill-level', 1));
 const script = {};
@@ -130,7 +135,7 @@ try {
     };
   });
 
-  await page.evaluate(([cam, yaw, focus, dist, h, pitch, weapon, aim, noOutline, mode, skillId, skillLevel]) => {
+  await page.evaluate(([cam, yaw, focus, dist, h, pitch, weapon, aim, noOutline, mode, skillId, skillLevel, ledge, startZ]) => {
     const g = window.__mw.game;
     g.loop.stop();
     if (skillId) {
@@ -200,9 +205,22 @@ try {
     g.cam.pitch = cam === 'top' ? 1.35 : pitch;
     g.cam.distance = dist;
     g.cam.pin(0, h, focus);
+    if (ledge) {
+      // 検査用の箱（キャラの世界だけに足す）。面はキャラの体が接する距離（半径 0.38 + すき間 0.01）の正面
+      const [H, D, Wd = 3] = ledge;
+      const THREE = window.__mw.THREE;
+      const z = 0.39 + D / 2;
+      g.player.world = new g.world.constructor({ radius: 14, obstacles: [{ kind: 'box', x: 0, z, hx: Wd, hz: D / 2, yaw: 0, top: H }] });
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(2 * Wd, H, D), new THREE.MeshToonMaterial({ color: 0xd8c9a0 }));
+      mesh.position.set(0, H / 2, z);
+      mesh.receiveShadow = true;
+      mesh.castShadow = true;
+      g.scene.add(mesh);
+    }
+    g.player.body.z = startZ;
     g.stepNow(30);
     g.renderNow(3);
-  }, [camName, CAMS[camName] ?? CAMS.side, focusZ, dist, height, pitch, weapon, aim, noOutline, mode, skillId, skillLevel]);
+  }, [camName, CAMS[camName] ?? CAMS.side, focusZ, dist, height, pitch, weapon, aim, noOutline, mode, skillId, skillLevel, ledge, startZ]);
 
   const shots = [];
   let at = 0;

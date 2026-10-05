@@ -172,3 +172,87 @@ describe('PoseSolver: 両手持ち（左手が柄を握る。ADR-023）', () => 
     expect(Math.abs(q.dot(f.at(BONE.handL).q))).toBeGreaterThan(0.99999);
   });
 });
+
+describe('PoseSolver: ルートの高さ（rootY）と世界座標の手', () => {
+  const rig = makeRig();
+  const solver = new PoseSolver(rig);
+
+  it('腰に付いてぶら下がる足（rel = 1）なら、ルートの高さが変わってもボーンの回転は同じ。出力の腰の高さもルート基準のまま', () => {
+    const base = zeroInput();
+    base.footL = { x: 0, z: 0, lift: 0, yaw: 0, pitch: 0, rel: 1, lx: 0.09, ly: -0.7, lz: 0.1, knee: 0 };
+    base.footR = { x: 0, z: 0, lift: 0, yaw: 0, pitch: 0, rel: 1, lx: -0.09, ly: -0.7, lz: -0.1, knee: 0 };
+    const a = createPoseOutput(rig);
+    solver.solve({ ...base, rootY: 0 }, a);
+    const b = createPoseOutput(rig);
+    solver.solve({ ...base, rootY: 0.8 }, b);
+    near(a.hipsPos, b.hipsPos, 1e-9);
+    for (let i = 0; i < rig.names.length; i++) expect(Math.abs(a.quats[i]!.dot(b.quats[i]!))).toBeGreaterThan(1 - 1e-9);
+  });
+
+  it('足は世界固定: ルートが上がっても（rootY）、接地した足首は世界の同じ高さ・同じ位置のまま（脚が伸びる）', () => {
+    const inp = zeroInput();
+    inp.hips.y = -0.1; // 沈んでおくと、ルートが上がっても足が届く範囲のうちに収まる
+    inp.footL = { x: 0, z: 0.1, lift: 0.3, yaw: 0, pitch: 0 }; // 世界の高さ（足首）が idle より 0.3 高い所に固定
+    const out = createPoseOutput(rig);
+    const home = rig.idleWorldP[rig.mustIndex(BONE.footL)]!;
+    for (const rootY of [0, 0.15, 0.3]) {
+      inp.rootY = rootY;
+      solver.solve(inp, out);
+      const f = fk(rig, out, 0, rootY);
+      near(f.at(BONE.footL).p, new Vector3(home.x, home.y + 0.3, home.z + 0.1), 2e-3);
+    }
+  });
+
+  it('世界座標の右手（gripAt, k = 1）: 柄が指定した世界の点に届き、剣が指定した世界の向きになる。胸をひねっても・ルートが上がっても動かない', () => {
+    const target = new Vector3(-0.2, 1.05, 0.2);
+    const q = swordRotation(new Vector3(0, 0, 1), new Vector3(0, 1, 0), new Quaternion());
+    for (const [chestYaw, rootY] of [[0, 0], [0.3, 0.1], [-0.3, 0.2]] as const) {
+      const inp = zeroInput();
+      inp.chest.yaw = chestYaw;
+      inp.rootY = rootY;
+      inp.hips.y = -0.1;
+      inp.gripAt = { pos: target, q, k: 1 };
+      const out = createPoseOutput(rig);
+      solver.solve(inp, out);
+      expect(out.info.armRClamped).toBe(false);
+      expect(out.info.gripError).toBeLessThan(1e-4);
+      const f = fk(rig, out, 0, rootY);
+      const hand = f.at(BONE.handR);
+      const G = hand.p.clone().add(rig.data.grip.pos.clone().applyQuaternion(hand.q));
+      near(G, target, 2e-4);
+      const swordQ = hand.q.clone().multiply(rig.data.grip.quat);
+      expect(Math.abs(swordQ.dot(q))).toBeGreaterThan(0.9999);
+    }
+  });
+
+  it('k = 0 なら世界座標の指定は無視される（従来どおり胸の座標系）。0 < k < 1 は両者のあいだ', () => {
+    const inp = zeroInput();
+    const plain = createPoseOutput(rig);
+    solver.solve(inp, plain);
+    const off = createPoseOutput(rig);
+    solver.solve({ ...inp, gripAt: { pos: new Vector3(-0.3, 1, 0.4), q: new Quaternion(), k: 0 }, leftAt: { pos: new Vector3(0.3, 1, 0.4), k: 0 } }, off);
+    for (let i = 0; i < rig.names.length; i++) expect(Math.abs(plain.quats[i]!.dot(off.quats[i]!))).toBeGreaterThan(1 - 1e-9);
+    const half = createPoseOutput(rig);
+    solver.solve({ ...inp, gripAt: { pos: new Vector3(-0.3, 1, 0.4), q: new Quaternion(), k: 0.5 } }, half);
+    const full = createPoseOutput(rig);
+    solver.solve({ ...inp, gripAt: { pos: new Vector3(-0.3, 1, 0.4), q: new Quaternion(), k: 1 } }, full);
+    const hw = fk(rig, half, 0).at(BONE.handR).p;
+    const pw = fk(rig, plain, 0).at(BONE.handR).p;
+    const fw = fk(rig, full, 0).at(BONE.handR).p;
+    expect(hw.distanceTo(pw)).toBeGreaterThan(0.05);
+    expect(hw.distanceTo(fw)).toBeGreaterThan(0.05);
+  });
+
+  it('世界座標の左手首（leftAt, k = 1）: 左手首が指定した世界の点に届く', () => {
+    const target = new Vector3(0.25, 1.05, 0.3);
+    const inp = zeroInput();
+    inp.rootY = 0.3;
+    inp.hips.y = -0.1;
+    inp.leftAt = { pos: target, k: 1 };
+    const out = createPoseOutput(rig);
+    solver.solve(inp, out);
+    expect(out.info.armLClamped).toBe(false);
+    near(fk(rig, out, 0, 0.3).at(BONE.handL).p, target, 2e-4);
+  });
+});
+

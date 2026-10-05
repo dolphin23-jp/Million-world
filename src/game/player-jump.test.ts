@@ -206,8 +206,11 @@ describe('足場: 障害物の上に乗る・縁から落ちる', () => {
     expect(p.body.z).toBeGreaterThan(3.2);
   });
 
-  it('跳ばずに突っ込むと壁に止められる（上面 0.9 > STEP_UP）。足は地面のまま', () => {
-    const p = playerIn(wall());
+  // 高い壁（上面 1.5。自動で越えられる 1.2m より高く、跳んでも乗れない）。低い壁（0.9）は走り込むと自動で越える（M7-3。player-traverse.test.ts）
+  const tallWall = (): World => worldOf(box(0, 4, 3, 0.6, 1.5));
+
+  it('跳ばずに突っ込むと高い壁（上面 1.5 > mantleMax）に止められる。足は地面のまま', () => {
+    const p = playerIn(tallWall());
     p.body.z = 1.2;
     step(p, { moveY: 1 }, 120);
     expect(p.y).toBe(0);
@@ -215,7 +218,7 @@ describe('足場: 障害物の上に乗る・縁から落ちる', () => {
   });
 
   it('助走が足りずに壁の手前で落ちると、壁の側面に押し戻されて地面に着く（めり込まない）', () => {
-    const p = playerIn(wall());
+    const p = playerIn(tallWall());
     p.body.z = -1;
     step(p, { moveY: 1, jumpPressed: true });
     for (let i = 0; i < 80; i++) step(p, { moveY: 1 });

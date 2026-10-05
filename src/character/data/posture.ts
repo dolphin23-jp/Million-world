@@ -11,8 +11,8 @@ export const POSTURE_SHARE: PostureShare = { hips: 0.5, spine02: 0.9, spine01: 1
 
 /** 状態ごとの前傾（度。腰 → 首の線を前へ倒す量）。大剣は構えの姿勢（GS_READY）がもともと少し前傾なので、その分を差し引く */
 export const POSTURE_LEAN = {
-  sword: { idle: 12, guard: 8, charge: 0, run: 0, attack: 0, dodge: 0, hit: 0, dead: 0, air: 0, land: 0 },
-  greatsword: { idle: 12, guard: 8, charge: 0, run: 0, attack: 0, dodge: 0, hit: 0, dead: 0, air: 0, land: 0 },
+  sword: { idle: 12, guard: 8, charge: 0, run: 0, attack: 0, dodge: 0, hit: 0, dead: 0, air: 0, land: 0, traverse: 0 },
+  greatsword: { idle: 12, guard: 8, charge: 0, run: 0, attack: 0, dodge: 0, hit: 0, dead: 0, air: 0, land: 0, traverse: 0 },
 } as const;
 
 /** 傾きを出し入れする速さ（度/秒）。攻撃・回避に入るときは速く（動きの邪魔をしない）、戻るときはゆっくり */

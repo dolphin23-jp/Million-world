@@ -79,6 +79,18 @@ export interface PoseInput {
   leftRoll?: number;
   footL: FootTarget;
   footR: FootTarget;
+  /**
+   * ルートの高さ（m）。ジャンプ・登りなど、sim がモデルを持ち上げる量（ルート = 足元の原点。立った腰の高さからの腰の動き hips.y とは別）。
+   * rootZ と同じ扱い: 足の世界位置（lift）・世界座標の手の目標（gripAt / leftAt）はこれに依らない（世界に固定）。腰はルートといっしょに上がる。省略 = 0
+   */
+  rootY?: number;
+  /**
+   * 右手の握り（柄の中心）と剣の向きを、世界座標（開始時のルート位置の床が原点。右が −X、上が +Y、前が +Z）で指定する。縁につかまる手など、
+   * 体が動いても世界の一点に付けておきたい手に使う。k（0〜1）は胸の座標系の指定（grip / blade / face）との混ぜ具合（0 = 使わない、1 = 世界座標のみ）
+   */
+  gripAt?: { pos: Vector3; q: Quaternion; k: number };
+  /** 左手首の位置を世界座標で指定する（座標・k の意味は gripAt と同じ。左手の向きは前腕に従う） */
+  leftAt?: { pos: Vector3; k: number };
 }
 
 export interface PoseOutput {
@@ -217,7 +229,8 @@ export class PoseSolver {
     R[ix.shoulderL]!.copy(R[ix.spine]!).multiply(rig.idleLocal[ix.shoulderL]!);
 
     // ---- 腰の位置。足が届かなければ下げる ----
-    const hipsBase = this.hipsWorld.copy(rig.data.hipsPos).add(this.va.set(inp.hips.x, inp.hips.y, inp.hips.z + inp.rootZ));
+    const rootY = inp.rootY ?? 0;
+    const hipsBase = this.hipsWorld.copy(rig.data.hipsPos).add(this.va.set(inp.hips.x, inp.hips.y + rootY, inp.hips.z + inp.rootZ));
     const lenThighL = rig.length(BONE.upLegL, BONE.legL);
     const lenShinL = rig.length(BONE.legL, BONE.footL);
     const lenThighR = rig.length(BONE.upLegR, BONE.legR);
@@ -255,6 +268,12 @@ export class PoseSolver {
       const chest = dC; // 胸の座標系
       const G = polarToVector(inp.grip.az, inp.grip.el, inp.grip.r, this.vc).applyQuaternion(chest).add(S);
       const qSword = swordRotation(inp.blade, inp.face, this.qa).premultiply(chest);
+      // 世界座標の握り（縁につかまる手）: 胸の座標系の指定から k だけ寄せる
+      const ga = inp.gripAt;
+      if (ga && ga.k > 0) {
+        G.lerp(ga.pos, ga.k);
+        qSword.slerp(ga.q, ga.k);
+      }
       this.swordQ.copy(qSword);
       this.gripWorld.copy(G);
       this.bladeWorld.set(0, 1, 0).applyQuaternion(qSword);
@@ -298,6 +317,7 @@ export class PoseSolver {
         this.leftTwoHand(inp.twoHand, inp.leftRoll, gl, S, inp.leftPole, chest);
       } else {
         const Wt = polarToVector(inp.left.az, inp.left.el, inp.left.r, this.vc).applyQuaternion(chest).add(S);
+        if (inp.leftAt && inp.leftAt.k > 0) Wt.lerp(inp.leftAt.pos, inp.leftAt.k);
         const pole = this.va.copy(inp.leftPole).applyQuaternion(chest);
         const l1 = rig.length(BONE.armL, BONE.foreL);
         const l2 = rig.length(BONE.foreL, BONE.handL);
@@ -334,6 +354,7 @@ export class PoseSolver {
     }
     out.hipsPos.copy(hipsBase);
     out.hipsPos.z -= inp.rootZ;
+    out.hipsPos.y -= rootY;
   }
 
   /**
