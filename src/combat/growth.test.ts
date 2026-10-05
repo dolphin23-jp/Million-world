@@ -25,6 +25,22 @@ function expectInvariant(g: Growth): void {
   expect(g.skillPoints + spentSkill(g)).toBe((g.level - 1) * GROWTH.skillPointsPerLevel);
 }
 
+/** 不変条件・範囲・前提の違反の一覧（空 = 全部満たしている）。ランダムな操作の検査のように何万回も呼ぶ場所で、expect を 1 回にするための道具 */
+function violations(g: Growth): string[] {
+  const out: string[] = [];
+  if (g.statPoints + spentStat(g) !== (g.level - 1) * GROWTH.statPointsPerLevel) out.push('ステータスポイントの合計');
+  if (g.skillPoints + spentSkill(g) !== (g.level - 1) * GROWTH.skillPointsPerLevel) out.push('スキルポイントの合計');
+  // パッシブは、どの操作のあとでも、範囲の中で前提を満たしている
+  for (const id of PASSIVE_ORDER) {
+    const lv = g.passiveLevel(id);
+    if (lv < 0 || lv > PASSIVES[id].levelMax) out.push(`パッシブの範囲 ${id}`);
+    if (lv > 0 && unmetPrereqs(g.passiveLevels, id).length > 0) out.push(`パッシブの前提 ${id}`);
+  }
+  for (const id of STAT_IDS) if (g.stat(id) < STAT_BASE) out.push(`ステータスの下限 ${id}`);
+  for (const id of SKILL_ORDER) if (g.skillLevel(id) < 1 || g.skillLevel(id) > SKILL_LEVEL_MAX) out.push(`スキルの範囲 ${id}`);
+  return out;
+}
+
 describe('経験値の曲線', () => {
   it('次のレベルまでに要る経験値は単調に増え、上限のレベルでは 0', () => {
     for (let l = 1; l < GROWTH.levelMax - 1; l++) expect(xpToNext(l + 1)).toBeGreaterThan(xpToNext(l));
@@ -247,18 +263,8 @@ describe('どんな操作の順でも不変条件が崩れない', () => {
         else if (k < 0.76) g.resetSkills();
         else if (k < 0.86) g.beginEdit();
         else if (k < 0.95) g.endEdit();
-        expectInvariant(g);
-        // パッシブは、どの操作のあとでも、範囲の中で前提を満たしている
-        for (const id of PASSIVE_ORDER) {
-          expect(g.passiveLevel(id)).toBeGreaterThanOrEqual(0);
-          expect(g.passiveLevel(id)).toBeLessThanOrEqual(PASSIVES[id].levelMax);
-          if (g.passiveLevel(id) > 0) expect(unmetPrereqs(g.passiveLevels, id)).toEqual([]);
-        }
-        for (const id of STAT_IDS) expect(g.stat(id)).toBeGreaterThanOrEqual(STAT_BASE);
-        for (const id of SKILL_ORDER) {
-          expect(g.skillLevel(id)).toBeGreaterThanOrEqual(1);
-          expect(g.skillLevel(id)).toBeLessThanOrEqual(SKILL_LEVEL_MAX);
-        }
+        // 毎回 30 個以上の expect を呼ぶと遅い（CI で 5 秒の制限を超えた）ので、違反を集めて 1 回だけ expect する（強さは同じ: どれか 1 つでも崩れたら、操作の番号と中身が出て落ちる）
+        expect(violations(g), `seed ${seed} 操作 ${i}`).toEqual([]);
       }
     }
   });

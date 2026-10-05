@@ -47,6 +47,27 @@ describe('セーブデータ', () => {
     for (const id of SKILL_ORDER) expect(d!.skills[id]).toBe(1);
     expect(d!.selected).toEqual({});
   });
+  it('剣技が増えても古いセーブは壊れない: 新しい剣技が無い skills を読むと、新しい剣技は Lv1 で、振り分けとポイントは変わらない（第 2 弾の前のセーブ。ADR-038）', () => {
+    // 第 2 弾の前に作られたセーブ: Lv6 でスキルポイントは 5 得て、四ツ葉に 2・一閃に 1 使った（未使用 2）
+    const old = {
+      version: SAVE_VERSION,
+      level: 6,
+      xp: 0,
+      statPoints: 15,
+      skillPoints: 2,
+      stats: { str: 5, dex: 5, agi: 5, int: 5, vit: 5 },
+      skills: { yotsuba: 3, samidare: 1, tatsumaki: 1, houzan: 1, issen: 2 },
+      selected: { sword: 'samidare', greatsword: 'issen' },
+    };
+    const d = parseSave(old);
+    expect(d).not.toBeNull();
+    const g = new Growth(d!);
+    expect(g.skillLevel('yotsuba')).toBe(3);
+    expect(g.skillLevel('issen')).toBe(2);
+    for (const id of ['iai', 'juji', 'hayate', 'ouzu', 'kenzan', 'hiryu'] as const) expect(g.skillLevel(id)).toBe(1);
+    expect(g.skillPoints).toBe(2);
+    expect(d!.selected).toEqual({ sword: 'samidare', greatsword: 'issen' });
+  });
   it('スキルの選択は、存在するスキルで系統が合うものだけ残す', () => {
     const d = parseSave({ version: SAVE_VERSION, level: 1, selected: { sword: 'issen', greatsword: 'issen' } });
     expect(d!.selected).toEqual({ greatsword: 'issen' });

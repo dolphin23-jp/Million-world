@@ -19,6 +19,8 @@ import { GS_HEAVY_RIP, GS_LUNGE_SWEEP, GS_RETREAT_LUNGE, GS_RISE_SLAM, GS_SPIN2 
 import { COMBO_HOP, COMBO_SPIN, COMBO_UPPER } from './combo-chain';
 import { COMBO_SLAM, HOP_THRUST, LUNGE_SLASH, SWEEP_BACK } from './sword-chain';
 import { FLURRY, FLURRY_7, FLURRY_9, QUAD3, QUAD4, QUAD5, QUAD6, WHIRL, WHIRL_35, WHIRL_45 } from './skill-sword';
+import { HIRYU, HIRYU_4, HIRYU_7, KENZAN, KENZAN_4, KENZAN_5, OUZU, OUZU_3, OUZU_4 } from './skill-greatsword-ex';
+import { CROSS, CROSS_2, CROSS_3, GALE, GALE_6, GALE_8, IAI, IAI_4, IAI_7 } from './skill-sword-ex';
 import { GSK_ISSEN, GSK_ISSEN_BACK, GSK_ISSEN_LUNGE, GSK_RIP, GSK_SLAM, GSK_SLAM_LEAP, GSK_SWEEP1, GSK_SWEEP2 } from './skill-greatsword';
 import { GS_GUARD, GS_GUARD_HIT, GS_PARRY } from './gs-guard';
 
@@ -45,6 +47,24 @@ export const AUTHORED_ATTACKS: Record<string, AuthoredAttack> = {
   flurry9: FLURRY_9,
   quad5: QUAD5,
   quad6: QUAD6,
+  iai: IAI,
+  iai4: IAI_4,
+  iai7: IAI_7,
+  cross: CROSS,
+  cross2: CROSS_2,
+  cross3: CROSS_3,
+  gale: GALE,
+  gale6: GALE_6,
+  gale8: GALE_8,
+  ouzu: OUZU,
+  ouzu3: OUZU_3,
+  ouzu4: OUZU_4,
+  kenzan: KENZAN,
+  kenzan4: KENZAN_4,
+  kenzan5: KENZAN_5,
+  hiryu: HIRYU,
+  hiryu4: HIRYU_4,
+  hiryu7: HIRYU_7,
   gskSweep1: GSK_SWEEP1,
   gskSweep2: GSK_SWEEP2,
   gskSlam: GSK_SLAM,

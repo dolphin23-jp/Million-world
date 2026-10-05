@@ -4,7 +4,7 @@ import { OFFHAND } from './offhand';
 import { pose } from './stagger';
 
 /** 予備動作の頂点のポーズ（右へひねって右肩の後ろへ振りかぶる。腰を少し沈めて後ろ足に体重を乗せる）。頂点で一拍止めるので 2 つのキーで使う */
-const WINDUP = {
+export const WINDUP = {
   hips: { yaw: 14, pitch: -3, z: -0.04, y: -0.05 },
   chest: { yaw: 34, pitch: -8 },
   head: { yaw: 8 },

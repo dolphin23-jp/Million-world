@@ -8,7 +8,7 @@ import type { WeaponId } from './loadouts';
  * コストはクールダウン（スキルごと）。レベル 1〜SKILL_LEVEL_MAX: 威力・クールダウンが良くなり、連なりが伸びる（minLevel の段が解放される）。
  */
 
-export type SkillId = 'yotsuba' | 'samidare' | 'tatsumaki' | 'houzan' | 'issen';
+export type SkillId = 'yotsuba' | 'samidare' | 'tatsumaki' | 'iai' | 'juji' | 'hayate' | 'houzan' | 'issen' | 'ouzu' | 'kenzan' | 'hiryu';
 
 export const SKILL_LEVEL_MAX = 10;
 
@@ -114,6 +114,54 @@ export const SKILLS: Record<SkillId, SkillDef> = {
     cooldownFrames: 720,
     cooldownPerLevel: COOLDOWN_PER_LEVEL,
   },
+  iai: {
+    id: 'iai',
+    name: '居合',
+    short: '居合',
+    detail: '納刀の構えで溜め、一瞬で踏み込んで左から抜き打ち、返しで斬り上げる。溜めの間はスーパーアーマー',
+    family: 'sword',
+    steps: [{ attack: 'skIai', evolve: [{ minLevel: 4, attack: 'skIai4' }, { minLevel: 7, attack: 'skIai7' }] }],
+    evolutions: [
+      { level: 4, text: '斬り上げのあと、左上から右下へ袈裟に斬り下ろす「二ノ太刀」が加わる' },
+      { level: 7, text: 'さらに右腰へ引き絞って突き込む「三ノ太刀」が加わる（4 連）' },
+    ],
+    power: 1.2,
+    powerPerLevel: POWER_PER_LEVEL,
+    cooldownFrames: 720,
+    cooldownPerLevel: COOLDOWN_PER_LEVEL,
+  },
+  juji: {
+    id: 'juji',
+    name: '十字斬り',
+    short: '十字',
+    detail: '縦に斬り下ろし、横に薙ぎ、交点へ突き立てて衝撃を爆ぜさせる。最後の突き立ては円の範囲で重い',
+    family: 'sword',
+    steps: [{ attack: 'skCross', evolve: [{ minLevel: 4, attack: 'skCross2' }, { minLevel: 7, attack: 'skCross3' }] }],
+    evolutions: [
+      { level: 4, text: '十字が 2 回続く（二重十字。突き立てが 2 回爆ぜる）' },
+      { level: 7, text: '十字が 3 回続く（三重十字。突き立てが 3 回爆ぜる）' },
+    ],
+    power: 1.15,
+    powerPerLevel: POWER_PER_LEVEL,
+    cooldownFrames: 600,
+    cooldownPerLevel: COOLDOWN_PER_LEVEL,
+  },
+  hayate: {
+    id: 'hayate',
+    name: '疾風連斬',
+    short: '疾風',
+    detail: '前へ駆けながら、横薙ぎを左右に切り返して斬り抜ける。距離を詰めながら敵を抜ける 4 連。最後の 1 太刀は重い',
+    family: 'sword',
+    steps: [{ attack: 'skGale', evolve: [{ minLevel: 4, attack: 'skGale6' }, { minLevel: 7, attack: 'skGale8' }] }],
+    evolutions: [
+      { level: 4, text: '斬り抜けが 4 連から 6 連になる（駆ける距離も伸びる）' },
+      { level: 7, text: '8 連になる。最後の 1 太刀は飛ばす力が強い' },
+    ],
+    power: 1.15,
+    powerPerLevel: POWER_PER_LEVEL,
+    cooldownFrames: 570,
+    cooldownPerLevel: COOLDOWN_PER_LEVEL,
+  },
   // ---- 大剣。どれも剣技専用のモーション（SKILL_ATTACKS） ----
   houzan: {
     id: 'houzan',
@@ -158,10 +206,58 @@ export const SKILLS: Record<SkillId, SkillDef> = {
     cooldownFrames: 780,
     cooldownPerLevel: COOLDOWN_PER_LEVEL,
   },
+  ouzu: {
+    id: 'ouzu',
+    name: '大渦',
+    short: '大渦',
+    detail: '腰を落として全方位を薙ぐ大回転。前・後ろ・前・後ろと 4 回薙ぎ、回っているあいだはスーパーアーマー',
+    family: 'greatsword',
+    steps: [{ attack: 'skOuzu', evolve: [{ minLevel: 4, attack: 'skOuzu3' }, { minLevel: 7, attack: 'skOuzu4' }] }],
+    evolutions: [
+      { level: 4, text: '2 周から 3 周になり、6 回薙ぐ。回りながら前へ追う距離も伸びる' },
+      { level: 7, text: '4 周になり、8 回薙ぐ。最後の 1 回は強く飛ばす' },
+    ],
+    power: 1.2,
+    powerPerLevel: POWER_PER_LEVEL,
+    cooldownFrames: 840,
+    cooldownPerLevel: COOLDOWN_PER_LEVEL,
+  },
+  kenzan: {
+    id: 'kenzan',
+    name: '剣山',
+    short: '剣山',
+    detail: '頭上から剣を地面へ突き立て、突き立てた点から衝撃の輪が内から外へ 3 回広がる。突き立てているあいだはスーパーアーマー',
+    family: 'greatsword',
+    steps: [{ attack: 'skKenzan', evolve: [{ minLevel: 4, attack: 'skKenzan4' }, { minLevel: 7, attack: 'skKenzan5' }] }],
+    evolutions: [
+      { level: 4, text: '衝撃の輪が 4 回になる（外側の輪はさらに広い）' },
+      { level: 7, text: '衝撃の輪が 5 回になる。いちばん外の輪は遠くまで届く' },
+    ],
+    power: 1.2,
+    powerPerLevel: POWER_PER_LEVEL,
+    cooldownFrames: 1020,
+    cooldownPerLevel: COOLDOWN_PER_LEVEL,
+  },
+  hiryu: {
+    id: 'hiryu',
+    name: '飛竜落とし',
+    short: '飛竜',
+    detail: '高く跳び上がり、回りながら降りて叩きつける。降りるまで当たりはなく、着地の衝撃が輪になって広がる。降りてくる間はスーパーアーマー',
+    family: 'greatsword',
+    steps: [{ attack: 'skHiryu', evolve: [{ minLevel: 4, attack: 'skHiryu4' }, { minLevel: 7, attack: 'skHiryu7' }] }],
+    evolutions: [
+      { level: 4, text: 'もっと高く跳び、着地の衝撃が 2 重の輪になる' },
+      { level: 7, text: '空中で 2 回転する。着地の衝撃が 3 重の輪になり、外側の輪は遠くまで届く' },
+    ],
+    power: 1.2,
+    powerPerLevel: POWER_PER_LEVEL,
+    cooldownFrames: 960,
+    cooldownPerLevel: COOLDOWN_PER_LEVEL,
+  },
 };
 
 /** 一覧に並べる順（系統ごとにまとまる） */
-export const SKILL_ORDER: readonly SkillId[] = ['yotsuba', 'samidare', 'tatsumaki', 'houzan', 'issen'];
+export const SKILL_ORDER: readonly SkillId[] = ['yotsuba', 'samidare', 'tatsumaki', 'iai', 'juji', 'hayate', 'houzan', 'issen', 'ouzu', 'kenzan', 'hiryu'];
 
 export function isSkillId(v: unknown): v is SkillId {
   return typeof v === 'string' && Object.prototype.hasOwnProperty.call(SKILLS, v);

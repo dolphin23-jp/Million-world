@@ -16,7 +16,7 @@ import { LEAD, pose } from './stagger';
 
 type V3 = [number, number, number];
 
-const RETURN = {
+export const RETURN = {
   hips: { yaw: 0, pitch: 0, z: 0, y: 0 },
   chest: { yaw: 0, pitch: 0 },
   head: { yaw: 0 },
@@ -30,7 +30,7 @@ const RETURN = {
 // ================================================================= 左袈裟（四連斬の 3 つ目）
 
 /** 予備動作の頂点: 右上へ抜けた剣を頭上へ回し、左上へ振りかぶる（combo1 の WINDUP の左右反転）。腰を左へひねる */
-const QUAD3_WINDUP = {
+export const QUAD3_WINDUP = {
   hips: { yaw: -14, pitch: -3, z: -0.04, y: -0.05 },
   chest: { yaw: -34, pitch: -8 },
   head: { yaw: -8 },
@@ -42,7 +42,7 @@ const QUAD3_WINDUP = {
 };
 
 /** 振り抜きの終わり: 剣は右下へ抜け、体は右へひねり切る（combo1 の FOLLOW の左右反転）。次段（左逆袈裟）はこの姿勢から続く */
-const QUAD3_FOLLOW = {
+export const QUAD3_FOLLOW = {
   hips: { yaw: 16, pitch: 9, z: 0.05, y: -0.1 },
   chest: { yaw: 30, pitch: 14 },
   head: { yaw: 10 },
@@ -109,7 +109,7 @@ export const QUAD3: AuthoredAttack = {
 // ================================================================= 左逆袈裟（四連斬の 4 つ目）
 
 /** 引き込み: 右下へ抜けた剣を、そのまま右下の低い所へ引いて溜める（combo2 の溜めの左右反転）。右へひねる */
-const QUAD4_COIL = {
+export const QUAD4_COIL = {
   hips: { yaw: 20, pitch: 7, z: 0.03, y: -0.12 },
   chest: { yaw: 38, pitch: 14 },
   head: { yaw: 12 },
@@ -120,7 +120,7 @@ const QUAD4_COIL = {
 };
 
 /** 振り抜きの終わり: 剣は左上へ抜け、体は左へひねる（combo2 の FOLLOW の左右反転） */
-const QUAD4_FOLLOW = {
+export const QUAD4_FOLLOW = {
   hips: { yaw: -14, pitch: 6, z: 0.05, y: -0.1 },
   chest: { yaw: -26, pitch: 11 },
   head: { yaw: -10 },
@@ -477,7 +477,7 @@ export const WHIRL_45: AuthoredAttack = buildWhirl(WHIRL45);
 // ================================================================= 突き込み（四連斬の 5 つ目。四ツ葉 Lv4 で加わる）
 
 /** 引き絞り: 左上へ抜けた剣を、そのまま右腰へ引いて体を右へひねる。後ろ足を前へ引き寄せて、腰を沈める（combo3 の引き絞りと同じ） */
-const QUAD5_CHAMBER = {
+export const QUAD5_CHAMBER = {
   hips: { yaw: 20, pitch: 2, z: -0.03, y: -0.16 },
   chest: { yaw: 36, pitch: 4 },
   head: { yaw: 10 },
@@ -490,7 +490,7 @@ const QUAD5_CHAMBER = {
 };
 
 /** 突き: 右足を大きく踏み込み、剣が体の正面を真っ直ぐ貫く（切っ先は胸の高さ。胸のヨーを打ち消して、ワールドの前へ伸ばす） */
-const QUAD5_THRUST = {
+export const QUAD5_THRUST = {
   hips: { yaw: -8, pitch: 8, z: 0.1, y: -0.18 },
   chest: { yaw: -8, pitch: 12 },
   head: { yaw: -4 },

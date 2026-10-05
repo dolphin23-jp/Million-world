@@ -21,6 +21,14 @@ const allAttackIds = (id: SkillId): string[] => {
 };
 
 describe('スキルのデータの整合', () => {
+  it('武器の系統ごとの剣技の数（第 2 弾のあと。ADR-038）: 片手剣 6・大剣 5。名前（一覧）の順は系統ごとにまとまる', () => {
+    expect(SWORD.length).toBe(6);
+    expect(GREAT.length).toBe(5);
+    // 一覧（SKILL_ORDER）は片手剣が先、大剣があと（系統の途中で入れ替わらない）
+    const fam = SKILL_ORDER.map((id) => SKILLS[id].family);
+    expect(fam.join()).toBe([...fam].sort((a, b) => (a === b ? 0 : a === 'sword' ? -1 : 1)).join());
+  });
+
   it('id・名前は重複せず、ボタンに出す短い表記は 4 文字まで', () => {
     expect(new Set(SKILL_ORDER).size).toBe(SKILL_ORDER.length);
     expect(Object.keys(SKILLS).sort()).toEqual([...SKILL_ORDER].sort());
@@ -199,7 +207,7 @@ describe('skillSteps: レベルで連なりが伸びる', () => {
   });
 });
 
-describe('5 つの剣技の進化（Lv4 と Lv7 だけ。ADR-034）', () => {
+describe('剣技の進化（Lv4 と Lv7 だけ。ADR-034・038）', () => {
   it('モーション（連なりの攻撃 id）が変わるのは Lv3→4 と Lv6→7 の 2 回だけ。そのほかのレベルアップでは同じ連なりで数値だけが伸びる', () => {
     for (const id of SKILL_ORDER) {
       const changed: number[] = [];
@@ -227,6 +235,25 @@ describe('5 つの剣技の進化（Lv4 と Lv7 だけ。ADR-034）', () => {
     expect(chainAt('issen', 1)).toEqual(['skGsIssen']);
     expect(chainAt('issen', 4)).toEqual(['skGsIssen', 'skGsIssen2']);
     expect(chainAt('issen', 7)).toEqual(['skGsIssen', 'skGsIssen2', 'skGsIssenLunge']);
+    // 第 2 弾（ADR-038）: どれも 1 本のクリップが Lv4・Lv7 で長い版に替わる
+    expect(chainAt('iai', 1)).toEqual(['skIai']);
+    expect(chainAt('iai', 4)).toEqual(['skIai4']);
+    expect(chainAt('iai', 7)).toEqual(['skIai7']);
+    expect(chainAt('juji', 1)).toEqual(['skCross']);
+    expect(chainAt('juji', 4)).toEqual(['skCross2']);
+    expect(chainAt('juji', 7)).toEqual(['skCross3']);
+    expect(chainAt('hayate', 1)).toEqual(['skGale']);
+    expect(chainAt('hayate', 4)).toEqual(['skGale6']);
+    expect(chainAt('hayate', 7)).toEqual(['skGale8']);
+    expect(chainAt('ouzu', 1)).toEqual(['skOuzu']);
+    expect(chainAt('ouzu', 4)).toEqual(['skOuzu3']);
+    expect(chainAt('ouzu', 7)).toEqual(['skOuzu4']);
+    expect(chainAt('kenzan', 1)).toEqual(['skKenzan']);
+    expect(chainAt('kenzan', 4)).toEqual(['skKenzan4']);
+    expect(chainAt('kenzan', 7)).toEqual(['skKenzan5']);
+    expect(chainAt('hiryu', 1)).toEqual(['skHiryu']);
+    expect(chainAt('hiryu', 4)).toEqual(['skHiryu4']);
+    expect(chainAt('hiryu', 7)).toEqual(['skHiryu7']);
   });
 
   it('進化のたびに、当たり（窓の数 + 段）は減らない = 進化は必ず「増える・派手になる」', () => {

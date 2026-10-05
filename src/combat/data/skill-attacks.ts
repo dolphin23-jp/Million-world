@@ -47,6 +47,7 @@ import {
   ISSEN_PASS_T,
 } from '../../character/data/skill-greatsword';
 import type { HitboxDef } from '../hit';
+import { SKILL_ATTACKS_EX } from './skill-attacks-ex';
 
 const deg = (d: number) => (d * Math.PI) / 180;
 
@@ -402,6 +403,9 @@ SKILL_ATTACKS.skGsIssenLunge = {
   knockback: 3.4,
   fade: 0.05,
 };
+
+// 剣技の第 2 弾（ADR-038）
+Object.assign(SKILL_ATTACKS, SKILL_ATTACKS_EX);
 
 /** 攻撃 id から定義を探す（ふつうの攻撃 → 剣技専用の攻撃の順） */
 export function findAttack(id: string): AttackDef | undefined {
