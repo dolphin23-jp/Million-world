@@ -56,6 +56,11 @@ export interface EnemyAttackDef {
    */
   groundImpact?: number;
   /**
+   * 突進の激突（M7-4c。ADR-045）: 踏み込みのあいだに障害物（体を止める柱・岩・壁・箱）にぶつかったら、突進が止まり、
+   * 自分にダメージを受けて（CRASH.damageRatio）体勢を崩す（反撃の窓。CRASH.effect）。突進（lunge）を持つ攻撃だけに付ける
+   */
+  crash?: boolean;
+  /**
    * 近接の届く高さの上限（敵の足から。m。M7-4b。ADR-044）。なければ背の高さ + 腕を伸ばした分（REACH）まで届く。
    * 低い攻撃（地を這う突進）に指定すると、足がこの高さより上の相手（跳んでいる）には当たらない = 跳んで避けられる
    */
@@ -363,6 +368,8 @@ export const ENEMIES = {
       telegraph: { kind: 'lane', width: 2.1 },
       // 地を這う突進（背 1.15m の猪が足元をなぎ払う）: 足が 0.6m より上（跳んでいる）なら当たらない = 跳んで避けられる（M7-4b）
       reachTop: 0.6,
+      // 突進が障害物にぶつかったら激突する（M7-4c）
+      crash: true,
     },
   },
   /**

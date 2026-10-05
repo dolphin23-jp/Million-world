@@ -1560,6 +1560,53 @@ try {
     process.exitCode = 3;
   }
 
+  // 突進の激突（M7-4c。ADR-045）: 猪が、プレイヤーの先（背後）の柱に突進して激突する。猪は自分にダメージを受け、体勢を崩して動けない。反撃の窓のあいだ、プレイヤーの攻撃は大きなダメージになる
+  const crashRun = await page.evaluate((cfg) => {
+    const g = window.__mw.game;
+    g.restart(cfg);
+    g.setLoadout('sword');
+    g.stepNow(1);
+    const col = g.world.obstacles.find((o) => o.kind === 'circle' && o.top > 3 && o.top < 4 && Math.abs(o.x - o.z) < 1e-6 && o.x > 0);
+    const len = Math.hypot(col.x, col.z);
+    const ux = col.x / len; // 中心 → 柱の外向き
+    const uz = col.z / len;
+    const p = g.player;
+    const e = g.enemies[0].enemy;
+    // 柱の手前（中心側）に猪、そのさらに外側（柱の少し手前）にプレイヤー。猪は柱へ向かって突進する（プレイヤーの方 = 柱の方）
+    e.place(col.x - ux * 7.2, col.z - uz * 7.2, Math.atan2(ux, uz));
+    p.body.x = col.x - ux * 3.2;
+    p.body.z = col.z - uz * 3.2;
+    p.yaw = Math.atan2(-ux, -uz);
+    g.stepNow(2);
+    const hp0 = e.health.hp;
+    // プレイヤーは突進をかわす: 猪が突進に入ったら、通り道の脇へ寄る（スティックの代わりに位置を動かす）
+    let crashed = -1;
+    let dodged = false;
+    for (let i = 0; i < 60 * 12 && crashed < 0; i++) {
+      g.stepNow(1);
+      if (!dodged && e.state === 'attack') {
+        p.body.x += -uz * 2.2; // 通り道の脇へ（当たらない位置）
+        p.body.z += ux * 2.2;
+        dodged = true;
+      }
+      if (e.crashSerial > 0) crashed = i;
+    }
+    // 激突の少し後の絵: 猪が柱のそばで動けない
+    g.stepNow(18);
+    g.cam.yaw = Math.atan2(-uz, ux) + 0.5;
+    g.cam.pitch = 0.45;
+    g.cam.distance = 8;
+    g.renderNow(14);
+    return { crashed, dodged, state: e.state, hpLost: hp0 - e.health.hp, hp: e.health.hp, riposte: e.riposte !== null, dist: Math.hypot(e.body.x - col.x, e.body.z - col.z) };
+  }, { waves: [[{ type: 'boar', offset: 0, radius: 6 }]], waveGapFrames: 100, victoryDelayFrames: 75, defeatDelayFrames: 150, maxAttackers: 2 });
+  await sleep(150);
+  await page.screenshot({ path: 'artifacts/shot-crash.png' });
+  console.log(`[crash] ${JSON.stringify(crashRun)}`);
+  if (crashRun.crashed < 0 || crashRun.state !== 'stagger' || crashRun.hpLost <= 0 || !crashRun.riposte || crashRun.dist < 1.4) {
+    console.error('[crash] 猪が柱に激突しない・体勢を崩さない・自分にダメージを受けない・柱にめり込む');
+    process.exitCode = 3;
+  }
+
   // 操作ガイド（ADR-024）: ロックして 1 段目を出し、次段の受付が開いた絵（連携の履歴・続けられる技・受付の帯）と、右上の「技表」を開いた絵
   await page.evaluate((solo) => {
     const g = window.__mw.game;
