@@ -1,13 +1,14 @@
 import type { InputIntent, InputSource } from './intent';
 
 /**
- * 開発用キーボード入力。WASD/矢印: 移動, J: 攻撃（押し続けると溜め）, K: 回避, H: ガード（押している間）, G: 装備の切替, U: アイテムを使う, I: アイテムの選択を次へ, O: スキルを使う, P: スキルの選択を次へ, L: ロックオン, Q/E: 対象切替, 矢印(Shift): カメラ。
+ * 開発用キーボード入力。WASD/矢印: 移動, J: 攻撃（押し続けると溜め）, K: 回避, Space: ジャンプ, H: ガード（押している間）, G: 装備の切替, U: アイテムを使う, I: アイテムの選択を次へ, O: スキルを使う, P: スキルの選択を次へ, L: ロックオン, Q/E: 対象切替, 矢印(Shift): カメラ。
  * 製品の操作系はタッチ専用（ADR-006）。これは PC での動作確認のためだけに存在する。
  */
 export class KeyboardInput implements InputSource {
   private readonly down = new Set<string>();
   private attackEdge = false;
   private dodgeEdge = false;
+  private jumpEdge = false;
   private guardEdge = false;
   private equipEdge = false;
   private lockEdge = false;
@@ -27,6 +28,11 @@ export class KeyboardInput implements InputSource {
           break;
         case 'KeyK':
           this.dodgeEdge = true;
+          break;
+        case 'Space':
+          // ページのスクロールを起こさない（開発用のキーボードでも、空白キーでゲームが動かないようにする）
+          e.preventDefault();
+          this.jumpEdge = true;
           break;
         case 'KeyH':
           this.guardEdge = true;
@@ -78,6 +84,7 @@ export class KeyboardInput implements InputSource {
     if (d.has('ArrowDown')) intent.camPitch += camSpeed * 0.6;
     if (this.attackEdge) intent.attackPressed = true;
     if (this.dodgeEdge) intent.dodgePressed = true;
+    if (this.jumpEdge) intent.jumpPressed = true;
     if (d.has('KeyJ')) intent.attackHeld = true;
     if (this.guardEdge) intent.guardPressed = true;
     if (d.has('KeyH')) intent.guardHeld = true;
@@ -93,6 +100,7 @@ export class KeyboardInput implements InputSource {
   endStep(): void {
     this.attackEdge = false;
     this.dodgeEdge = false;
+    this.jumpEdge = false;
     this.guardEdge = false;
     this.equipEdge = false;
     this.lockEdge = false;

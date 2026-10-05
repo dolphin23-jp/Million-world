@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { STEP_UP, World, createRayHit, type Obstacle } from './world';
+import { AIR_STEP_UP, STEP_UP, SUPPORT_RADIUS, World, createRayHit, type Obstacle } from './world';
 
 const R = 14;
 const circle = (x: number, z: number, r: number, top: number): Obstacle => ({ kind: 'circle', x, z, r, top });
@@ -185,5 +185,53 @@ describe('World.raycast / lineOfSight: 弾・視線の遮り', () => {
     h.t = 7;
     expect(w.raycast(0, 0, 10, 10, 1, h)).toBe(false);
     expect(h.t).toBe(7);
+  });
+});
+
+describe('World.groundHeight: 足場の高さ（M7-2）', () => {
+  const flat = (x: number, z: number, hx: number, hz: number, top: number): Obstacle => box(x, z, hx, hz, 0, top);
+  it('障害物が無ければ地面（0）。障害物の上なら、その上面の高さ', () => {
+    expect(world().groundHeight(3, 3, 0)).toBe(0);
+    const w = world(flat(0, 5, 2, 1, 0.9));
+    expect(w.groundHeight(0, 5, 1.5)).toBeCloseTo(0.9); // 足が 1.5 の高さ（上から降りる）
+    expect(w.groundHeight(0, 0, 1.5)).toBe(0); // 箱の外
+  });
+
+  it('足より高い障害物（立ちはだかる壁）は足場に数えない。上面が足の高さ + stepUp 以下のものだけ', () => {
+    const w = world(flat(0, 5, 2, 1, 0.9));
+    expect(w.groundHeight(0, 5, 0)).toBe(0); // 地面から見た 0.9 は壁（> STEP_UP）
+    expect(w.groundHeight(0, 5, 0.9 - STEP_UP)).toBeCloseTo(0.9); // 足が 0.45 なら、段差として上がれる
+    // 低い段差は地面からそのまま乗れる
+    expect(world(circle(0, 5, 1, 0.3)).groundHeight(0, 5, 0)).toBeCloseTo(0.3);
+  });
+
+  it('stepUp を小さくする（空中）と、足よりそれ以上高い上面は足場にならない。縁の猶予（AIR_STEP_UP）以内なら足場', () => {
+    const w = world(flat(0, 5, 2, 1, 0.9));
+    expect(w.groundHeight(0, 5, 0.9 - AIR_STEP_UP + 0.01, AIR_STEP_UP)).toBeCloseTo(0.9);
+    expect(w.groundHeight(0, 5, 0.9 - AIR_STEP_UP - 0.05, AIR_STEP_UP)).toBe(0);
+  });
+
+  it('縁から SUPPORT_RADIUS までは立てる（足が少しはみ出す）。それより外は足場がない', () => {
+    const w = world(flat(0, 5, 2, 1, 0.9)); // z の範囲 4〜6
+    expect(w.groundHeight(0, 6 + SUPPORT_RADIUS * 0.8, 1.5)).toBeCloseTo(0.9);
+    expect(w.groundHeight(0, 6 + SUPPORT_RADIUS * 1.2, 1.5)).toBe(0);
+    const col = world(circle(0, 5, 1, 0.9));
+    expect(col.groundHeight(1 + SUPPORT_RADIUS * 0.8, 5, 1.5)).toBeCloseTo(0.9);
+    expect(col.groundHeight(1 + SUPPORT_RADIUS * 1.2, 5, 1.5)).toBe(0);
+  });
+
+  it('重なった足場が複数あれば、乗れるうちでいちばん高い上面（低い台の上に高い台が重なる）', () => {
+    const w = world(flat(0, 5, 3, 3, 0.4), flat(0, 5, 1, 1, 1.0), flat(0, 5, 0.5, 0.5, 2.5));
+    expect(w.groundHeight(0, 5, 1.2)).toBeCloseTo(1.0); // 2.5 は足 + STEP_UP より高い（立ちはだかる）
+    expect(w.groundHeight(2, 5, 1.2)).toBeCloseTo(0.4);
+  });
+
+  it('moveCircle の stepUp: 空中の許容を小さくすると、上面がそれより高い障害物には押し戻される', () => {
+    const w = world(flat(0, 5, 2, 1, 0.9));
+    const ground = { x: 0, z: 3.7, r: 0.5 };
+    expect(w.moveCircle(ground, 0.6, STEP_UP)).toBe(false); // 足 0.6 + 0.45 ≥ 0.9: 乗れる
+    const air = { x: 0, z: 3.7, r: 0.5 };
+    expect(w.moveCircle(air, 0.6, AIR_STEP_UP)).toBe(true); // 足 0.6 + 0.12 < 0.9: 壁
+    expect(air.z).toBeCloseTo(3.5);
   });
 });

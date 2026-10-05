@@ -17,6 +17,7 @@ interface Elements {
   camZone: HTMLElement;
   btnAttack: HTMLElement;
   btnDodge: HTMLElement;
+  btnJump: HTMLElement;
   btnGuard: HTMLElement;
   btnEquip: HTMLElement;
   btnLock: HTMLElement;
@@ -56,6 +57,7 @@ export class TouchInput implements InputSource {
   /** 攻撃ボタンを押している間 true */
   private attackHeld = false;
   private dodgeEdge = false;
+  private jumpEdge = false;
   private guardEdge = false;
   /** ガードボタンを押している間 true（構えは押している間だけ。ADR-020） */
   private guardHeld = false;
@@ -83,6 +85,7 @@ export class TouchInput implements InputSource {
       camZone: q('cam-zone'),
       btnAttack: q('btn-attack'),
       btnDodge: q('btn-dodge'),
+      btnJump: q('btn-jump'),
       btnGuard: q('btn-guard'),
       btnEquip: q('btn-equip'),
       btnLock: q('btn-lock'),
@@ -101,6 +104,7 @@ export class TouchInput implements InputSource {
       () => (this.attackHeld = false),
     );
     this.bindButton(this.el.btnDodge, () => (this.dodgeEdge = true));
+    this.bindButton(this.el.btnJump, () => (this.jumpEdge = true));
     // ガードは押している間も読む（保持で構える）
     this.bindButton(
       this.el.btnGuard,
@@ -144,6 +148,7 @@ export class TouchInput implements InputSource {
     this.camDyPx = 0;
     if (this.attackEdge) intent.attackPressed = true;
     if (this.dodgeEdge) intent.dodgePressed = true;
+    if (this.jumpEdge) intent.jumpPressed = true;
     if (this.attackHeld) intent.attackHeld = true;
     if (this.guardEdge) intent.guardPressed = true;
     if (this.guardHeld) intent.guardHeld = true;
@@ -157,6 +162,7 @@ export class TouchInput implements InputSource {
   endStep(): void {
     this.attackEdge = false;
     this.dodgeEdge = false;
+    this.jumpEdge = false;
     this.guardEdge = false;
     this.equipEdge = false;
     this.lockEdge = false;

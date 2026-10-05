@@ -16,6 +16,7 @@ import { cutProjectiles, resolveProjectilesOnPlayer, resolveReflectedProjectiles
 import { MAX_PROJECTILES, ProjectileSystem, spawnShot, type Projectile, type ProjectileEnd } from '../combat/projectile';
 import { summonPoints, type SummonPoint } from '../ai/summon';
 import { PROJECTILES, PROJECTILE_HEIGHT } from '../combat/data/projectiles';
+import { JUMP } from '../combat/data/jump';
 import { ProjectileRenderer } from '../render/projectiles';
 import type { Circle } from '../world/collision';
 import { Mystical } from '../combat/mystical';
@@ -236,6 +237,8 @@ export class Game {
   private readonly persistEnabled: boolean;
   /** 地面を叩いた合図（Player.impactSerial）を処理し終えた値 */
   private seenImpact = 0;
+  private seenJump = 0;
+  private seenLand = 0;
   /** スーパーアーマーで受けた合図（Player.armorSerial）を処理し終えた値 */
   private seenArmor = 0;
   /** 多段の技の 2 つ目以降の振り（Player.swingSerial）の音を鳴らし終えた値 */
@@ -311,6 +314,7 @@ export class Game {
     this.scene.add(this.arena.group);
 
     this.player = new Player();
+    this.player.world = this.world;
     this.scene.add(this.player.root);
     // 成長: セーブから戻して、スキルのレベル・選択と、戦闘の数値（Modifiers）に反映する。サンドボックスは読み書きしない
     this.persistEnabled = !this.sandbox;
@@ -562,8 +566,8 @@ export class Game {
     this.syncGrowthUi();
     if (gained > 0) {
       const p = this.player;
-      this.damageNumbers.spawnText(p.body.x, 2.15, p.body.z, `LEVEL UP  Lv ${this.growth.level}`, 'level', 1.25);
-      this.hitFx.burst(p.body.x, HIT_FEEDBACK.playerImpactHeight, p.body.z, 0, 0, 0.9, FX_TINT.poise);
+      this.damageNumbers.spawnText(p.body.x, p.y + 2.15, p.body.z, `LEVEL UP  Lv ${this.growth.level}`, 'level', 1.25);
+      this.hitFx.burst(p.body.x, p.y + HIT_FEEDBACK.playerImpactHeight, p.body.z, 0, 0, 0.9, FX_TINT.poise);
       this.sfx.play('levelUp');
       this.hud.flashLevelUp();
       this.menu.refreshMarks();
@@ -666,15 +670,15 @@ export class Game {
     const fb = hitFeedback(ev, result.killed);
     this.hitStop.trigger(fb.hitStop);
     this.cam.shake.trigger(fb.shakeAmp, fb.shakeSeconds);
-    this.hitFx.burst(ev.x, HIT_FEEDBACK.playerImpactHeight, ev.z, ev.dirX, ev.dirZ, fb.power);
-    this.damageNumbers.spawn(this.player.body.x, HIT_FEEDBACK.playerImpactHeight + 0.7, this.player.body.z, result.dealt, 'hurt');
+    this.hitFx.burst(ev.x, this.player.y + HIT_FEEDBACK.playerImpactHeight, ev.z, ev.dirX, ev.dirZ, fb.power);
+    this.damageNumbers.spawn(this.player.body.x, this.player.y + HIT_FEEDBACK.playerImpactHeight + 0.7, this.player.body.z, result.dealt, 'hurt');
     this.hud.flashHurt();
     this.hud.setPlayerHp(this.player.health.hp, this.player.health.max);
     // スーパーアーマーで受けた（剣技の最中。ひるまずダメージだけ受けた）: 「ARMOR」の文字と、受け止める金属の音（被弾の音のかわり）
     const armored = this.player.armorSerial !== this.seenArmor;
     this.seenArmor = this.player.armorSerial;
     if (armored) {
-      this.damageNumbers.spawnText(this.player.body.x, 2.1, this.player.body.z, 'ARMOR', 'armor', 0.9);
+      this.damageNumbers.spawnText(this.player.body.x, this.player.y + 2.1, this.player.body.z, 'ARMOR', 'armor', 0.9);
       this.sfx.play('guard');
     } else {
       this.sfx.play('hurt');
@@ -690,8 +694,8 @@ export class Game {
   private onEnemyGuarded(ev: HitEvent, result: DamageResult): void {
     this.hitStop.trigger(GUARD_FEEDBACK.hitStop);
     this.cam.shake.trigger(GUARD_FEEDBACK.shake.amp, GUARD_FEEDBACK.shake.seconds);
-    this.hitFx.burst(ev.x, HIT_FEEDBACK.playerImpactHeight, ev.z, ev.dirX, ev.dirZ, 0.55, FX_TINT.guard);
-    this.damageNumbers.spawn(this.player.body.x, HIT_FEEDBACK.playerImpactHeight + 0.7, this.player.body.z, result.dealt, 'guard');
+    this.hitFx.burst(ev.x, this.player.y + HIT_FEEDBACK.playerImpactHeight, ev.z, ev.dirX, ev.dirZ, 0.55, FX_TINT.guard);
+    this.damageNumbers.spawn(this.player.body.x, this.player.y + HIT_FEEDBACK.playerImpactHeight + 0.7, this.player.body.z, result.dealt, 'guard');
     this.hud.setPlayerHp(this.player.health.hp, this.player.health.max);
     this.sfx.play('guard');
     this.encounter.onPlayerGuard(result.dealt);
@@ -705,7 +709,7 @@ export class Game {
   private onEnemyParried(ev: HitEvent, enemy: Enemy, fx: ParryEffectDef): void {
     this.hitStop.trigger(fx.hitStop);
     this.cam.shake.trigger(fx.shake.amp, fx.shake.seconds);
-    this.hitFx.burst(ev.x, HIT_FEEDBACK.playerImpactHeight, ev.z, ev.dirX, ev.dirZ, fx.burst, FX_TINT.parry);
+    this.hitFx.burst(ev.x, this.player.y + HIT_FEEDBACK.playerImpactHeight, ev.z, ev.dirX, ev.dirZ, fx.burst, FX_TINT.parry);
     this.damageNumbers.spawnText(enemy.body.x, enemy.def.height + 0.35, enemy.body.z, 'PARRY', 'parry', fx.labelScale);
     this.sfx.play(fx.sfx);
     this.encounter.onParry();
@@ -720,7 +724,7 @@ export class Game {
     const healed = p.heal(n);
     if (healed <= 0) return;
     this.hud.setPlayerHp(p.health.hp, p.health.max);
-    this.damageNumbers.spawn(p.body.x, HIT_FEEDBACK.playerImpactHeight + 0.7, p.body.z, healed, 'heal');
+    this.damageNumbers.spawn(p.body.x, p.y + HIT_FEEDBACK.playerImpactHeight + 0.7, p.body.z, healed, 'heal');
   }
 
   /**
@@ -736,8 +740,8 @@ export class Game {
       const b = MYSTICAL.burst;
       this.hitStop.trigger(b.hitStop);
       this.cam.shake.trigger(b.shake.amp, b.shake.seconds);
-      this.hitFx.burst(p.body.x, HIT_FEEDBACK.playerImpactHeight, p.body.z, Math.sin(p.yaw), Math.cos(p.yaw), b.power, FX_TINT.mystic);
-      this.damageNumbers.spawnText(p.body.x, 1.9, p.body.z, 'MYSTICAL', 'mystic', 1.25);
+      this.hitFx.burst(p.body.x, p.y + HIT_FEEDBACK.playerImpactHeight, p.body.z, Math.sin(p.yaw), Math.cos(p.yaw), b.power, FX_TINT.mystic);
+      this.damageNumbers.spawnText(p.body.x, p.y + 1.9, p.body.z, 'MYSTICAL', 'mystic', 1.25);
       this.sfx.play('mysticalStart');
     }
     return this.mystical.active;
@@ -777,8 +781,8 @@ export class Game {
     }
     const healed = p.heal(ITEMS[r.item].heal * this.mods.heal);
     this.hud.setPlayerHp(p.health.hp, p.health.max);
-    this.hitFx.burst(p.body.x, HIT_FEEDBACK.playerImpactHeight, p.body.z, 0, 0, 0.8, FX_TINT.heal);
-    this.damageNumbers.spawn(p.body.x, HIT_FEEDBACK.playerImpactHeight + 0.7, p.body.z, healed, 'heal');
+    this.hitFx.burst(p.body.x, p.y + HIT_FEEDBACK.playerImpactHeight, p.body.z, 0, 0, 0.8, FX_TINT.heal);
+    this.damageNumbers.spawn(p.body.x, p.y + HIT_FEEDBACK.playerImpactHeight + 0.7, p.body.z, healed, 'heal');
     this.sfx.play('potion');
   }
 
@@ -804,7 +808,7 @@ export class Game {
     const id = p.lastSkill;
     if (!id) return;
     this.skills.start(id, this.mods.skillCooldown);
-    this.damageNumbers.spawnText(p.body.x, 1.95, p.body.z, SKILLS[id].name, 'skill', 1.2);
+    this.damageNumbers.spawnText(p.body.x, p.y + 1.95, p.body.z, SKILLS[id].name, 'skill', 1.2);
     this.sfx.play('skillStart');
   }
 
@@ -972,6 +976,7 @@ export class Game {
       intent.moveY = 0;
       intent.attackPressed = false;
       intent.dodgePressed = false;
+      intent.jumpPressed = false;
       intent.attackHeld = false;
       intent.guardPressed = false;
       intent.guardHeld = false;
@@ -1065,7 +1070,7 @@ export class Game {
     }
     // 障害物（柱・岩・壁・箱）とアリーナの縁: 体は障害物の外へ押し出され、縁の内側へ収まる。飛んでいる敵は低い障害物の上を通る（足の高さ FLYING_Y）
     for (const { enemy } of this.enemies) this.world.moveCircle(enemy.body, enemy.def.flying ? FLYING_Y : 0);
-    this.world.moveCircle(this.player.body);
+    this.world.moveCircle(this.player.body, this.player.y, this.player.stepUp);
 
     // 演出が終わった敵を取り除く
     for (let i = this.enemies.length - 1; i >= 0; i--) {
@@ -1100,6 +1105,18 @@ export class Game {
       this.seenSwing = p.swingSerial;
       const name = p.attack ? SWING_SFX[p.attack.id] : undefined;
       if (name) this.sfx.play(name, { gain: Math.min(1.1, 0.7 * p.attackPower) });
+    }
+    // ジャンプの踏み切り・着地（足元の砂ぼこりは足場の高さ p.y で出す）
+    if (p.jumpSerial !== this.seenJump) {
+      this.seenJump = p.jumpSerial;
+      this.sfx.play('jump');
+      this.groundFx.puff(p.body.x, p.y, p.body.z, 0.4);
+    }
+    if (p.landSerial !== this.seenLand) {
+      this.seenLand = p.landSerial;
+      const k = Math.min(1, p.lastLandSpeed / JUMP.dustSpeedMax);
+      this.sfx.play('land', { gain: 0.5 + 0.5 * k });
+      this.groundFx.puff(p.body.x, p.y, p.body.z, k);
     }
     if (p.stateSerial === this.seenPlayerSerial) return;
     this.seenPlayerSerial = p.stateSerial;

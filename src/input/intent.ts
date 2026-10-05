@@ -16,6 +16,8 @@ export interface InputIntent {
   /** 攻撃ボタンを押している間 true（レベル）。長押しの溜めに使う（ADR-018）。押した瞬間は attackPressed も true */
   attackHeld: boolean;
   dodgePressed: boolean;
+  /** ジャンプボタンの押下エッジ（M7-2。ADR-040。立っている・走っているときに跳ぶ。空中で押すと着地の直前の先行入力になる） */
+  jumpPressed: boolean;
   /** ガードボタンの押下エッジと、押している間 true（レベル）。構えは押している間だけ（ADR-020） */
   guardPressed: boolean;
   guardHeld: boolean;
@@ -41,6 +43,7 @@ export function createEmptyIntent(): InputIntent {
     attackPressed: false,
     attackHeld: false,
     dodgePressed: false,
+    jumpPressed: false,
     guardPressed: false,
     guardHeld: false,
     equipPressed: false,
@@ -79,6 +82,7 @@ export class InputAggregator {
     it.attackPressed = false;
     it.attackHeld = false;
     it.dodgePressed = false;
+    it.jumpPressed = false;
     it.guardPressed = false;
     it.guardHeld = false;
     it.equipPressed = false;

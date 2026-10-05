@@ -52,6 +52,8 @@ export interface CombatTarget {
 
 /** 防御できる被弾側（Player）。敵の攻撃が当たる瞬間に、まず guardOutcome で防御の結果を聞く（ADR-020） */
 export interface DefenderView extends CombatTarget {
+  /** 足の高さ（m。地面 = 0。ジャンプ・障害物の上に乗っているとき）。弾の高さより上なら、弾は下を通る（M7-2。ADR-040）。省略 = 0 */
+  readonly y?: number;
   /** 回避の無敵が敵の攻撃を避けさせている最中か（ほかの無敵の理由がない）。ジャスト回避の判定（ADR-030） */
   readonly dodging?: boolean;
   /** ミスティカルドッジの最中か（無敵）。この間に重なった攻撃も「避けた」ものとして記録する（切れたあとに刺さらない） */
