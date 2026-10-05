@@ -445,6 +445,7 @@ export class Game {
   /** 敵を 1 体、(x, z) に出す。プレイヤーの方を向く。tier = 敵の段階（色違いの強化版。省略 = いまの戦闘の段階。ADR-036） */
   spawnEnemy(type: keyof typeof ENEMIES, x: number, z: number, tier: number = this.encounter.tier): Enemy {
     const enemy = new Enemy(enemyDef(type, tier), this.nextEnemyId++, x, z);
+    enemy.world = this.world;
     enemy.place(x, z, Math.atan2(this.player.body.x - x, this.player.body.z - z));
     const visual = new EnemyVisual(type, tierDef(tier).tier);
     this.scene.add(visual.root);
@@ -1268,7 +1269,7 @@ export class Game {
       }
     }
     this.cam.boss = boss !== null;
-    this.cam.update(_pos, frameDt);
+    this.cam.update(_pos, frameDt, this.world);
     this.sky.follow(this.cam.camera);
     this.arena.animate(t);
     this.hitFx.update(frameDt);

@@ -7,6 +7,8 @@ import { PARRY_EFFECTS, type ParryEffectDef } from '../combat/data/guard';
 import { PROJECTILES, type ProjectileId } from '../combat/data/projectiles';
 import type { EnemyAttackDef, EnemyDef } from './data/enemies';
 import { fanOffset } from '../combat/projectile';
+import { FLYING_Y, type World } from '../world/world';
+import { createSteerState, steerYaw } from './steering';
 
 /**
  * 敵の sim 側（three に依存しない。見た目は src/game/enemy-visual.ts）。
@@ -14,7 +16,8 @@ import { fanOffset } from '../combat/projectile';
  * 状態機械:
  *   idle（出現直後の待ち。プレイヤーが範囲内なら chase）
  *   chase（プレイヤーの方を向いて近づく。stopDistance で止まり、攻撃の距離で待ちが明けていれば windup。
- *     距離を取る敵（retreatDistance）は、近づかれると向きを保ったまま後ろへ下がる）
+ *     距離を取る敵（retreatDistance）は、近づかれると向きを保ったまま後ろへ下がる。
+ *     世界（world）があれば、近づくあいだ障害物に塞がれていたら、通れる向きへ回り込む = 迂回。M7-4a。ADR-043）
  *   windup（予備動作 = テレグラフ。windupTrackFrames まではプレイヤーを向き続け、そのあと向きを固定する）
  *   attack（startup → active（判定が出る。前へ踏み込む）→ recover = 硬直）→ chase
  *     飛び道具の攻撃（projectile）は、近接の判定が出ず、startup で固定した向きへ弾を 1 つ撃つ（fireSerial / shot。弾の sim は src/combat/projectile.ts）
@@ -77,6 +80,11 @@ export class Enemy {
   stateSerial = 0;
   /** 死亡の演出が終わって取り除いてよい */
   removable = false;
+  /**
+   * 障害物を避けて追うための世界（Game が出現のときに渡す。null なら迂回せず、まっすぐ追う = 障害物は押し出しで滑るだけ）と、迂回の状態
+   */
+  world: World | null = null;
+  private readonly steer = createSteerState();
   /** 次の予備動作に入れるまでの残り（硬直が明けてから数える） */
   private cooldown = 0;
   /** 攻撃の踏み込みの向き（予備動作で固定した向き） */
@@ -327,7 +335,8 @@ export class Enemy {
           this.setState('idle');
           break;
         }
-        this.faceTarget(wantYaw, dt);
+        // 近づくあいだは、障害物に塞がれていれば通れる向きへ回り込む（周回・後退・止まる距離の中では、プレイヤーの方を向く）
+        this.faceTarget(this.approachYaw(wantYaw, dist, targetX, targetZ), dt);
         if (def.orbitSpeed !== undefined && dist < def.stopDistance + 1.8) {
           // 周回: 輪（stopDistance）を保ちながら、プレイヤーの周りを回る（向いている方向に対して横）
           const radial = clamp((dist - def.stopDistance) * 2.5, -def.moveSpeed, def.moveSpeed);
@@ -414,6 +423,15 @@ export class Enemy {
     this.body.z += (moveZ + this.knockback.velZ) * dt;
     this.knockback.step();
     this.stateFrame++;
+  }
+
+  /** chase で向く向き: 近づいている最中（周回・後退・止まる距離の外）で、世界があれば、障害物を避ける向き。それ以外はプレイヤーの方（wantYaw） */
+  private approachYaw(wantYaw: number, dist: number, targetX: number, targetZ: number): number {
+    const def = this.def;
+    if (!this.world || dist <= def.stopDistance) return wantYaw;
+    if (def.orbitSpeed !== undefined && dist < def.stopDistance + 1.8) return wantYaw;
+    if (def.retreatDistance !== undefined && dist < def.retreatDistance) return wantYaw;
+    return steerYaw(this.world, this.body.x, this.body.z, def.radius, def.flying ? FLYING_Y : 0, targetX, targetZ, this.steer, this.orbitSide);
   }
 
   /** いまの段階の、技のあとの待ちの倍率（1 = そのまま） */

@@ -1356,6 +1356,102 @@ try {
     process.exitCode = 3;
   }
 
+  // 敵の迂回とカメラの衝突（M7-4a。ADR-043）: 斜めの柱（折れた柱。45°・半径 9m）を挟んで敵とプレイヤーが向かい合う。敵は柱を回り込んで届く。
+  // カメラは縁の柱の手前までしか引かれない（柱の陰に入らない）
+  const steer = await page.evaluate((solo) => {
+    const g = window.__mw.game;
+    g.restart({ ...solo, maxAttackers: 0 });
+    g.setLoadout('sword');
+    g.stepNow(1);
+    const col = g.world.obstacles.find((o) => o.kind === 'circle' && o.top > 3 && o.top < 4 && Math.abs(o.x - o.z) < 1e-6 && o.x > 0);
+    const len = Math.hypot(col.x, col.z);
+    // 柱を通る、中心への接線の向き。柱の両側 3.2m に、敵とプレイヤーを置く
+    const tx = -col.z / len;
+    const tz = col.x / len;
+    const e = g.enemies[0].enemy;
+    const p = g.player;
+    p.body.x = col.x + tx * 3.2;
+    p.body.z = col.z + tz * 3.2;
+    p.yaw = Math.atan2(-tx, -tz);
+    e.place(col.x - tx * 3.2, col.z - tz * 3.2, Math.atan2(tx, tz));
+    g.stepNow(2);
+    const start = { x: e.body.x, z: e.body.z };
+    const px = p.body.x;
+    const pz = p.body.z;
+    // まっすぐな線（敵 → プレイヤー）からの、敵の横ずれの最大
+    const ax = px - start.x;
+    const az = pz - start.z;
+    const alen = Math.hypot(ax, az);
+    let maxOff = 0;
+    let reached = -1;
+    let shotAt = -1;
+    for (let i = 0; i < 60 * 14; i++) {
+      g.stepNow(1);
+      const off = Math.abs(((e.body.x - start.x) * az - (e.body.z - start.z) * ax) / alen);
+      maxOff = Math.max(maxOff, off);
+      if (shotAt < 0 && off > 1.1) shotAt = i; // 柱の脇を通るあたり（横ずれが最大に近い）
+      if (shotAt >= 0 && i === shotAt + 8) break;
+    }
+    // 上から見る: 敵 → プレイヤーの向きを画面の横に
+    g.cam.yaw = Math.atan2(-az, ax) + Math.PI / 2;
+    g.cam.pitch = 0.95;
+    g.cam.distance = 9;
+    g.renderNow(14);
+    return { maxOff, shotAt, startDist: alen, col: { x: col.x, z: col.z } };
+  }, SOLO);
+  await sleep(150);
+  await page.screenshot({ path: 'artifacts/shot-steering.png' });
+  const steerEnd = await page.evaluate(() => {
+    const g = window.__mw.game;
+    const e = g.enemies[0].enemy;
+    const p = g.player;
+    // 続きを進めて、プレイヤーのそばまで来るか
+    let reached = -1;
+    for (let i = 0; i < 60 * 14; i++) {
+      g.stepNow(1);
+      if (Math.hypot(e.body.x - p.body.x, e.body.z - p.body.z) <= e.def.stopDistance + 0.3) {
+        reached = i;
+        break;
+      }
+    }
+    return { reached, dist: Math.hypot(e.body.x - p.body.x, e.body.z - p.body.z) };
+  });
+  console.log(`[steering] ${JSON.stringify({ ...steer, ...steerEnd })}`);
+  if (steer.maxOff < 0.9 || steerEnd.reached < 0) {
+    console.error('[steering] 柱を挟んだ敵が、柱を回り込めない（横ずれ・到達）');
+    process.exitCode = 3;
+  }
+  const camShot = await page.evaluate((solo) => {
+    const g = window.__mw.game;
+    g.restart({ ...solo, maxAttackers: 0 });
+    g.setLoadout('sword');
+    g.stepNow(1);
+    for (const e of g.enemies) e.enemy.place(0, -12, 0);
+    // 縁の柱（上面 4.5。縁から 1.6m 内側）の内側 1.5m に立ち、カメラを柱の外側へ向ける（背後が柱）
+    const pillar = g.world.obstacles.find((o) => o.kind === 'circle' && o.top > 4);
+    const len = Math.hypot(pillar.x, pillar.z);
+    const rx = pillar.x / len;
+    const rz = pillar.z / len;
+    const p = g.player;
+    p.body.x = pillar.x - rx * 1.8;
+    p.body.z = pillar.z - rz * 1.8;
+    p.yaw = Math.atan2(-rx, -rz);
+    g.stepNow(2);
+    g.cam.yaw = Math.atan2(rx, rz); // カメラは柱のある外側に付く（プレイヤー → カメラの向き = 外向き）
+    g.cam.pitch = 0.3;
+    g.cam.distance = 4.9;
+    g.renderNow(14);
+    const c = g.cam.camera.position;
+    return { camFromPlayer: Math.hypot(c.x - p.body.x, c.z - p.body.z), pillarFromPlayer: 1.8, full: 4.9 * Math.cos(0.3) };
+  }, SOLO);
+  await sleep(150);
+  await page.screenshot({ path: 'artifacts/shot-camera-collision.png' });
+  console.log(`[camera] ${JSON.stringify(camShot)}`);
+  if (camShot.camFromPlayer > camShot.pillarFromPlayer) {
+    console.error('[camera] 柱の陰にカメラが入っている（柱の手前で止まらない）');
+    process.exitCode = 3;
+  }
+
   // 操作ガイド（ADR-024）: ロックして 1 段目を出し、次段の受付が開いた絵（連携の履歴・続けられる技・受付の帯）と、右上の「技表」を開いた絵
   await page.evaluate((solo) => {
     const g = window.__mw.game;
