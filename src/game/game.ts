@@ -17,6 +17,7 @@ import { MAX_PROJECTILES, ProjectileSystem, spawnShot, type Projectile, type Pro
 import { summonPoints, type SummonPoint } from '../ai/summon';
 import { PROJECTILES, PROJECTILE_HEIGHT } from '../combat/data/projectiles';
 import { JUMP } from '../combat/data/jump';
+import { traverseSpecsFor } from '../character/data/traverse';
 import { ProjectileRenderer } from '../render/projectiles';
 import type { Circle } from '../world/collision';
 import { Mystical } from '../combat/mystical';
@@ -402,7 +403,8 @@ export class Game {
   /** 資産を読み込む。開始前に 1 度呼ぶ */
   async preload(): Promise<void> {
     const asset = await loadCharacter(`${import.meta.env.BASE_URL}${HERO.url}`);
-    this.player.attachVisual(asset);
+    // 低い障害物を越えるクリップ（乗り上がり・乗り越え）は、闘技場の障害物の高さ・厚みの分を読み込みのときに焼いておく
+    this.player.attachVisual(asset, traverseSpecsFor(this.world.obstacles));
     this.ready = true;
   }
 
@@ -1070,7 +1072,8 @@ export class Game {
     }
     // 障害物（柱・岩・壁・箱）とアリーナの縁: 体は障害物の外へ押し出され、縁の内側へ収まる。飛んでいる敵は低い障害物の上を通る（足の高さ FLYING_Y）
     for (const { enemy } of this.enemies) this.world.moveCircle(enemy.body, enemy.def.flying ? FLYING_Y : 0);
-    this.world.moveCircle(this.player.body, this.player.y, this.player.stepUp);
+    // 乗り上がり・乗り越えの最中は、体の位置がクリップの曲線に従う（障害物の中を通るので押し出さない）
+    if (!this.player.traversing) this.world.moveCircle(this.player.body, this.player.y, this.player.stepUp);
 
     // 演出が終わった敵を取り除く
     for (let i = this.enemies.length - 1; i >= 0; i--) {
@@ -1126,6 +1129,8 @@ export class Game {
       if (name) this.sfx.play(name, { delay: Math.max(0, p.attack.activeStart - 0.07) / p.attack.rate, gain: Math.min(1.3, p.attackPower) });
     } else if (p.state === 'dodge') {
       this.sfx.play(p.dodgeKind === 'back' ? 'dodgeBack' : 'dodge');
+    } else if (p.state === 'traverse') {
+      this.sfx.play('mantle');
     } else if (p.state === 'charge') {
       this.sfx.play('chargeStart');
     } else if (p.state === 'guard') {

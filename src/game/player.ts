@@ -9,6 +9,10 @@ import { afterDodgeOf, classifyStick, pickAttack, pickChargeRelease, pickFollowU
 import { applyDamage, createHealth, type DamageResult } from '../combat/health';
 import { BASE_MODIFIERS, type Modifiers } from '../combat/modifiers';
 import { JUMP } from '../combat/data/jump';
+import { TRAVERSE } from '../combat/data/traverse';
+import { probeTraverse, type TraversePlan } from '../combat/traverse';
+import { rootYCurve, rootZCurve, type AuthoredAttack } from '../character/authoring';
+import { traverseDef, traverseName, traverseSpec, type TraverseSpec } from '../character/data/traverse';
 import { AIR_STEP_UP, STEP_UP, openWorld, type World } from '../world/world';
 import { HitTracker, isActiveFrame, type HitEvent, type Hurtbox } from '../combat/hit';
 import { Knockback } from '../combat/knockback';
@@ -25,7 +29,24 @@ import { HeroVisual } from './hero-visual';
  * 見た目は補間係数 alpha で sim ステップ間を滑らかにし、状態の変化を見てクリップを切り替える。
  */
 
-export type PlayerState = 'idle' | 'run' | 'attack' | 'charge' | 'guard' | 'dodge' | 'hit' | 'dead' | 'air' | 'land';
+export type PlayerState = 'idle' | 'run' | 'attack' | 'charge' | 'guard' | 'dodge' | 'hit' | 'dead' | 'air' | 'land' | 'traverse';
+
+/** 実行中の乗り上がり・乗り越え（M7-3）。計画・クリップの仕様と、その曲線（ルートの前進量・高さ）と、始まりの位置・向き・高さ */
+interface TraverseRun {
+  plan: TraversePlan;
+  spec: TraverseSpec;
+  def: AuthoredAttack;
+  rootZ: (t: number) => number;
+  rootY: (t: number) => number;
+  /** 実際の値と丸めた仕様の比（曲線の拡縮。見た目のクリップとのずれを sim が吸収する） */
+  scaleY: number;
+  scaleZ: number;
+  frames: number;
+  x0: number;
+  z0: number;
+  y0: number;
+  yaw0: number;
+}
 
 /** 世界を渡されなかったとき（単体テスト）の、障害物の無い平らな世界 */
 const FLAT_WORLD: World = openWorld(1e6);
@@ -63,6 +84,10 @@ export class Player {
   grounded = true;
   /** 世界（障害物・足場の高さ）。Game が渡す。渡さなければ障害物の無い平らな世界 */
   world: World = FLAT_WORLD;
+  /** 乗り上がり・乗り越え（M7-3）の実行中の計画（なければ null）と、障害物の面に押し込み続けたフレーム */
+  private traverse: TraverseRun | null = null;
+  private pushFrames = 0;
+  private moveSpeed = 0;
   state: PlayerState = 'idle';
   stateFrame = 0;
   attack: AttackDef | null = null;
@@ -165,8 +190,8 @@ export class Player {
   }
 
   /** 読み込んだキャラクター資産を見た目として装着する */
-  attachVisual(asset: CharacterAsset): void {
-    this.visual = new HeroVisual(asset);
+  attachVisual(asset: CharacterAsset, traverseSpecs: readonly TraverseSpec[] = []): void {
+    this.visual = new HeroVisual(asset, traverseSpecs);
     this.root.add(this.visual.root);
   }
 
@@ -229,6 +254,8 @@ export class Player {
           this.beginGuard();
         } else if (this.attackBuffered) {
           this.beginAttackFromInput(mx, mz, mLen);
+        } else {
+          this.tryTraverse(mx, mz, mLen);
         }
         break;
       case 'attack':
@@ -249,6 +276,9 @@ export class Player {
       case 'land':
         this.stepLand(dt, mx, mz, mLen, intent);
         break;
+      case 'traverse':
+        this.stepTraverse(dt);
+        break;
       case 'hit':
         // ひるみ: 操作できない。ノックバックの速度で動き、終わったら待機へ（先行入力は残る）
         this.velX = this.knockback.velX;
@@ -266,9 +296,17 @@ export class Player {
     this.body.x += this.velX * dt;
     this.body.z += this.velZ * dt;
     // 障害物の外へ押し出して（足の高さで、止める障害物と乗れる段差が決まる）、足場に立つ・落ちる。押し出された先でまた別の障害物に重なるなら Game がもう一度押し出す
-    this.world.moveCircle(this.body, this.y, this.grounded ? STEP_UP : AIR_STEP_UP);
-    this.stepVertical(dt);
+    if (this.traverse) {
+      // 乗り上がり・乗り越え: 位置と高さはクリップの曲線どおり（障害物の押し出し・重力は使わない）
+      this.grounded = true;
+      this.velY = 0;
+    } else {
+      this.world.moveCircle(this.body, this.y, this.grounded ? STEP_UP : AIR_STEP_UP);
+      this.stepVertical(dt);
+    }
     this.speed = Math.hypot(this.velX, this.velZ);
+    // 実際に動いた速さ（障害物に押し戻された分は引く。壁に押し込んで止まっているときは 0）。乗り越えが「走って近づいている」かの判定に使う
+    this.moveSpeed = Math.hypot(this.body.x - this.prevX, this.body.z - this.prevZ) / dt;
     this.stateFrame++;
     if (this.hurtInvuln > 0) this.hurtInvuln--;
     this.pendingSkill = null;
@@ -338,6 +376,8 @@ export class Player {
     this.guardBuffer = 0;
     this.hurtInvuln = HIT_STUN.invulnFrames;
     this.jumpDelay = 0;
+    // 越えている最中に受けたら中断する。足場から離れていれば、次の足場の判定で落ちる
+    this.traverse = null;
     this.velX = 0;
     this.velZ = 0;
     // 攻撃してきた側を向いて受ける（ひるみのアニメは正面から受けた姿）
@@ -459,6 +499,8 @@ export class Player {
     this.velY = 0;
     this.grounded = true;
     this.jumpBuffer = this.coyote = this.jumpDelay = 0;
+    this.traverse = null;
+    this.pushFrames = 0;
     this.body.x = this.prevX = 0;
     this.body.z = this.prevZ = 0;
     this.yaw = this.prevYaw = 0;
@@ -490,6 +532,103 @@ export class Player {
         if (changeState) this.setState('idle');
       }
     }
+  }
+
+  // ======================= 乗り上がり・乗り越え（M7-3） =======================
+
+  /**
+   * 立っている・走っているとき、スティックの向きに乗り越えられる低い障害物があれば始める（ボタンなし）。走って近づいていれば体の縁が面の手前に
+   * 入ったところですぐ、立ち止まって・ゆっくりなら面に接して押し込み続けた TRAVERSE.holdFrames のあと。向きが面の正面から外れていれば始まらない
+   */
+  private tryTraverse(mx: number, mz: number, mLen: number): void {
+    if (mLen < 0.5 || !this.grounded) {
+      this.pushFrames = 0;
+      return;
+    }
+    const probe = probeTraverse(this.world, this.body.x, this.body.z, this.y, mx / mLen, mz / mLen, this.moveSpeed);
+    if (!probe) {
+      this.pushFrames = 0;
+      return;
+    }
+    if (probe.touching) this.pushFrames++;
+    else this.pushFrames = 0;
+    if (probe.immediate || this.pushFrames >= TRAVERSE.holdFrames) this.beginTraverse(probe.plan);
+  }
+
+  private beginTraverse(plan: TraversePlan): void {
+    const spec = traverseSpec(plan.kind, plan.height, plan.span);
+    const def = traverseDef(spec);
+    this.traverse = {
+      plan,
+      spec,
+      def,
+      rootZ: rootZCurve(def),
+      rootY: rootYCurve(def),
+      scaleY: plan.height / spec.height,
+      scaleZ: plan.span / spec.span,
+      frames: Math.round(def.duration * 60),
+      x0: this.body.x,
+      z0: this.body.z,
+      y0: this.y,
+      yaw0: this.yaw,
+    };
+    this.pushFrames = 0;
+    this.jumpBuffer = 0;
+    this.velX = 0;
+    this.velZ = 0;
+    this.setState('traverse', true);
+  }
+
+  /**
+   * 乗り上がり・乗り越えの 1 ステップ: 始まりの位置から、面の正面（クリップの原点）へ alignFrames で寄って向き直り、そこからクリップの rootZ（面の正面方向の前進）・
+   * rootY（体の高さ）に従う。位置・高さは曲線どおりに置く（速度は、このステップで目標に着くように逆算）。終わったら終点に立ち、乗り越えは走り続ける
+   */
+  private stepTraverse(dt: number): void {
+    const tr = this.traverse;
+    if (!tr) {
+      this.setState('idle');
+      return;
+    }
+    const frame = this.stateFrame + 1; // このステップの終わりの時刻（フレーム）
+    const t = Math.min(frame, tr.frames) / 60;
+    const a = Math.min(1, frame / TRAVERSE.alignFrames);
+    const e = a * a * (3 - 2 * a);
+    const p = tr.plan;
+    const fwd = tr.rootZ(t) * tr.scaleZ;
+    const tx = tr.x0 + (p.startX - tr.x0) * e - p.nx * fwd;
+    const tz = tr.z0 + (p.startZ - tr.z0) * e - p.nz * fwd;
+    this.velX = (tx - this.body.x) / dt;
+    this.velZ = (tz - this.body.z) / dt;
+    this.yaw = lerpAngle(tr.yaw0, p.yaw, e);
+    this.y = tr.y0 + tr.rootY(t) * tr.scaleY;
+    if (frame < tr.frames) return;
+    // 終わり: 終点に立つ（乗り上がり）/ 向こう側に着地して走り続ける（乗り越え）。足元の砂ぼこり・音は着地と同じ合図
+    this.traverse = null;
+    this.body.x = tx;
+    this.body.z = tz;
+    this.y = p.endY;
+    this.lastLandSpeed = p.kind === 'vault' ? 5 : 3;
+    this.landSerial++;
+    if (p.kind === 'vault') {
+      this.velX = -p.nx * TRAVERSE.vault.exitSpeed;
+      this.velZ = -p.nz * TRAVERSE.vault.exitSpeed;
+      this.setState('run');
+    } else {
+      this.velX = 0;
+      this.velZ = 0;
+      this.setState('idle');
+    }
+  }
+
+  /** 乗り上がり・乗り越えの最中か（Game が障害物の押し出しを止める。体の位置はクリップの曲線に従う） */
+  get traversing(): boolean {
+    return this.traverse !== null;
+  }
+
+  /** 実行中のクリップの名前・仕様・定義（見た目が焼いて再生する）。なければ null */
+  get traverseClip(): { name: string; spec: TraverseSpec; def: AuthoredAttack } | null {
+    const tr = this.traverse;
+    return tr ? { name: traverseName(tr.spec), spec: tr.spec, def: tr.def } : null;
   }
 
   // ======================= 縦の動き（ジャンプ・落下・着地。M7-2） =======================
