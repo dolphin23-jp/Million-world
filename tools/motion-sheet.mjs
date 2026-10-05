@@ -210,7 +210,7 @@ try {
       const [H, D, Wd = 3] = ledge;
       const THREE = window.__mw.THREE;
       const z = 0.39 + D / 2;
-      g.player.world = new g.world.constructor({ radius: 14, obstacles: [{ kind: 'box', x: 0, z, hx: Wd, hz: D / 2, yaw: 0, top: H }] });
+      g.player.world = new g.world.constructor({ radius: 14, obstacles: [{ kind: 'box', x: 0, z, hx: Wd, hz: D / 2, yaw: 0, top: H, climbable: true }] });
       const mesh = new THREE.Mesh(new THREE.BoxGeometry(2 * Wd, H, D), new THREE.MeshToonMaterial({ color: 0xd8c9a0 }));
       mesh.position.set(0, H / 2, z);
       mesh.receiveShadow = true;

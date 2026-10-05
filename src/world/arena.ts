@@ -92,6 +92,8 @@ export class Arena {
     const rockMat = createToonMaterial({ color: 0xa9a49a, steps: 3, shadowLevel: 0.42, rimColor: 0xe9e2d2, rimStrength: 0.2 });
     const blockMat = createToonMaterial({ color: 0xd2c9b4, steps: 3, shadowLevel: 0.5, rimColor: 0xfff1d0, rimStrength: 0.25 });
     const blockTopMat = createToonMaterial({ color: 0xe6dcc3, steps: 2, shadowLevel: 0.6 });
+    // 掴んで登れる縁（Obstacle.climbable）の縁取りは金色（登れる面が見て分かるように。M7-3b）
+    const climbTrimMat = createToonMaterial({ color: 0xf2c76a, emissive: 0xf2c76a, emissiveIntensity: 0.18, steps: 2, shadowLevel: 0.7 });
     const pillarGeo = new THREE.CylinderGeometry(0.45, 0.55, 4.2, 10);
     const capGeo = new THREE.BoxGeometry(1.3, 0.35, 1.3);
     const add = (mesh: THREE.Mesh, thickness = 0.03): void => {
@@ -134,7 +136,7 @@ export class Arena {
         body.rotation.y = o.yaw;
         add(body);
         // 上面の縁取り（明るい帯。乗れる・登れる高さが見て分かるように）
-        const trim = new THREE.Mesh(new THREE.BoxGeometry(o.hx * 2 + 0.08, 0.1, o.hz * 2 + 0.08), blockTopMat);
+        const trim = new THREE.Mesh(new THREE.BoxGeometry(o.hx * 2 + 0.08, 0.1, o.hz * 2 + 0.08), o.climbable ? climbTrimMat : blockTopMat);
         // 帯の上面は面より 1cm だけ高い（同じ高さだと重なってちらつく）。人が乗る面なので、それ以上は盛らない
         trim.position.set(o.x, o.top - 0.04, o.z);
         trim.rotation.y = o.yaw;

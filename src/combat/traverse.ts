@@ -7,7 +7,8 @@ import { STEP_UP, createLedgeHit, type World } from '../world/world';
  * 「この向きへ押し込むと何が起こるか」（乗り上がり / 乗り越え / 何も起こらない）と、始点・終点を決める。実際の動きは Player が計画に沿って進める。
  */
 
-export type TraverseKind = 'mantle' | 'vault';
+/** mantle = 乗り上がり / vault = 乗り越え / climb = 掴んで登る（登れる縁だけ。M7-3b） */
+export type TraverseKind = 'mantle' | 'vault' | 'climb';
 
 export interface TraversePlan {
   kind: TraverseKind;
@@ -59,7 +60,9 @@ export function probeTraverse(world: World, x: number, z: number, y: number, dir
   // 面の正面から外れすぎ（斜めに擦っている）なら始めない
   if (dirX * -nx + dirZ * -nz < Math.cos((TRAVERSE.maxAngleDeg * Math.PI) / 180)) return null;
   const height = HIT.top - y;
-  if (height <= STEP_UP + 1e-6 || height > TRAVERSE.mantleMax) return null;
+  // mantleMax より高い縁は、登れる縁（climbable）と明示された面だけ（climbMax まで）。柱・登れない高い箱は対象外
+  const climbing = height > TRAVERSE.mantleMax;
+  if (height <= STEP_UP + 1e-6 || height > TRAVERSE.climbMax || (climbing && !HIT.climbable)) return null;
   const edge = HIT.dist - r; // 体の縁から面まで
   const immediate = speed >= TRAVERSE.runSpeed && edge <= TRAVERSE.runStartDist;
   const touching = edge <= TRAVERSE.contactDist;
@@ -68,10 +71,10 @@ export function probeTraverse(world: World, x: number, z: number, y: number, dir
   const depth = HIT.depth;
   const top = HIT.top;
   // 乗り越え: 低くて薄く、向こう側に着地できる（同じ高さの平らな地面で、ほかの障害物に重ならない）
-  let kind: TraverseKind = 'mantle';
+  let kind: TraverseKind = climbing ? 'climb' : 'mantle';
   let endDist = Math.min(TRAVERSE.standZ, depth / 2); // 面からの前進量（乗り上がり）
   let endY = top;
-  if (immediate && height <= TRAVERSE.vault.maxHeight && depth <= TRAVERSE.vault.maxDepth) {
+  if (!climbing && immediate && height <= TRAVERSE.vault.maxHeight && depth <= TRAVERSE.vault.maxDepth) {
     const land = depth + TRAVERSE.vault.landZ;
     END.x = HIT.x - nx * land;
     END.z = HIT.z - nz * land;
@@ -81,7 +84,7 @@ export function probeTraverse(world: World, x: number, z: number, y: number, dir
       endY = y;
     }
   }
-  if (kind === 'mantle') {
+  if (kind !== 'vault') {
     END.x = HIT.x - nx * endDist;
     END.z = HIT.z - nz * endDist;
     // 上面に立てる（足場がちょうどその高さ）・別の高い障害物に重ならない・境界の内側

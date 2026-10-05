@@ -1235,7 +1235,11 @@ try {
     g.setLoadout('sword');
     g.stepNow(1);
     for (const e of g.enemies) e.enemy.place(0, -12, 0);
-    const o = g.world.obstacles.find((b) => (kind === 'mantle' ? b.kind === 'circle' && b.top < 1 : b.kind === 'box' && b.top < 1 && b.hz < 0.5));
+    const o = g.world.obstacles.find((b) =>
+      kind === 'mantle' ? b.kind === 'circle' && b.top < 1
+      : kind === 'vault' ? b.kind === 'box' && b.top < 1 && b.hz < 0.5
+      : kind === 'climb' ? b.climbable && b.top < 2 // 石の箱（1.5）
+      : b.climbable && b.top > 2); // 石の壇（2.2）
     // 障害物の中心 → 闘技場の中心の向き（面の正面）から、3m 手前で向かい合う
     const len = Math.hypot(o.x, o.z);
     const dir = { x: -o.x / len, z: -o.z / len }; // 中心 → 障害物と逆。走る向きは障害物へ（外向き）: 下で反転
@@ -1249,7 +1253,7 @@ try {
     g.__trav = { run, top: o.top, ox: o.x, oz: o.z };
     return { run, top: o.top };
   }, [SOLO, kind]);
-  const travRun = (frames, stopWhen) => page.evaluate(([frames, stopWhen]) => {
+  const travRun = (frames, stopWhen, midAfter = 14) => page.evaluate(([frames, stopWhen, midAfter]) => {
     const g = window.__mw.game;
     const p = g.player;
     const { run } = g.__trav;
@@ -1261,11 +1265,11 @@ try {
       g.inject(stick);
       g.stepNow(1);
       if (!started && p.state === 'traverse') started = { frame: i, kind: p.traverseClip.spec.kind, name: p.traverseClip.name };
-      if (stopWhen === 'traverse-mid' && started && i - started.frame >= 14) break;
+      if (stopWhen === 'traverse-mid' && started && i - started.frame >= midAfter) break;
       if (stopWhen === 'done' && started && p.state !== 'traverse') break;
     }
     return { started, state: p.state, y: p.y, grounded: p.grounded, x: p.body.x, z: p.body.z, speed: Math.hypot(p.velX, p.velZ), landSerial: p.landSerial };
-  }, [frames, stopWhen]);
+  }, [frames, stopWhen, midAfter]);
   const travCam = (flip = false) => page.evaluate((flip) => {
     const g = window.__mw.game;
     const { run } = g.__trav;
@@ -1297,6 +1301,53 @@ try {
     return { beyond, y: p.y, state: p.state };
   });
   console.log(`[traverse] vault ${JSON.stringify({ started: vaultMid.started, endState: vaultEnd.state, y: vaultEnd.y, speed: vaultEnd.speed, ...vaultAfter })}`);
+  // 掴んで登る（M7-3b。ADR-042）: 登れる縁の石の箱（上面 1.5）と壇（上面 2.2）。縁にぶら下がった瞬間（始まりから 26 フレーム）の絵と、登り切って上に立つ終わり
+  const climbShot = async (kind, file) => {
+    await travInit(kind);
+    const mid = await travRun(160, 'traverse-mid', 26);
+    await page.evaluate(() => {
+      const g = window.__mw.game;
+      const { run } = g.__trav;
+      const p = g.player;
+      // 走る向きを画面の横にして、カメラの視線（プレイヤーからカメラまで）が障害物に遮られない向きを探す
+      // （カメラはまだ障害物を避けない = M7-4。撮影では、めり込まない向きを選ぶ）。横向き（±90°）に近い順に試す
+      const side = Math.atan2(-run.z, run.x);
+      const dist = 5.0;
+      let best = side;
+      for (const off of [0, Math.PI, 0.5, -0.5, Math.PI + 0.5, Math.PI - 0.5, 1, -1, Math.PI + 1, Math.PI - 1]) {
+        const yaw = side + off;
+        if (g.world.lineOfSight(p.body.x, p.body.z, p.body.x + Math.sin(yaw) * dist * 1.1, p.body.z + Math.cos(yaw) * dist * 1.1, 0.5)) {
+          best = yaw;
+          break;
+        }
+      }
+      g.cam.yaw = best;
+      g.cam.pitch = 0.12;
+      g.cam.distance = dist;
+      g.renderNow(40);
+    });
+    await sleep(150);
+    await page.screenshot({ path: file });
+    const end = await travRun(160, 'done');
+    const top = await page.evaluate(() => {
+      const g = window.__mw.game;
+      const { ox, oz, run } = g.__trav;
+      const p = g.player;
+      // 上面の上（面から奥へ入った位置）にいるか: 障害物の中心からの、面の正面方向の距離
+      return { depthIn: -((p.body.x - ox) * run.x + (p.body.z - oz) * run.z), y: p.y };
+    });
+    console.log(`[traverse] ${kind} ${JSON.stringify({ started: mid.started, midY: mid.y, endState: end.state, y: end.y, grounded: end.grounded, ...top })}`);
+    return { mid, end, top };
+  };
+  const climbA = await climbShot('climb', 'artifacts/shot-traverse-climb-block.png');
+  const climbB = await climbShot('climbHigh', 'artifacts/shot-traverse-climb-terrace.png');
+  if (
+    climbA.mid.started?.kind !== 'climb' || !climbA.end.grounded || Math.abs(climbA.end.y - 1.5) > 1e-6 || climbA.end.state !== 'idle' || climbA.mid.y < 0.2 ||
+    climbB.mid.started?.kind !== 'climb' || !climbB.end.grounded || Math.abs(climbB.end.y - 2.2) > 1e-6 || climbB.end.state !== 'idle' || climbB.mid.y < 0.5
+  ) {
+    console.error('[traverse] 登れる縁（石の箱 1.5・壇 2.2）を掴んで登れない（種別・ぶら下がりの高さ・終点の高さ）');
+    process.exitCode = 3;
+  }
   if (
     mantleMid.started?.kind !== 'mantle' || !mantleEnd.grounded || Math.abs(mantleEnd.y - 0.85) > 1e-6 || mantleEnd.state !== 'idle' ||
     vaultMid.started?.kind !== 'vault' || vaultEnd.y !== 0 || vaultEnd.state !== 'run' || vaultAfter.beyond < 0.5

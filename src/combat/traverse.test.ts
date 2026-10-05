@@ -5,7 +5,7 @@ import { MOVE } from './data/attacks';
 import { World, createLedgeHit, type Obstacle } from '../world/world';
 
 const R = MOVE.radius;
-const box = (x: number, z: number, hx: number, hz: number, top: number, yaw = 0): Obstacle => ({ kind: 'box', x, z, hx, hz, yaw, top });
+const box = (x: number, z: number, hx: number, hz: number, top: number, yaw = 0, climbable = false): Obstacle => ({ kind: 'box', x, z, hx, hz, yaw, top, climbable });
 const circle = (x: number, z: number, r: number, top: number): Obstacle => ({ kind: 'circle', x, z, r, top });
 const worldOf = (...obstacles: Obstacle[]): World => new World({ radius: 14, obstacles });
 
@@ -91,7 +91,7 @@ describe('probeTraverse: 乗り上がり・乗り越えの計画', () => {
     expect(probeTraverse(blocked, 0, faceOf(4.7) - 0.2, 0, 0, 1, 4.8)!.plan.kind).toBe('mantle');
   });
 
-  it('高すぎる障害物（箱 1.5・柱）・低すぎる段差（0.3）は対象外。足の高さを上げれば相対の高さで判定する', () => {
+  it('高すぎる障害物（登れない箱 1.5・柱）・低すぎる段差（0.3）は対象外。足の高さを上げれば相対の高さで判定する', () => {
     expect(probeTraverse(worldOf(box(0, 5, 2, 1, 1.5)), 0, faceOf(4) + 0.01, 0, 0, 1, 0)).toBeNull();
     expect(probeTraverse(worldOf(circle(0, 5, 0.6, 4.5)), 0, faceOf(4.4) + 0.01, 0, 0, 1, 0)).toBeNull();
     expect(probeTraverse(worldOf(box(0, 5, 2, 1, 0.3)), 0, faceOf(4) + 0.01, 0, 0, 1, 0)).toBeNull(); // 歩いて乗れる
@@ -117,6 +117,41 @@ describe('probeTraverse: 乗り上がり・乗り越えの計画', () => {
     // 低い壁のすぐ向こうに高い柱: 乗り上がった終点が柱に重なる
     const w2 = worldOf(box(0, 5, 3, 0.8, 0.9), circle(0, 5.6, 0.5, 4));
     expect(probeTraverse(w2, 0, faceOf(4.2) + 0.01, 0, 0, 1, 0)).toBeNull();
+  });
+
+  it('登れる縁（climbable）: mantleMax を超え climbMax 以下の高さなら「掴んで登る」。始点・終点は乗り上がりと同じ作り。走って近づいても乗り越えにはならない', () => {
+    const w = worldOf(box(0, 5, 2, 1, 1.5, 0, true)); // 面は z = 4
+    const p = probeTraverse(w, 0, faceOf(4) + 0.01, 0, 0, 1, 0)!;
+    expect(p).not.toBeNull();
+    expect(p.plan.kind).toBe('climb');
+    expect(p.plan.height).toBeCloseTo(1.5);
+    expect(p.plan.endY).toBe(1.5);
+    expect(p.plan.startZ).toBeCloseTo(4 - TRAVERSE.faceZ);
+    expect(p.plan.endZ).toBeCloseTo(4 + TRAVERSE.standZ);
+    expect(p.plan.span).toBeCloseTo(TRAVERSE.faceZ + TRAVERSE.standZ);
+    // 走って近づく（immediate）: 薄い高い壁でも乗り越えでなく登り
+    const thin = worldOf(box(0, 5, 3, 0.3, 1.5, 0, true));
+    const run = probeTraverse(thin, 0, faceOf(4.7) - 0.2, 0, 0, 1, 4.8)!;
+    expect(run.immediate).toBe(true);
+    expect(run.plan.kind).toBe('climb');
+    // 最も高い登れる縁（上面 2.2 の壇）も登れる。climbMax を超えたら対象外
+    expect(probeTraverse(worldOf(box(0, 5, 2, 1, 2.2, 0, true)), 0, faceOf(4) + 0.01, 0, 0, 1, 0)!.plan.kind).toBe('climb');
+    expect(probeTraverse(worldOf(box(0, 5, 2, 1, TRAVERSE.climbMax + 0.1, 0, true)), 0, faceOf(4) + 0.01, 0, 0, 1, 0)).toBeNull();
+  });
+
+  it('登れる縁でない高い障害物は、同じ高さでも対象外。mantleMax ちょうどまでは印がなくても乗り上がり', () => {
+    expect(probeTraverse(worldOf(box(0, 5, 2, 1, 2.2)), 0, faceOf(4) + 0.01, 0, 0, 1, 0)).toBeNull();
+    expect(probeTraverse(worldOf(box(0, 5, 2, 1, TRAVERSE.mantleMax)), 0, faceOf(4) + 0.01, 0, 0, 1, 0)!.plan.kind).toBe('mantle');
+    // 登れる印があっても、mantleMax 以下は乗り上がり（登りにしない）
+    expect(probeTraverse(worldOf(box(0, 5, 2, 1, 1.1, 0, true)), 0, faceOf(4) + 0.01, 0, 0, 1, 0)!.plan.kind).toBe('mantle');
+  });
+
+  it('登れる縁でも、上面に立てない（終点に高い障害物が重なる・境界の外）なら始まらない。足が高ければ相対の高さで登り／乗り上がりが変わる', () => {
+    const blocked = worldOf(box(0, 5, 2, 1, 1.5, 0, true), circle(0, 5.3, 0.4, 4));
+    expect(probeTraverse(blocked, 0, faceOf(4) + 0.01, 0, 0, 1, 0)).toBeNull();
+    // 足が 0.85 の岩の上: 2.2 の壇は相対 1.35（登り）、1.5 の箱は相対 0.65（乗り上がり）
+    expect(probeTraverse(worldOf(box(0, 5, 2, 1, 2.2, 0, true)), 0, faceOf(4) + 0.01, 0.85, 0, 1, 0)!.plan.kind).toBe('climb');
+    expect(probeTraverse(worldOf(box(0, 5, 2, 1, 1.5, 0, true)), 0, faceOf(4) + 0.01, 0.85, 0, 1, 0)!.plan.kind).toBe('mantle');
   });
 
   it('quantize: 刻みの倍数へ丸める', () => {
