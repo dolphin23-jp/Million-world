@@ -111,6 +111,8 @@ interface EnemyEntry {
   seenFire: number;
   seenImpact: number;
   seenBreak: number;
+  /** 激突の演出を起こし終えた数（Enemy.crashSerial。M7-4c） */
+  seenCrash: number;
   /** 召喚（Enemy.summonSerial）・段階（Enemy.phaseSerial）の演出を起こし終えた値 */
   seenSummon: number;
   seenPhase: number;
@@ -453,7 +455,7 @@ export class Game {
     enemy.place(x, z, Math.atan2(this.player.body.x - x, this.player.body.z - z));
     const visual = new EnemyVisual(type, tierDef(tier).tier);
     this.scene.add(visual.root);
-    this.enemies.push({ enemy, visual, seenSerial: enemy.stateSerial, seenFire: enemy.fireSerial, seenImpact: enemy.impactSerial, seenBreak: enemy.breakSerial, seenSummon: enemy.summonSerial, seenPhase: enemy.phaseSerial });
+    this.enemies.push({ enemy, visual, seenSerial: enemy.stateSerial, seenFire: enemy.fireSerial, seenImpact: enemy.impactSerial, seenBreak: enemy.breakSerial, seenCrash: enemy.crashSerial, seenSummon: enemy.summonSerial, seenPhase: enemy.phaseSerial });
     this.enemySims.push(enemy);
     return enemy;
   }
@@ -1172,8 +1174,8 @@ export class Game {
   }
 
   /**
-   * 敵の状態の合図に応じた演出: 地面を叩いた（床の砂ぼこりの輪・ひび割れ・画面の揺れ・音）、体勢を崩された（強いヒットストップ・閃光・「BREAK」・音）。
-   * 合図は Enemy.impactSerial / breakSerial（増えたら 1 回ずつ）
+   * 敵の状態の合図に応じた演出: 地面を叩いた（床の砂ぼこりの輪・ひび割れ・画面の揺れ・音）、体勢を崩された（強いヒットストップ・閃光・「BREAK」・音）、
+   * 突進が激突した（強いヒットストップ・揺れ・砂ぼこり・「激突」・音。M7-4c）。合図は Enemy.impactSerial / breakSerial / crashSerial（増えたら 1 回ずつ）
    */
   private enemyEvents(): void {
     for (const entry of this.enemies) {
@@ -1198,6 +1200,18 @@ export class Game {
         this.hitFx.burst(e.body.x, e.def.height * 0.5, e.body.z, 0, 0, 1.6, FX_TINT.orb);
         this.damageNumbers.spawnText(e.body.x, Math.min(e.def.height, 2.4), e.body.z, e.phase >= 2 ? '激昂' : '怒り', 'warn', 1.5);
         this.sfx.play('bossRoar');
+      }
+      if (e.crashSerial !== entry.seenCrash) {
+        // 突進が障害物に激突した（M7-4c）: 強いヒットストップ・画面の揺れ・砂ぼこりの輪・黄金の閃光・「激突」の文字・音。遠い敵ほど小さく
+        entry.seenCrash = e.crashSerial;
+        const fx = e.parryEffect;
+        const gain = distanceGain(Math.hypot(e.body.x - this.player.body.x, e.body.z - this.player.body.z));
+        this.hitStop.trigger(Math.round(fx.hitStop * Math.max(0.4, gain)));
+        this.cam.shake.trigger(fx.shake.amp * gain, fx.shake.seconds);
+        this.groundFx.burst(e.body.x, e.body.z, 0.9);
+        this.hitFx.burst(e.body.x, e.def.height * 0.5, e.body.z, 0, 0, fx.burst, FX_TINT.poise);
+        this.damageNumbers.spawnText(e.body.x, Math.min(e.def.height + 0.35, 1.9), e.body.z, '激突', 'break', fx.labelScale);
+        this.sfx.play(fx.sfx, { gain: Math.max(0.5, gain) });
       }
       if (e.breakSerial !== entry.seenBreak) {
         entry.seenBreak = e.breakSerial;

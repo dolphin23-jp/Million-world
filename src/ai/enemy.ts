@@ -8,10 +8,11 @@ import { PROJECTILES, type ProjectileId } from '../combat/data/projectiles';
 import type { EnemyAttackDef, EnemyDef } from './data/enemies';
 import { fanOffset } from '../combat/projectile';
 import { FLYING_Y, type World } from '../world/world';
-import { createSteerState, steerYaw } from './steering';
+import { createSteerState, freeDistance, steerYaw } from './steering';
 import { PROJECTILE_HEIGHT } from '../combat/data/projectiles';
 import { REACH } from '../combat/data/reach';
 import { canSee, sightHeight, verticalReach } from '../combat/reach';
+import { CRASH } from '../combat/data/crash';
 
 /**
  * 敵の sim 側（three に依存しない。見た目は src/game/enemy-visual.ts）。
@@ -109,6 +110,8 @@ export class Enemy {
   readonly shot: Shot = { projectile: 'wisp', x: 0, z: 0, dirX: 0, dirZ: 1, count: 1, spread: 0, damageScale: 1, reflectScale: 1 };
   /** 段階（ボス。ADR-029）が上がるたびに増える（Game が演出を起こすため） */
   phaseSerial = 0;
+  /** 突進が障害物に激突するたびに増える（Game が演出を起こすため。M7-4c） */
+  crashSerial = 0;
   /** 召喚（ボス）の判定が出るたびに増える（Game が手下を出すため）と、その内容 */
   summonSerial = 0;
   summon: { readonly type: string; readonly count: number; readonly radius: number; readonly max: number } | null = null;
@@ -303,6 +306,20 @@ export class Enemy {
     this.setState(effect.id, true);
   }
 
+  /**
+   * 突進が障害物に激突した（M7-4c）: 自分にダメージを受け（最大 HP の CRASH.damageRatio。HP は 1 までしか減らない = 倒れない）、
+   * 突進と逆へ少し弾かれて、体勢を崩す（パリィの stagger と同じ状態。反撃の窓は CRASH.effect）
+   */
+  private crash(): void {
+    const fx = CRASH.effect;
+    this.crashSerial++;
+    const dmg = Math.min(Math.round(this.health.max * CRASH.damageRatio), this.health.hp - 1);
+    if (dmg > 0) applyDamage(this.health, dmg);
+    this.parryEffect = fx;
+    this.knockback.start(-this.lungeDirX, -this.lungeDirZ, fx.enemyKnockback * this.def.knockbackScale, fx.knockbackFrames);
+    this.setState(fx.id, true);
+  }
+
   /** 体勢を崩された: 予備動作・攻撃を中断して、その場で動けなくなる（弾かれたときと同じ stagger。倍率・長さは def.poise.breakEffect） */
   private breakPoise(ev: HitEvent): void {
     const effect = this.def.poise!.breakEffect;
@@ -432,6 +449,16 @@ export class Enemy {
           const v = atk.lunge / (atk.activeFrames / 60);
           moveX = this.lungeDirX * v;
           moveZ = this.lungeDirZ * v;
+          // 突進が障害物にぶつかる（このステップの踏み込みの先に、体を止める障害物が来ている）: 激突。突進はそこで止まり、体勢を崩す（M7-4c）
+          if (atk.crash && this.world) {
+            const reach = Math.hypot(moveX, moveZ) * dt + CRASH.margin;
+            if (freeDistance(this.world, this.body.x, this.body.z, this.lungeDirX, this.lungeDirZ, def.radius, this.y, reach) < reach - 1e-6) {
+              this.crash();
+              moveX = 0;
+              moveZ = 0;
+              break;
+            }
+          }
           if (atk.projectile && !this.fired) this.fire(atk.projectile);
           if (atk.groundImpact !== undefined && !this.fired) {
             this.fired = true;
