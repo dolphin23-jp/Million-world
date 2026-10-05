@@ -1,9 +1,10 @@
 import type { Circle } from '../world/collision';
-import { PROJECTILES, type ProjectileDef, type ProjectileId } from './data/projectiles';
+import { createRayHit, type World } from '../world/world';
+import { PROJECTILES, PROJECTILE_HEIGHT, type ProjectileDef, type ProjectileId } from './data/projectiles';
 
 /**
  * 飛び道具（鬼火など）の sim（ADR-026）。three にも DOM にも依存しない純粋なデータと関数。
- * 弾は XZ 平面を一定の速さでまっすぐ飛ぶ（高さは見た目だけ。PROJECTILE_HEIGHT）。当たり判定は円（半径 radius）で、
+ * 弾は XZ 平面を一定の速さでまっすぐ飛ぶ（高さは一定の PROJECTILE_HEIGHT。障害物に遮られるかの判定だけが高さを使う）。当たり判定は円（半径 radius）で、
  * 1 ステップに動いた線分（前の位置 → 今の位置）と相手の円で調べる（速くてもすり抜けない）。
  * 命中・ガード・パリィの解決は src/game/projectile-combat.ts。弾の数は MAX_PROJECTILES まで（プールを最初に作って使い回す = 毎フレームの確保なし）。
  */
@@ -14,10 +15,15 @@ export const MAX_PROJECTILES = 24;
 /** アリーナの縁から、弾がこの距離（m）外へ出たら消える */
 const WALL_MARGIN = 0.5;
 
+/** 弾が世界に問い合わせるもの（World がそのまま満たす。境界の半径と、線分が障害物に遮られるか） */
+export type ProjectileWorld = Pick<World, 'radius' | 'raycast'>;
+
+const WALL_HIT = createRayHit();
+
 /** 弾の持ち主の陣営。enemy = 敵の弾（プレイヤーに当たる）、player = パリィで弾き返した弾（敵に当たる） */
 export type ProjectileTeam = 'enemy' | 'player';
 
-/** 消えた理由。expire = 寿命、wall = アリーナの縁、hit = 当たった、guard = 受け止められた、cut = 斬り落とされた、clear = 戦闘のやり直し */
+/** 消えた理由。expire = 寿命、wall = アリーナの縁・障害物に当たった、hit = 当たった、guard = 受け止められた、cut = 斬り落とされた、clear = 戦闘のやり直し */
 export type ProjectileEnd = 'expire' | 'wall' | 'hit' | 'guard' | 'cut' | 'clear';
 
 export interface Projectile {
@@ -121,11 +127,12 @@ export class ProjectileSystem {
   }
 
   /**
-   * 1 ステップ進める。寿命が尽きるか、アリーナの縁の外へ出た弾は消える。消えた弾ごとに onEnd を呼ぶ（演出用）。
+   * 1 ステップ進める。寿命が尽きるか、障害物に当たるか、アリーナの縁の外へ出た弾は消える（障害物の手前の面で止まって消える。高さは PROJECTILE_HEIGHT なので、
+   * 低い岩・壁の上は通る）。消えた弾ごとに onEnd を呼ぶ（演出用）。
    * 弾が消えるのは step の中だけではない（命中・ガード・斬り落としは src/game/projectile-combat.ts が end() を呼ぶ）
    */
-  step(dt: number, arenaRadius: number, onEnd?: (p: Projectile, reason: ProjectileEnd) => void): void {
-    const limit = arenaRadius + WALL_MARGIN;
+  step(dt: number, world: ProjectileWorld, onEnd?: (p: Projectile, reason: ProjectileEnd) => void): void {
+    const limit = world.radius + WALL_MARGIN;
     for (const p of this.pool) {
       if (!p.alive) continue;
       p.prevX = p.x;
@@ -134,7 +141,12 @@ export class ProjectileSystem {
       p.z += p.dirZ * p.speed * dt;
       p.age++;
       if (p.age >= p.lifetime) end(p, 'expire', onEnd);
-      else if (Math.hypot(p.x, p.z) > limit) end(p, 'wall', onEnd);
+      else if (world.raycast(p.prevX, p.prevZ, p.x, p.z, PROJECTILE_HEIGHT, WALL_HIT)) {
+        // 当たった面の上で消える（演出の位置が障害物の表面になる）
+        p.x = WALL_HIT.x;
+        p.z = WALL_HIT.z;
+        end(p, 'wall', onEnd);
+      } else if (Math.hypot(p.x, p.z) > limit) end(p, 'wall', onEnd);
     }
   }
 

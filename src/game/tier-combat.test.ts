@@ -9,6 +9,7 @@ import { PROJECTILES } from '../combat/data/projectiles';
 import { ProjectileSystem, reflect, spawnShot } from '../combat/projectile';
 import { createEmptyIntent } from '../input/intent';
 import type { HitEvent } from '../combat/hit';
+import { openWorld } from '../world/world';
 
 /**
  * 敵の段階（色違いの強化版。ADR-036）と、本物の Player・Enemy・弾の sim の結合テスト。
@@ -117,7 +118,7 @@ describe('強化版の弾: 提灯', () => {
     // 弾の通り道（原点）まで進めて当てる
     for (let i = 0; i < 200 && hurt.length === 0; i++) {
       player.step(DT, createEmptyIntent(), CAM_YAW);
-      system.step(DT, 14);
+      system.step(DT, openWorld(14));
       resolveProjectilesOnPlayer(system, player, () => null, { onHit: (ev) => hurt.push(ev.damage) });
     }
     expect(hurt).toEqual([Math.round(WISP.damage * 1.3)]);

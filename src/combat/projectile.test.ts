@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_PROJECTILES, ProjectileSystem, end, reflect, segmentHitsCircle, spawnShot } from './projectile';
 import { PROJECTILES } from './data/projectiles';
+import { World, openWorld } from '../world/world';
 
 const DT = 1 / 60;
 const WISP = PROJECTILES.wisp;
-const ARENA = 14;
+const ARENA = openWorld(14);
 
 describe('飛び道具の sim（ADR-026）', () => {
   it('まっすぐ一定の速さで飛ぶ（毎フレーム speed / 60 m）', () => {
@@ -37,7 +38,7 @@ describe('飛び道具の sim（ADR-026）', () => {
     for (let i = 0; i < 20 && p.alive; i++) sys.step(DT, ARENA, (_p, r) => ends.push(r));
     expect(p.alive).toBe(false);
     expect(ends).toEqual(['wall']);
-    expect(Math.hypot(p.x, p.z)).toBeGreaterThan(ARENA);
+    expect(Math.hypot(p.x, p.z)).toBeGreaterThan(ARENA.radius);
   });
 
   it('消した弾は動かない。プールが埋まったら一番古い弾を消して使う', () => {
@@ -167,5 +168,47 @@ describe('弾のダメージの倍率（敵の段階。ADR-036）', () => {
     const sys2 = new ProjectileSystem();
     spawnShot(sys2, 3, 0, 0, { projectile: 'wisp', x: 0, z: 0.8, dirX: 0, dirZ: 1, count: 1, spread: 0 });
     expect(sys2.pool.find((q) => q.alive)!.damage).toBe(WISP.damage);
+  });
+});
+
+describe('飛び道具と障害物（M7-1。ADR-039）', () => {
+  const PILLAR = new World({ radius: 14, obstacles: [{ kind: 'circle', x: 0, z: 6, r: 1, top: 4 }] });
+  const ROCK = new World({ radius: 14, obstacles: [{ kind: 'circle', x: 0, z: 6, r: 1, top: 0.85 }] });
+
+  it('柱（弾の高さより高い）は弾を遮る: 手前の面で消えて、理由は wall。弾はその面の上で止まる', () => {
+    const sys = new ProjectileSystem();
+    const ends: string[] = [];
+    const p = sys.spawn(WISP, 1, 0, 0, 0, 1);
+    for (let i = 0; i < 60 && p.alive; i++) sys.step(DT, PILLAR, (_q, r) => ends.push(r));
+    expect(p.alive).toBe(false);
+    expect(ends).toEqual(['wall']);
+    expect(p.z).toBeCloseTo(5, 6);
+    expect(p.x).toBeCloseTo(0, 6);
+  });
+
+  it('低い岩（上面が弾の高さ以下）は遮らない: 上を通り過ぎる', () => {
+    const sys = new ProjectileSystem();
+    const p = sys.spawn(WISP, 1, 0, 0, 0, 1);
+    for (let i = 0; i < 60; i++) sys.step(DT, ROCK);
+    expect(p.z).toBeGreaterThan(8);
+  });
+
+  it('柱の脇を通る弾は遮られない。1 ステップで柱をまたいでも（速くても）すり抜けない', () => {
+    const sys = new ProjectileSystem();
+    const side = sys.spawn(WISP, 1, 2, 0, 0, 1);
+    for (let i = 0; i < 40; i++) sys.step(DT, PILLAR);
+    expect(side.alive).toBe(true);
+    const fast = sys.spawn({ ...WISP, speed: 600 }, 2, 0, 4.6, 0, 1);
+    sys.step(DT, PILLAR); // 1 ステップで 10m 進む（柱の反対側まで）
+    expect(fast.alive).toBe(false);
+  });
+
+  it('弾き返した弾（player の陣営）も障害物に遮られる', () => {
+    const sys = new ProjectileSystem();
+    const p = sys.spawn(WISP, 1, 0, 0, 0, 1);
+    reflect(p, 0, 1);
+    for (let i = 0; i < 60 && p.alive; i++) sys.step(DT, PILLAR);
+    expect(p.alive).toBe(false);
+    expect(p.team).toBe('player');
   });
 });

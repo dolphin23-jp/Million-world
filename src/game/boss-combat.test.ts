@@ -11,6 +11,7 @@ import { createEmptyIntent, type InputIntent } from '../input/intent';
 import type { HitEvent } from '../combat/hit';
 import type { LoadoutId } from '../combat/data/loadouts';
 import { ARENA_RADIUS } from '../world/arena';
+import { openWorld } from '../world/world';
 
 /**
  * ボス「夜行の大将」（ADR-029）と本物の Player の結合テスト。Game.step と同じ順序で 1 フレームずつ進める。
@@ -54,7 +55,7 @@ function scene(z: number, loadout: LoadoutId = 'sword', hpScale = 1): Scene {
         seenFire = boss.fireSerial;
         spawnShot(system, boss.id, boss.body.x, boss.body.z, boss.shot);
       }
-      system.step(DT, ARENA_RADIUS);
+      system.step(DT, openWorld(ARENA_RADIUS));
       const onEnd = (_p: Projectile, _r: ProjectileEnd): void => undefined;
       resolvePlayerAttack(player, [boss as CombatTarget], () => undefined);
       cutProjectiles(system, player, onEnd);
