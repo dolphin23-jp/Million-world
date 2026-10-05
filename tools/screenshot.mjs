@@ -1607,6 +1607,166 @@ try {
     process.exitCode = 3;
   }
 
+  // 壊せる物・床の危険地帯（M7-4d / M7-4e。ADR-046）: (1) 木箱を叩いて壊す（世界から消え、通り抜けられる） (2) 猪の突進が木箱を突き破る（激突しない）
+  // (3) 炎の床に立つと燃える・跳べば避けられる・敵も燃えて倒れる
+  const oneBoar = { waves: [[{ type: 'boar', offset: 0, radius: 6 }]], waveGapFrames: 100, victoryDelayFrames: 75, defeatDelayFrames: 150, maxAttackers: 2 };
+  const breakRun = await page.evaluate((cfg) => {
+    const g = window.__mw.game;
+    g.restart(cfg);
+    g.setLoadout('sword');
+    g.stepNow(1);
+    for (const e of g.enemies) e.enemy.place(0, -13, 0); // 敵は遠くへ（撮影の邪魔をしない）
+    const crates = g.breakables.filter((b) => g.world.obstacles[b.index].kind === 'box');
+    const target = crates[0];
+    const o = g.world.obstacles[target.index];
+    const p = g.player;
+    // 木箱の中心 → 闘技場の中心の向きに 1.3m 離れて立ち、木箱の方を向く
+    const len = Math.hypot(o.x, o.z);
+    const ux = o.x / len;
+    const uz = o.z / len;
+    p.body.x = o.x - ux * 1.3;
+    p.body.z = o.z - uz * 1.3;
+    p.yaw = Math.atan2(ux, uz);
+    g.stepNow(2);
+    const cam = () => {
+      g.cam.yaw = Math.atan2(-uz, ux) + 0.5;
+      g.cam.pitch = 0.3;
+      g.cam.distance = 5.5;
+    };
+    let hits = 0;
+    let brokeAt = -1;
+    for (let i = 0; i < 60 * 8 && brokeAt < 0; i++) {
+      if (i % 30 === 0) g.inject({ attackPressed: true });
+      g.stepNow(1);
+      if (!g.world.isActive(target.index)) brokeAt = i;
+      else hits = target.max - target.hp;
+    }
+    // 壊れたあとの場所: 通り抜けられる（押し出されない）
+    const probe = { x: o.x, z: o.z, r: 0.38 };
+    const pushed = g.world.moveCircle(probe, 0);
+    const others = crates.filter((b) => b !== target && g.world.isActive(b.index)).length;
+    cam();
+    g.renderNow(14);
+    return { brokeAt, hits, active: g.world.isActive(target.index), broken: target.broken, pushed, othersIntact: others, total: crates.length, potions: g.inventory.count('potionS') };
+  }, oneBoar);
+  await sleep(150);
+  await page.screenshot({ path: 'artifacts/shot-breakable.png' });
+  console.log(`[break] ${JSON.stringify(breakRun)}`);
+  if (breakRun.brokeAt < 0 || breakRun.active || !breakRun.broken || breakRun.pushed || breakRun.othersIntact !== breakRun.total - 1) {
+    console.error('[break] 木箱を叩いて壊せない・壊れても世界に残る・ほかの木箱まで壊れる');
+    process.exitCode = 3;
+  }
+
+  const smashRun = await page.evaluate((cfg) => {
+    const g = window.__mw.game;
+    g.restart(cfg);
+    g.setLoadout('sword');
+    g.stepNow(1);
+    const crate = g.breakables.find((b) => g.world.obstacles[b.index].kind === 'box');
+    const o = g.world.obstacles[crate.index];
+    const len = Math.hypot(o.x, o.z);
+    const ux = o.x / len;
+    const uz = o.z / len;
+    const e = g.enemies[0].enemy;
+    const p = g.player;
+    // 猪 → プレイヤー → 木箱 が一直線（中心から外向き）。プレイヤーは突進をかわす
+    e.place(o.x - ux * 7.5, o.z - uz * 7.5, Math.atan2(ux, uz));
+    p.body.x = o.x - ux * 3.6;
+    p.body.z = o.z - uz * 3.6;
+    p.yaw = Math.atan2(-ux, -uz);
+    g.stepNow(2);
+    let dodged = false;
+    let smashedAt = -1;
+    for (let i = 0; i < 60 * 12 && smashedAt < 0; i++) {
+      g.stepNow(1);
+      if (!dodged && e.state === 'attack') {
+        p.body.x += -uz * 2.2;
+        p.body.z += ux * 2.2;
+        dodged = true;
+      }
+      if (!g.world.isActive(crate.index)) smashedAt = i;
+    }
+    g.stepNow(10);
+    g.cam.yaw = Math.atan2(-uz, ux) + 0.6;
+    g.cam.pitch = 0.4;
+    g.cam.distance = 7;
+    g.renderNow(14);
+    return { smashedAt, dodged, crashed: e.crashSerial, state: e.state, dist: Math.hypot(e.body.x - o.x, e.body.z - o.z) };
+  }, oneBoar);
+  await sleep(150);
+  await page.screenshot({ path: 'artifacts/shot-smash.png' });
+  console.log(`[smash] ${JSON.stringify(smashRun)}`);
+  if (smashRun.smashedAt < 0 || smashRun.crashed !== 0) {
+    console.error('[smash] 猪が木箱を突き破れない（壊れない）・突き破るのに激突してしまう');
+    process.exitCode = 3;
+  }
+
+  const fireRun = await page.evaluate((cfg) => {
+    const g = window.__mw.game;
+    g.restart(cfg);
+    g.setLoadout('sword');
+    g.stepNow(1);
+    for (const e of g.enemies) e.enemy.place(0, -13, 0);
+    const h = g.world.hazards[0];
+    const p = g.player;
+    p.body.x = h.x;
+    p.body.z = h.z;
+    p.yaw = 0;
+    g.stepNow(2);
+    const hp0 = p.health.hp;
+    g.stepNow(70); // 1 秒あまり立ち続ける（2 回燃える）
+    const stood = hp0 - p.health.hp;
+    // 跳んでいる（足が高い）あいだは燃えない: 足の高さを持ち上げた状態で同じ時間
+    const hp1 = p.health.hp;
+    p.y = 1.0;
+    p.velY = 0;
+    p.grounded = false;
+    for (let i = 0; i < 20; i++) {
+      p.y = 1.0;
+      p.velY = 0;
+      g.stepNow(1);
+    }
+    const airborne = hp1 - p.health.hp;
+    // 見た目: 炎の床に立つ絵
+    p.y = 0;
+    p.grounded = true;
+    g.cam.yaw = 0.4;
+    g.cam.pitch = 0.4;
+    g.cam.distance = 6;
+    g.renderNow(14);
+    return { stood, airborne };
+  }, oneBoar);
+  await sleep(150);
+  await page.screenshot({ path: 'artifacts/shot-fire.png' });
+  const burnEnemy = await page.evaluate((cfg) => {
+    const g = window.__mw.game;
+    g.restart(cfg);
+    g.setLoadout('sword');
+    g.stepNow(1);
+    const h = g.world.hazards[0];
+    const e = g.enemies[0].enemy;
+    g.player.body.x = -h.x;
+    g.player.body.z = -h.z;
+    e.place(h.x, h.z, 0);
+    const hp0 = e.health.hp;
+    // 炎の中で待つ（子鬼のような小さな敵が燃え尽きるまで。猪は体力が多いので、体力を減らしておく）
+    e.health.hp = 20;
+    g.stepNow(2);
+    const hp1 = e.health.hp;
+    let died = -1;
+    for (let i = 0; i < 60 * 6 && died < 0; i++) {
+      e.place(h.x, h.z, 0); // 炎の中に留める
+      g.stepNow(1);
+      if (e.dead) died = i;
+    }
+    return { hp0, hp1, died, dead: e.dead, kills: g.encounter.kills };
+  }, oneBoar);
+  console.log(`[fire] ${JSON.stringify({ ...fireRun, burn: burnEnemy })}`);
+  if (fireRun.stood <= 0 || fireRun.airborne !== 0 || !burnEnemy.dead) {
+    console.error('[fire] 炎の床で燃えない・跳んでいても燃える・炎の中の敵が燃え尽きない');
+    process.exitCode = 3;
+  }
+
   // 操作ガイド（ADR-024）: ロックして 1 段目を出し、次段の受付が開いた絵（連携の履歴・続けられる技・受付の帯）と、右上の「技表」を開いた絵
   await page.evaluate((solo) => {
     const g = window.__mw.game;

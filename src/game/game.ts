@@ -30,7 +30,9 @@ import { KILL_BUFF } from '../combat/data/passives';
 import type { Modifiers } from '../combat/modifiers';
 import { makeSave, parseSave } from '../combat/save';
 import { clearSave, readSave, writeSave } from '../platform/storage';
-import { ITEMS, ITEM_ORDER, ITEM_RULES, type ItemId } from '../combat/data/items';
+import { ITEMS, ITEM_ORDER, ITEM_RULES, type DropDef, type ItemId } from '../combat/data/items';
+import { HAZARD_RULES } from '../combat/data/hazards';
+import { Breakable, createBreakables } from './breakable';
 import { MYSTICAL } from '../combat/data/mystical';
 import { Enemy } from '../ai/enemy';
 import { stepSwarm } from '../ai/swarm';
@@ -253,11 +255,15 @@ export class Game {
   readonly lockMarker: LockMarker;
   /** ロックオンの状態。対象は敵の id */
   readonly lockOn = new LockOn();
-  /** ロックできる敵の体（生きているものだけ。毎ステップ作り直して使い回す） */
-  /** ロックできる敵（毎ステップ作り直す。見えているかも持つ）。オブジェクトは使い回す（毎ステップ確保しない） */
+  /** ロックできる敵（生きているものだけ。毎ステップ作り直す。見えているかも持つ）。オブジェクトは使い回す（毎ステップ確保しない） */
   private readonly lockCands: LockCandidate[] = [];
   private readonly lockPool: LockCandidate[] = [];
   private lockIndicator = false;
+  /** 壊せる物（世界の壊せる障害物ごと。プレイヤーの攻撃の相手。M7-4d）と、そのうちまだ壊れていないもの（毎ステップ作り直して使い回す） */
+  readonly breakables: Breakable[];
+  private readonly breakableTargets: Breakable[] = [];
+  /** 床の危険地帯のダメージの間隔を数える（M7-4e） */
+  private hazardFrame = 0;
   readonly swordTrail = new SwordTrail();
   readonly input = new InputAggregator();
   readonly touch: TouchInput;
@@ -318,6 +324,7 @@ export class Game {
 
     this.arena = new Arena();
     this.world = this.arena.world;
+    this.breakables = createBreakables(this.world);
     this.scene.add(this.arena.group);
 
     this.player = new Player();
@@ -464,6 +471,7 @@ export class Game {
   private spawnWave(index: number): void {
     for (const w of this.encounter.def.waves[index] ?? []) {
       const p = spawnPoint(w, this.player.body.x, this.player.body.z, this.world.radius);
+      this.world.pushOutOfHazards(p); // 炎の中には出さない（出た瞬間に燃えない）
       this.spawnEnemy(w.type, p.x, p.z);
     }
   }
@@ -515,15 +523,132 @@ export class Game {
     this.sfx.play(fb.style === 'heavy' || riposte ? 'hitHeavy' : 'hit');
     if (fb.crit) this.sfx.play('crit');
     if (result.killed) this.sfx.play('kill');
+    if (result.killed) this.onEnemyKilled(enemy);
+  }
+
+  /**
+   * 敵を倒した（プレイヤーの攻撃・床の危険地帯で HP が 0 になった）: 倒した数・闘気・経験値・ドロップ、ボスなら手下が消え、最後の 1 体ならスローモーション
+   */
+  private onEnemyKilled(enemy: Enemy): void {
+    this.encounter.onKill();
+    if (this.mods.killBuff > 0) this.killBuff.onKill(); // 闘気: 倒すたびに重なる
+    this.awardXp(enemy);
+    this.dropItems(enemy);
+    // ボスを倒すと手下（呼ばれた小蝙蝠など）は消える（倒した数には入らない）
+    if (enemy.def.boss) for (const e of this.enemySims) if (e !== enemy) e.vanish();
+    // 最後のウェーブの最後の 1 体: スローモーション
+    if (this.encounter.onLastWave && !this.enemySims.some((e) => !e.dead)) this.hitStop.slow(FINISH_SLOW.scale, FINISH_SLOW.seconds);
+  }
+
+  // ---------------------------------------------------------------- 壊せる物（M7-4d。ADR-046）・床の危険地帯（M7-4e）
+
+  /** プレイヤーの攻撃を、まだ壊れていない壊せる物へ当てる（敵と同じ当たりの道。縦の届き・1 攻撃 1 対象 1 回も同じ） */
+  private hitBreakables(): void {
+    if (this.breakables.length === 0) return;
+    this.breakableTargets.length = 0;
+    for (const b of this.breakables) if (!b.broken) this.breakableTargets.push(b);
+    if (this.breakableTargets.length === 0) return;
+    resolvePlayerAttack(this.player, this.breakableTargets, (ev, b, result) => this.onBreakableHit(ev, b, result), this.critRng);
+  }
+
+  /** 壊せる物に当たった: 軽い手応え（短いヒットストップ・木の破片・揺れ・音）。体力が尽きたら壊す */
+  private onBreakableHit(ev: HitEvent, b: Breakable, result: DamageResult): void {
     if (result.killed) {
-      this.encounter.onKill();
-      if (this.mods.killBuff > 0) this.killBuff.onKill(); // 闘気: 倒すたびに重なる
-      this.awardXp(enemy);
-      this.dropItems(enemy);
-      // ボスを倒すと手下（呼ばれた小蝙蝠など）は消える（倒した数には入らない）
-      if (enemy.def.boss) for (const e of this.enemySims) if (e !== enemy) e.vanish();
-      // 最後のウェーブの最後の 1 体: スローモーション
-      if (this.encounter.onLastWave && !this.enemySims.some((e) => !e.dead)) this.hitStop.slow(FINISH_SLOW.scale, FINISH_SLOW.seconds);
+      this.breakObstacle(b.index);
+      return;
+    }
+    this.hitStop.trigger(2);
+    this.hitFx.burst(ev.x, Math.min(b.height * 0.6, 0.7), ev.z, ev.dirX, ev.dirZ, 0.5, FX_TINT.wood);
+    this.arena.pulse(b.index);
+    this.sfx.play('crateHit');
+  }
+
+  /** 突進が突っ込んだ壊せる物を壊す（Enemy.smashIndex。壊したら −1 に戻す） */
+  private smashBreakables(): void {
+    for (const e of this.enemySims) {
+      if (e.smashIndex < 0) continue;
+      const i = e.smashIndex;
+      e.smashIndex = -1;
+      this.breakObstacle(i);
+    }
+  }
+
+  /**
+   * 壊せる障害物 index を壊す: 世界から外し（体を止めない・視線・弾・足場でなくなる）、見た目を消して、破片・砂ぼこり・音を出し、ドロップを抽選する。
+   * もう壊れていれば何もしない
+   */
+  private breakObstacle(index: number): void {
+    if (!this.world.setActive(index, false)) return;
+    const o = this.world.obstacles[index]!;
+    this.breakables.find((b) => b.index === index)?.markBroken();
+    this.arena.setBroken(index, true);
+    const gain = distanceGain(Math.hypot(o.x - this.player.body.x, o.z - this.player.body.z));
+    this.hitStop.trigger(3);
+    this.cam.shake.trigger(0.05 * gain, 0.18);
+    this.hitFx.burst(o.x, o.top * 0.5, o.z, 0, 0, 1.1, FX_TINT.wood);
+    this.groundFx.burst(o.x, o.z, 0.4);
+    this.sfx.play('crateBreak', { gain: Math.max(0.5, gain) });
+    const drops = (o.breakable?.drops ?? []).filter((d): d is DropDef => d.item in ITEMS);
+    this.giveDrops(this.inventory.rollDrops(drops, this.dropRng, this.mods.dropRate, false), o.x, o.z, o.top);
+  }
+
+  /** 壊した物・倒した敵の落とし物を拾う（持てる数がいっぱいなら拾えない）。拾った演出 */
+  private giveDrops(items: readonly ItemId[], x: number, z: number, height: number): void {
+    for (const id of items) {
+      if (this.inventory.add(id) === 0) continue;
+      this.hitFx.burst(x, 0.9, z, 0, 0, 0.7, FX_TINT.heal);
+      this.damageNumbers.spawnText(x, Math.min(height + 0.1, 1.9), z, `＋${ITEMS[id].name}`, 'item');
+      this.sfx.play('itemGet');
+    }
+  }
+
+  /** 戦闘のやり直し: 壊れた物をすべて元に戻す（世界・当たり・見た目） */
+  private restoreBreakables(): void {
+    for (const b of this.breakables) {
+      this.world.setActive(b.index, true);
+      b.reset();
+    }
+    this.arena.restoreAll();
+  }
+
+  /**
+   * 床の危険地帯（炎の床）: tickFrames ごとに、足が低いまま炎の中にいる者へダメージを与える。
+   * プレイヤー: 回避の無敵（ロール）の最中・死亡中は受けない。ひるまない（ダメージだけ）。歩く敵: 同じように燃え、倒れたら撃破の扱い。飛ぶ敵は燃えない。
+   * ミスティカルドッジで敵の時間が止まっているあいだ、敵は燃えない
+   */
+  private stepHazards(enemiesRun: boolean): void {
+    if (this.world.hazards.length === 0) return;
+    this.hazardFrame++;
+    const p = this.player;
+    if (!p.dead && !p.body.invulnerable) {
+      const h = this.world.hazardAt(p.body.x, p.body.z, p.y);
+      const rule = h ? HAZARD_RULES[h.type] : null;
+      if (h && rule && this.hazardFrame % rule.tickFrames === 0) {
+        const r = p.takeEnvironmentDamage(rule.playerDamage);
+        this.hitFx.burst(p.body.x, p.y + 0.35, p.body.z, 0, 0, 0.5, FX_TINT.fire);
+        this.damageNumbers.spawn(p.body.x, p.y + HIT_FEEDBACK.playerImpactHeight + 0.7, p.body.z, r.dealt, 'hurt');
+        this.hud.flashHurt();
+        this.hud.setPlayerHp(p.health.hp, p.health.max);
+        this.sfx.play('burn');
+        this.encounter.onEnvironmentDamage(r.dealt);
+        if (r.killed) this.hitStop.slow(DEFEAT_SLOW.scale, DEFEAT_SLOW.seconds);
+      }
+    }
+    if (!enemiesRun) return;
+    for (const e of this.enemySims) {
+      if (e.dead || e.def.flying) continue;
+      const h = this.world.hazardAt(e.body.x, e.body.z, 0);
+      const rule = h ? HAZARD_RULES[h.type] : null;
+      if (!h || !rule || this.hazardFrame % rule.tickFrames !== 0) continue;
+      const r = e.burn(rule.enemyDamage);
+      if (r.dealt <= 0) continue;
+      this.hitFx.burst(e.body.x, 0.5, e.body.z, 0, 0, 0.5, FX_TINT.fire);
+      this.damageNumbers.spawn(e.body.x, e.def.height * 0.6 + 0.4, e.body.z, r.dealt, r.killed ? 'kill' : 'light');
+      this.sfx.play('burn', { gain: Math.max(0.4, distanceGain(Math.hypot(e.body.x - p.body.x, e.body.z - p.body.z))) });
+      if (r.killed) {
+        this.sfx.play('kill');
+        this.onEnemyKilled(e);
+      }
     }
   }
 
@@ -768,12 +893,7 @@ export class Game {
   private dropItems(enemy: Enemy): void {
     const def = enemy.def as EnemyDef;
     if (!def.drops || def.drops.length === 0 || this.summonedIds.has(enemy.id)) return;
-    for (const id of this.inventory.rollDrops(def.drops, this.dropRng, this.mods.dropRate)) {
-      if (this.inventory.add(id) === 0) continue;
-      this.hitFx.burst(enemy.body.x, 0.9, enemy.body.z, 0, 0, 0.7, FX_TINT.heal);
-      this.damageNumbers.spawnText(enemy.body.x, Math.min(enemy.def.height + 0.1, 1.9), enemy.body.z, `＋${ITEMS[id].name}`, 'item');
-      this.sfx.play('itemGet');
-    }
+    this.giveDrops(this.inventory.rollDrops(def.drops, this.dropRng, this.mods.dropRate), enemy.body.x, enemy.body.z, enemy.def.height);
   }
 
   /**
@@ -1058,6 +1178,8 @@ export class Game {
     const alive = !this.player.dead;
     // 攻撃権: 同時に予備動作〜攻撃に入れる敵の数を制限する（残りは近くで構えて待つ）
     if (enemiesRun) stepSwarm(this.enemySims, dt, this.player.body.x, this.player.body.z, alive, this.encounter.def.maxAttackers, this.player.y);
+    // 突進が壊せる物（木箱・樽）に突っ込んだ: 押し出しの前に壊す（突き破る。M7-4d）
+    this.smashBreakables();
     this.soundEnemyStates();
     this.enemyEvents();
     // 敵の弾: 撃たれた弾を作って 1 ステップ飛ばす（寿命・アリーナの縁で消える）
@@ -1065,6 +1187,7 @@ export class Game {
     if (enemiesRun) this.projectiles.step(dt, this.world, this.onProjectileEndCb);
     // 先にプレイヤーの攻撃を解決する。同じフレームに当たり合うなら、プレイヤーが先に当てて敵の攻撃を中断する（敵の弾は斬り落とされる）
     resolvePlayerAttack(this.player, this.enemySims, (ev, enemy, result, riposte) => this.onPlayerHit(ev, enemy, result, riposte), this.critRng);
+    this.hitBreakables();
     cutProjectiles(this.projectiles, this.player, this.onProjectileEndCb);
     resolveEnemyAttacks(this.enemySims, this.player, (ev, _enemy, result) => this.onEnemyHit(ev, result), {
       onGuard: (ev, _enemy, result) => this.onEnemyGuarded(ev, result),
@@ -1090,6 +1213,8 @@ export class Game {
     for (const { enemy } of this.enemies) this.world.moveCircle(enemy.body, enemy.def.flying ? FLYING_Y : 0);
     // 乗り上がり・乗り越えの最中は、体の位置がクリップの曲線に従う（障害物の中を通るので押し出さない）
     if (!this.player.traversing) this.world.moveCircle(this.player.body, this.player.y, this.player.stepUp);
+    // 床の危険地帯: 一定の間隔で、燃える床の上にいる者にダメージ（M7-4e）
+    this.stepHazards(enemiesRun);
 
     // 演出が終わった敵を取り除く
     for (let i = this.enemies.length - 1; i >= 0; i--) {
@@ -1254,6 +1379,8 @@ export class Game {
     this.inventory.reset();
     this.summonedIds.clear();
     this.lockOn.release();
+    this.restoreBreakables();
+    this.hazardFrame = 0;
     this.hitStop.reset();
     this.cam.shake.reset();
     this.hitFx.clear();

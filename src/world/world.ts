@@ -4,7 +4,7 @@ import { clampInsideArena, type Circle } from './collision';
  * 世界への問い合わせの入口（M7-1。ADR-039）。体の押し出し・弾や視線の遮り・出現位置の確認は、円の半径を直接読まず、ここを通す。
  * three にも DOM にも依存しない純粋なクラス（見た目は Arena が同じデータから作る）。
  *
- * 世界 = 円形の境界（中心は原点）+ 静的な障害物（円柱・箱）。障害物は上面の高さ `top` を持ち、問い合わせは足の高さ `y`（既定 0）を取る:
+ * 世界 = 円形の境界（中心は原点）+ 障害物（円柱・箱。壊せる物は壊れると世界から外れる = M7-4d）+ 床の危険地帯（M7-4e）。障害物は上面の高さ `top` を持ち、問い合わせは足の高さ `y`（既定 0）を取る:
  *  - 体の押し出し（moveCircle）: 上面が y + stepUp（既定 STEP_UP）より高い障害物だけが体を止める。上面が低ければ、またいで・上に立てる
  *  - 足場（groundHeight）: 体の下にある、上に立てる面の高さ（縦の動き M7-2: ジャンプで障害物の上に乗る・縁から落ちる）
  *  - 遮り（raycast / lineOfSight）: 高さ y の線を、上面が y より高い障害物が遮る（柱は鬼火を防ぐが、低い岩の上は飛び越える）
@@ -20,6 +20,8 @@ export interface CircleObstacle {
   top: number;
   /** 掴んで登れる縁か（M7-3。ステージのデータで明示した面だけ登れる）。省略 = 登れない（乗り上がり・乗り越えができる高さの低い物は、これに関わらず越えられる） */
   climbable?: boolean;
+  /** 壊せる物か（M7-4d。ADR-046）。省略 = 壊せない */
+  breakable?: BreakableDef;
 }
 
 /** 箱（壁・台・箱）。中心 (x, z)・半径の半分 hx / hz（箱の局所の x / z）・向き yaw（rad。three の rotation.y と同じ）・上面の高さ top */
@@ -33,15 +35,42 @@ export interface BoxObstacle {
   top: number;
   /** 掴んで登れる縁か（CircleObstacle.climbable と同じ） */
   climbable?: boolean;
+  /** 壊せる物か（CircleObstacle.breakable と同じ） */
+  breakable?: BreakableDef;
 }
 
 export type Obstacle = CircleObstacle | BoxObstacle;
+
+/**
+ * 壊せる障害物の印（M7-4d。ADR-046）。hp 以上のダメージを受けると壊れて、世界から消える（体を止めない・視線・弾を遮らない・足場でなくなる）。
+ * drops = 壊れたときに落とすアイテム（item はアイテムの id の文字列。Game が解釈する。chance は 0..1）
+ */
+export interface BreakableDef {
+  hp: number;
+  drops?: readonly { item: string; chance: number }[];
+}
+
+/** 床の危険地帯の種類（M7-4e。ADR-046）。数値は combat/data/hazards.ts */
+export type HazardType = 'fire';
+
+/** 床の危険地帯: 中心 (x, z)・半径 r の円。足が低いあいだ（HAZARD_TOP 以下）にこの中にいると、継続ダメージを受ける */
+export interface HazardDef {
+  x: number;
+  z: number;
+  r: number;
+  type: HazardType;
+}
 
 export interface WorldDef {
   /** 境界の円の半径（中心は原点） */
   radius: number;
   obstacles: readonly Obstacle[];
+  /** 床の危険地帯（省略 = なし。M7-4e） */
+  hazards?: readonly HazardDef[];
 }
+
+/** 床の危険地帯の高さ（m）: 足がこの高さを超えている（跳んでいる・高い足場の上）なら、危険地帯の影響を受けない */
+export const HAZARD_TOP = 0.4;
 
 /** 飛んでいる敵（小蝙蝠）の足の高さ（m）。低い岩・壁の上は通り、柱・高い箱には当たる */
 export const FLYING_Y = 1.8;
@@ -102,7 +131,11 @@ const EPS = 1e-9;
 
 export class World {
   readonly radius: number;
+  /** 障害物の一覧（壊れたものも残る。添字は変わらない。壊れたか = isActive(i)） */
   readonly obstacles: readonly Obstacle[];
+  readonly hazards: readonly HazardDef[];
+  /** 障害物ごとの「いま世界にあるか」（壊れた障害物は false。すべての問い合わせが無視する） */
+  private readonly active: boolean[] = [];
   /** 箱ごとの cos / sin（向きの回転を毎回計算しない） */
   private readonly cos: number[] = [];
   private readonly sin: number[] = [];
@@ -110,7 +143,9 @@ export class World {
   constructor(def: WorldDef) {
     this.radius = def.radius;
     this.obstacles = def.obstacles;
+    this.hazards = def.hazards ?? [];
     for (const o of def.obstacles) {
+      this.active.push(true);
       const yaw = o.kind === 'box' ? o.yaw : 0;
       this.cos.push(Math.cos(yaw));
       this.sin.push(Math.sin(yaw));
@@ -120,6 +155,58 @@ export class World {
   /** 境界の中か（中心 (x, z) の点。体の半径は含めない） */
   contains(x: number, z: number): boolean {
     return x * x + z * z <= this.radius * this.radius;
+  }
+
+  /** 障害物 i がいま世界にあるか（壊れていなければ true） */
+  isActive(i: number): boolean {
+    return this.active[i] === true;
+  }
+
+  /**
+   * 障害物 i を世界から外す（active = false。壊れた）/ 戻す。変わったら true。外した障害物は、体の押し出し・足場・視線・弾・縁の問い合わせすべてから消える。
+   * 見た目（Arena）や演出は、呼ぶ側（Game）が合わせる
+   */
+  setActive(i: number, active: boolean): boolean {
+    if (i < 0 || i >= this.active.length || this.active[i] === active) return false;
+    this.active[i] = active;
+    return true;
+  }
+
+  /** 点 (x, z) にいる、足の高さ y の体が受ける床の危険地帯（なければ null）。足が HAZARD_TOP を超えていれば、どの危険地帯の上でも受けない */
+  hazardAt(x: number, z: number, y: number): HazardDef | null {
+    if (y > HAZARD_TOP) return null;
+    for (const h of this.hazards) {
+      const dx = x - h.x;
+      const dz = z - h.z;
+      if (dx * dx + dz * dz <= h.r * h.r) return h;
+    }
+    return null;
+  }
+
+  /**
+   * 点 c が床の危険地帯（足の高さ 0 で受けるもの）の中なら、その縁から margin 外へ押し出す（敵の出現位置が炎の中にならないように）。動かしたら true。
+   * 危険地帯が重なっていても、外へ出るまで数回繰り返す
+   */
+  pushOutOfHazards(c: { x: number; z: number }, margin = 0.6): boolean {
+    let moved = false;
+    for (let pass = 0; pass < 4; pass++) {
+      const h = this.hazardAt(c.x, c.z, 0);
+      if (!h) break;
+      let dx = c.x - h.x;
+      let dz = c.z - h.z;
+      const d = Math.hypot(dx, dz);
+      if (d < 1e-6) {
+        dx = 1;
+        dz = 0;
+      } else {
+        dx /= d;
+        dz /= d;
+      }
+      c.x = h.x + dx * (h.r + margin);
+      c.z = h.z + dz * (h.r + margin);
+      moved = true;
+    }
+    return moved;
   }
 
   /** 円を境界の内側へ収める（体の半径を引いた円の内側。clampInsideArena） */
@@ -137,7 +224,7 @@ export class World {
       let any = false;
       for (let i = 0; i < this.obstacles.length; i++) {
         const o = this.obstacles[i]!;
-        if (o.top <= y + stepUp) continue;
+        if (!this.active[i] || o.top <= y + stepUp) continue;
         if (this.pushOut(i, o, c)) any = true;
       }
       if (!any) break;
@@ -151,7 +238,7 @@ export class World {
   overlapsObstacle(c: Circle, y = 0, stepUp = STEP_UP): boolean {
     for (let i = 0; i < this.obstacles.length; i++) {
       const o = this.obstacles[i]!;
-      if (o.top <= y + stepUp) continue;
+      if (!this.active[i] || o.top <= y + stepUp) continue;
       if (this.overlaps(i, o, c)) return true;
     }
     return false;
@@ -169,7 +256,7 @@ export class World {
     c.z = z;
     for (let i = 0; i < this.obstacles.length; i++) {
       const o = this.obstacles[i]!;
-      if (o.top <= h || o.top > y + stepUp) continue;
+      if (!this.active[i] || o.top <= h || o.top > y + stepUp) continue;
       if (this.overlaps(i, o, c)) h = o.top;
     }
     return h;
@@ -185,7 +272,7 @@ export class World {
     let best = Infinity;
     for (let i = 0; i < this.obstacles.length; i++) {
       const o = this.obstacles[i]!;
-      if (o.top <= y) continue;
+      if (!this.active[i] || o.top <= y) continue;
       const t = o.kind === 'circle' ? rayCircle(ax, az, bx, bz, o, out, best, inflate) : this.rayBox(i, o, ax, az, bx, bz, out, best, inflate);
       if (t < best) {
         best = t;

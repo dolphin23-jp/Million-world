@@ -20,6 +20,13 @@ export function createSteerState(): SteerState {
 }
 
 const HIT: RayHit = createRayHit();
+/** 直近の freeDistance で、進めなくした障害物の添字（進めたときは変わらない）。突進が壊せる物にぶつかったかの判定に使う（M7-4d） */
+let blocker = -1;
+
+/** 直近の freeDistance が「進めない」と答えたときの、その障害物の添字（World.obstacles。なければ −1） */
+export function lastBlocker(): number {
+  return blocker;
+}
 
 /**
  * 点 (x, z) から向き (dirX, dirZ)（単位ベクトル）へ、半径 r の体が長さ look まで障害物に触れずに進めるか調べ、進める距離（look 以下）を返す。
@@ -36,7 +43,10 @@ export function freeDistance(world: World, x: number, z: number, dirX: number, d
   for (let i = 0; i < 4; i++) {
     if (!world.raycast(sx, sz, ex, ez, y + STEP_UP, HIT, inflate)) return look;
     const into = HIT.nx * dirX + HIT.nz * dirZ < -1e-6;
-    if (HIT.t > 1e-6 || into) return Math.min(look, travelled + HIT.t * (look - travelled));
+    if (HIT.t > 1e-6 || into) {
+      blocker = HIT.index;
+      return Math.min(look, travelled + HIT.t * (look - travelled));
+    }
     travelled += STEERING.skip;
     if (travelled >= look) return look;
     sx = x + dirX * travelled;

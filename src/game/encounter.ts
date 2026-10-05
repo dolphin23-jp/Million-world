@@ -110,6 +110,11 @@ export class Encounter {
     this.damageTaken += damage;
   }
 
+  /** 環境のダメージ（床の危険地帯。M7-4e）: 被ダメージにだけ入れる（被弾の回数には数えない） */
+  onEnvironmentDamage(damage: number): void {
+    this.damageTaken += damage;
+  }
+
   /** ガードで受け止めた（削りダメージだけ通った）。被弾の回数には数えず、被ダメージには入れる */
   onPlayerGuard(damage: number): void {
     this.damageTaken += damage;

@@ -1,4 +1,4 @@
-import type { Obstacle, WorldDef } from '../world';
+import type { HazardDef, Obstacle, WorldDef } from '../world';
 
 /**
  * 闘技場の障害物（M7-1。ADR-039）。当たり（World）と見た目（Arena）を同じ表から作る = 見えている物と止まる物がずれない。
@@ -6,11 +6,12 @@ import type { Obstacle, WorldDef } from '../world';
  *  - 岩・低い壁（上面 0.85〜0.9）: 弾は上を通る・いずれまたいで越えられる（M7-2 のジャンプ・乗り越え）
  *  - 箱（上面 1.5）・石の壇（上面 2.2）: 弾を遮る・**登れる縁**（climbable。跳んでも乗れない高さを、掴んで登る。M7-3b）
  *  - 柱（上面 3.2〜4.5）: 弾を遮る・登れない
+ *  - 木箱・樽（上面 0.9〜0.95。M7-4d）: 壊せる（壊すと世界から消える）。炎の床（M7-4e）は床の危険地帯
  */
 export const ARENA_RADIUS = 14;
 
 /** 見た目の種類（Arena が作る形） */
-export type PropStyle = 'pillar' | 'column' | 'rock' | 'wall' | 'block';
+export type PropStyle = 'pillar' | 'column' | 'rock' | 'wall' | 'block' | 'crate' | 'barrel';
 
 export interface PropDef {
   style: PropStyle;
@@ -59,6 +60,31 @@ for (const angle of [150, 330]) {
   props.push({ style: 'block', obstacle: { kind: 'box', x: terrace.x, z: terrace.z, hx: 1.5, hz: 1, yaw: tangentYaw(292.5), top: 2.2, climbable: true } });
 }
 
+// 壊せる物（M7-4d。ADR-046）: 木箱 3 つ（上面 0.9。叩くと壊れる。猪の突進が突き破る）と樽 2 つ。壊すと薬瓶（小）が出ることがある。
+// 縦・横の軸の上は空けた（ロックして向かい合う戦いの邪魔をしない）。木箱は上面が 0.9m なので、壊す前なら乗り上がって登れる
+const CRATE = { hp: 30, drops: [{ item: 'potionS', chance: 0.3 }] } as const;
+const BARREL = { hp: 20, drops: [{ item: 'potionS', chance: 0.2 }] } as const;
+{
+  // 木箱は 2 つ並べて置き（北西）と 1 つ（南西）、樽は北東と南東。中心に近い輪（半径 4〜5.5m）に置いて、柱・岩・壁との間を大きな敵（大将。半径 1.25m）が通れる広さに保つ
+  const a = polar(112, 4.6);
+  props.push({ style: 'crate', obstacle: { kind: 'box', x: a.x, z: a.z, hx: 0.45, hz: 0.45, yaw: 0.3, top: 0.9, breakable: CRATE } });
+  const b = polar(126, 5.4);
+  props.push({ style: 'crate', obstacle: { kind: 'box', x: b.x, z: b.z, hx: 0.45, hz: 0.45, yaw: -0.2, top: 0.9, breakable: CRATE } });
+  const c = polar(244, 4.8);
+  props.push({ style: 'crate', obstacle: { kind: 'box', x: c.x, z: c.z, hx: 0.45, hz: 0.45, yaw: 0.6, top: 0.9, breakable: CRATE } });
+  for (const [angle, radius] of [[60, 4.4], [300, 5.2]] as const) {
+    const p = polar(angle, radius);
+    props.push({ style: 'barrel', obstacle: { kind: 'circle', x: p.x, z: p.z, r: 0.42, top: 0.95, breakable: BARREL } });
+  }
+}
+
 export const ARENA_PROPS: readonly PropDef[] = props;
 
-export const ARENA_WORLD: WorldDef = { radius: ARENA_RADIUS, obstacles: ARENA_PROPS.map((p) => p.obstacle) };
+// 床の危険地帯（M7-4e。ADR-046）: 炎の床 2 か所（半径 1.6m）。踏むと燃える（跳べば避けられる・回避の無敵で抜けられる）。敵も燃える。
+// 縦・横の軸の上と、出現の輪（半径 6m）を避けた。中心から外へ向かう道をふさがない位置
+export const ARENA_HAZARDS: readonly HazardDef[] = [
+  { ...polar(20, 5), r: 1.6, type: 'fire' },
+  { ...polar(215, 4.6), r: 1.6, type: 'fire' },
+];
+
+export const ARENA_WORLD: WorldDef = { radius: ARENA_RADIUS, obstacles: ARENA_PROPS.map((p) => p.obstacle), hazards: ARENA_HAZARDS };

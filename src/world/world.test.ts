@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AIR_STEP_UP, STEP_UP, SUPPORT_RADIUS, World, createRayHit, type Obstacle } from './world';
+import { AIR_STEP_UP, HAZARD_TOP, STEP_UP, SUPPORT_RADIUS, World, createRayHit, type HazardDef, type Obstacle } from './world';
 
 const R = 14;
 const circle = (x: number, z: number, r: number, top: number): Obstacle => ({ kind: 'circle', x, z, r, top });
@@ -273,5 +273,96 @@ describe('World.groundHeight: 足場の高さ（M7-2）', () => {
     const air = { x: 0, z: 3.7, r: 0.5 };
     expect(w.moveCircle(air, 0.6, AIR_STEP_UP)).toBe(true); // 足 0.6 + 0.12 < 0.9: 壁
     expect(air.z).toBeCloseTo(3.5);
+  });
+});
+
+describe('World: 壊せる障害物（active。M7-4d）', () => {
+  const crate: Obstacle = { kind: 'box', x: 0, z: 3, hx: 0.5, hz: 0.5, yaw: 0, top: 0.9, breakable: { hp: 30 } };
+  const pillar: Obstacle = circle(0, 8, 0.6, 4);
+
+  it('最初はすべてあり、setActive(false) で世界から外れる。変わったときだけ true。範囲外の添字は何も起きない', () => {
+    const w = world(crate, pillar);
+    expect(w.isActive(0)).toBe(true);
+    expect(w.isActive(1)).toBe(true);
+    expect(w.setActive(0, false)).toBe(true);
+    expect(w.isActive(0)).toBe(false);
+    expect(w.setActive(0, false)).toBe(false); // もう外れている
+    expect(w.setActive(5, false)).toBe(false);
+    expect(w.isActive(5)).toBe(false);
+    expect(w.setActive(0, true)).toBe(true); // 戻せる
+    expect(w.isActive(0)).toBe(true);
+    expect(w.obstacles).toHaveLength(2); // 一覧は変わらない（添字が動かない）
+  });
+
+  it('外れた障害物は、体を止めない・押し出さない・重なり判定に出ない', () => {
+    const w = world(crate);
+    const c = { x: 0, z: 3, r: 0.4 };
+    expect(w.overlapsObstacle(c)).toBe(true);
+    w.setActive(0, false);
+    expect(w.overlapsObstacle(c)).toBe(false);
+    expect(w.moveCircle(c)).toBe(false);
+    expect(c.z).toBe(3);
+  });
+
+  it('外れた障害物は、足場にならず、視線・弾（raycast）を遮らず、縁の問い合わせにも出ない', () => {
+    const w = world(crate);
+    const out = createRayHit();
+    expect(w.groundHeight(0, 3, 1)).toBeCloseTo(0.9);
+    expect(w.raycast(0, 0, 0, 6, 0.5, out)).toBe(true);
+    expect(w.lineOfSight(0, 0, 0, 6, 0.5)).toBe(false);
+    w.setActive(0, false);
+    expect(w.groundHeight(0, 3, 1)).toBe(0);
+    expect(w.raycast(0, 0, 0, 6, 0.5, out)).toBe(false);
+    expect(w.lineOfSight(0, 0, 0, 6, 0.5)).toBe(true);
+  });
+
+  it('外れた障害物の奥の障害物は見える（最初に遮るものが入れ替わる）', () => {
+    const w = world(crate, pillar);
+    const out = createRayHit();
+    w.raycast(0, 0, 0, 12, 0.5, out);
+    expect(out.index).toBe(0);
+    w.setActive(0, false);
+    expect(w.raycast(0, 0, 0, 12, 0.5, out)).toBe(true);
+    expect(out.index).toBe(1);
+  });
+});
+
+describe('World: 床の危険地帯（hazardAt。M7-4e）', () => {
+  const fire: HazardDef = { x: 4, z: 0, r: 1.5, type: 'fire' };
+  const w = new World({ radius: R, obstacles: [], hazards: [fire] });
+
+  it('円の中にいれば受ける。縁の内側ちょうどは受け、外は受けない', () => {
+    expect(w.hazardAt(4, 0, 0)).toBe(fire);
+    expect(w.hazardAt(5.4, 0, 0)).toBe(fire);
+    expect(w.hazardAt(5.6, 0, 0)).toBeNull();
+    expect(w.hazardAt(0, 0, 0)).toBeNull();
+  });
+
+  it('足が HAZARD_TOP を超えていれば（跳んでいる・高い足場の上）受けない。低い段差の上は受ける', () => {
+    expect(w.hazardAt(4, 0, HAZARD_TOP)).toBe(fire);
+    expect(w.hazardAt(4, 0, HAZARD_TOP + 0.01)).toBeNull();
+    expect(w.hazardAt(4, 0, 1.27)).toBeNull(); // ジャンプの頂点
+  });
+
+  it('pushOutOfHazards: 危険地帯の中の点は縁の外（margin）へ押し出される。外の点は動かない。重なった危険地帯でも外へ出る', () => {
+    const c = { x: 4.5, z: 0.4 };
+    expect(w.pushOutOfHazards(c)).toBe(true);
+    expect(w.hazardAt(c.x, c.z, 0)).toBeNull();
+    expect(Math.hypot(c.x - fire.x, c.z - fire.z)).toBeCloseTo(fire.r + 0.6);
+    const out = { x: 0, z: 0 };
+    expect(w.pushOutOfHazards(out)).toBe(false);
+    expect(out).toEqual({ x: 0, z: 0 });
+    const center = { x: fire.x, z: fire.z }; // ちょうど中心でも外へ出る
+    expect(w.pushOutOfHazards(center)).toBe(true);
+    expect(w.hazardAt(center.x, center.z, 0)).toBeNull();
+    const two = new World({ radius: R, obstacles: [], hazards: [fire, { x: 5.2, z: 0, r: 1.5, type: 'fire' }] });
+    const both = { x: 4.6, z: 0.2 };
+    two.pushOutOfHazards(both);
+    expect(two.hazardAt(both.x, both.z, 0)).toBeNull();
+  });
+
+  it('危険地帯のない世界は null。hazards を省略しても作れる', () => {
+    expect(world().hazardAt(0, 0, 0)).toBeNull();
+    expect(world().hazards).toHaveLength(0);
   });
 });
