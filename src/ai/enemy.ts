@@ -8,7 +8,7 @@ import { PROJECTILES, type ProjectileId } from '../combat/data/projectiles';
 import type { EnemyAttackDef, EnemyDef } from './data/enemies';
 import { fanOffset } from '../combat/projectile';
 import { FLYING_Y, type World } from '../world/world';
-import { createSteerState, freeDistance, steerYaw } from './steering';
+import { createSteerState, freeDistance, lastBlocker, steerYaw } from './steering';
 import { PROJECTILE_HEIGHT } from '../combat/data/projectiles';
 import { REACH } from '../combat/data/reach';
 import { canSee, sightHeight, verticalReach } from '../combat/reach';
@@ -112,6 +112,11 @@ export class Enemy {
   phaseSerial = 0;
   /** 突進が障害物に激突するたびに増える（Game が演出を起こすため。M7-4c） */
   crashSerial = 0;
+  /**
+   * 突進が壊せる障害物にぶつかった（M7-4d）: その障害物の添字（World.obstacles）。Game が壊して −1 に戻す。突進は止まらず突き破る
+   * （Game が押し出しの前に壊すので、体は止まらない）
+   */
+  smashIndex = -1;
   /** 召喚（ボス）の判定が出るたびに増える（Game が手下を出すため）と、その内容 */
   summonSerial = 0;
   summon: { readonly type: string; readonly count: number; readonly radius: number; readonly max: number } | null = null;
@@ -307,6 +312,20 @@ export class Enemy {
   }
 
   /**
+   * 床の危険地帯のダメージ（M7-4e）: ひるまず、予備動作・攻撃も中断されない（ダメージだけ）。HP が 0 になったら死亡（撃破の扱いは Game）。
+   * 体勢ゲージ（poise）は減らさない
+   */
+  burn(amount: number): DamageResult {
+    if (this.dead) return { dealt: 0, killed: false };
+    const r = applyDamage(this.health, amount);
+    if (r.killed) {
+      this.body.invulnerable = true;
+      this.setState('dead');
+    }
+    return r;
+  }
+
+  /**
    * 突進が障害物に激突した（M7-4c）: 自分にダメージを受け（最大 HP の CRASH.damageRatio。HP は 1 までしか減らない = 倒れない）、
    * 突進と逆へ少し弾かれて、体勢を崩す（パリィの stagger と同じ状態。反撃の窓は CRASH.effect）
    */
@@ -453,10 +472,16 @@ export class Enemy {
           if (atk.crash && this.world) {
             const reach = Math.hypot(moveX, moveZ) * dt + CRASH.margin;
             if (freeDistance(this.world, this.body.x, this.body.z, this.lungeDirX, this.lungeDirZ, def.radius, this.y, reach) < reach - 1e-6) {
-              this.crash();
-              moveX = 0;
-              moveZ = 0;
-              break;
+              const idx = lastBlocker();
+              if (idx >= 0 && this.world.obstacles[idx]?.breakable) {
+                // 壊せる物（木箱・樽）は、突き破る: 突進は止まらない。壊すのは Game（押し出しの前）
+                this.smashIndex = idx;
+              } else {
+                this.crash();
+                moveX = 0;
+                moveZ = 0;
+                break;
+              }
             }
           }
           if (atk.projectile && !this.fired) this.fire(atk.projectile);

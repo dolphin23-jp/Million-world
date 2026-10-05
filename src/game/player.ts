@@ -389,6 +389,31 @@ export class Player {
   }
 
   /**
+   * 環境のダメージ（床の危険地帯。M7-4e）: 防御の軽減（damageTaken）は受けるが、ひるまず・ノックバックもなく、攻撃・回避・ガードは続けられる（無敵もつかない）。
+   * HP が 0 になったら死亡（敵の攻撃で倒れたときと同じ状態）
+   */
+  takeEnvironmentDamage(amount: number): DamageResult {
+    const r = applyDamage(this.health, this.takenDamage(amount));
+    if (!r.killed) return r;
+    this.attack = null;
+    this.attackFrames = null;
+    this.attackBuffered = false;
+    this.skillRun = null;
+    this.charge = null;
+    this.chargeLevel = 0;
+    this.guard = null;
+    this.guardStun = 0;
+    this.guardBuffer = 0;
+    this.jumpDelay = 0;
+    this.traverse = null;
+    this.velX = 0;
+    this.velZ = 0;
+    this.setState('dead', true);
+    this.refreshHurtbox();
+    return r;
+  }
+
+  /**
    * 効果の集計を入れ替える。最大体力が変わったら、増えた分だけ体力も増やす（減ったら、最大を超えないように切る）。
    * 戦闘中（一時停止メニューからの振り分け）でも安全に呼べる
    */

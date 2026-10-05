@@ -1,12 +1,13 @@
 import * as THREE from 'three';
 import { addOutline, createToonMaterial } from '../render/toon';
-import { ARENA_PROPS, ARENA_RADIUS, ARENA_WORLD } from './data/arena-props';
+import { ARENA_HAZARDS, ARENA_PROPS, ARENA_RADIUS, ARENA_WORLD } from './data/arena-props';
 import { World } from './world';
 
 /**
  * デモ用アリーナ: 円形の石床、縁、柱・岩・壁・箱（障害物）、浮遊クリスタル。
  * 移動の手触りを見るために床には格子模様を入れる（地面の基準がないと速度感が分からない）。
  * 障害物の位置・大きさは data/arena-props.ts の表（当たりの World と同じ）から作る。
+ * 壊せる物（木箱・樽。M7-4d）は障害物ごとの Group に入れ、壊れたら隠す・叩かれたら揺らす。床の危険地帯（炎の床。M7-4e）は光る床と炎で見せる。
  */
 
 export { ARENA_RADIUS };
@@ -56,6 +57,12 @@ export class Arena {
   /** 世界への問い合わせ（体の押し出し・弾や視線の遮り）。障害物の見た目はこのデータから作ってある */
   readonly world = new World(ARENA_WORLD);
   private readonly crystals: THREE.Mesh[] = [];
+  /** 壊せる物（World.obstacles の添字 → 見た目の Group）。壊れたら visible = false、叩かれたら wobble を起こして揺らす */
+  private readonly breakables = new Map<number, THREE.Group>();
+  private readonly wobbles = new Map<number, number>();
+  /** 炎の床の見た目: 光る床の材質（明滅）と、炎の円錐（ゆらぎ） */
+  private readonly fireGlows: THREE.MeshStandardMaterial[] = [];
+  private readonly flames: { mesh: THREE.Mesh; phase: number; baseY: number }[] = [];
 
   constructor() {
     this.group.name = 'arena';
@@ -102,8 +109,57 @@ export class Arena {
       this.group.add(mesh);
       addOutline(mesh, { thickness });
     };
-    for (const prop of ARENA_PROPS) {
+    // 壊せる物（M7-4d）: 木箱（板の帯で締めた箱）と樽（鉄の輪）。障害物ごとに Group にまとめる（壊れたら隠す・叩かれたら揺らす）
+    const woodMat = createToonMaterial({ color: 0xc08c52, steps: 3, shadowLevel: 0.5, rimColor: 0xffe2b0, rimStrength: 0.2 });
+    const woodDarkMat = createToonMaterial({ color: 0x7a4f2c, steps: 2, shadowLevel: 0.55 });
+    const ironMat = createToonMaterial({ color: 0x5a6070, steps: 2, shadowLevel: 0.5, rimColor: 0xc8d4ff, rimStrength: 0.3 });
+    const addTo = (group: THREE.Group, mesh: THREE.Mesh, thickness = 0.02): void => {
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      group.add(mesh);
+      addOutline(mesh, { thickness });
+    };
+    for (let i = 0; i < ARENA_PROPS.length; i++) {
+      const prop = ARENA_PROPS[i]!;
       const o = prop.obstacle;
+      if (prop.style === 'crate' && o.kind === 'box') {
+        const g = new THREE.Group();
+        g.position.set(o.x, 0, o.z);
+        g.rotation.y = o.yaw;
+        const body = new THREE.Mesh(new THREE.BoxGeometry(o.hx * 2, o.top, o.hz * 2), woodMat);
+        body.position.y = o.top / 2;
+        addTo(g, body, 0.025);
+        for (const f of [0.22, 0.78]) {
+          const band = new THREE.Mesh(new THREE.BoxGeometry(o.hx * 2 + 0.05, 0.09, o.hz * 2 + 0.05), woodDarkMat);
+          band.position.y = o.top * f;
+          addTo(g, band, 0.015);
+        }
+        const lid = new THREE.Mesh(new THREE.BoxGeometry(o.hx * 2 + 0.08, 0.07, o.hz * 2 + 0.08), woodMat);
+        lid.position.y = o.top - 0.035;
+        addTo(g, lid, 0.015);
+        this.group.add(g);
+        this.breakables.set(i, g);
+        continue;
+      }
+      if (prop.style === 'barrel' && o.kind === 'circle') {
+        const g = new THREE.Group();
+        g.position.set(o.x, 0, o.z);
+        const body = new THREE.Mesh(new THREE.CylinderGeometry(o.r * 0.88, o.r * 0.88, o.top, 14), woodMat);
+        body.position.y = o.top / 2;
+        addTo(g, body, 0.025);
+        for (const f of [0.2, 0.8]) {
+          const hoop = new THREE.Mesh(new THREE.TorusGeometry(o.r * 0.9, 0.028, 6, 18), ironMat);
+          hoop.rotation.x = Math.PI / 2;
+          hoop.position.y = o.top * f;
+          addTo(g, hoop, 0.012);
+        }
+        const lid = new THREE.Mesh(new THREE.CylinderGeometry(o.r * 0.84, o.r * 0.84, 0.05, 14), woodDarkMat);
+        lid.position.y = o.top - 0.025;
+        addTo(g, lid, 0.012);
+        this.group.add(g);
+        this.breakables.set(i, g);
+        continue;
+      }
       if (prop.style === 'pillar' && o.kind === 'circle') {
         const pillar = new THREE.Mesh(pillarGeo, pillarMat);
         pillar.position.set(o.x, 2.1, o.z);
@@ -145,6 +201,32 @@ export class Arena {
       }
     }
 
+    // 床の危険地帯（M7-4e）: 炎の床。灰色の焦げた床が内側から橙に光り（明滅）、縁に明るい輪、炎が揺れる。踏むと燃える場所だと遠くから分かるように
+    for (const h of ARENA_HAZARDS) {
+      const glow = new THREE.MeshStandardMaterial({ color: 0x2c140c, emissive: new THREE.Color(0xff5a18), emissiveIntensity: 0.6, roughness: 1 });
+      this.fireGlows.push(glow);
+      const disc = new THREE.Mesh(new THREE.CircleGeometry(h.r, 40), glow);
+      disc.rotation.x = -Math.PI / 2;
+      disc.position.set(h.x, 0.03, h.z);
+      disc.receiveShadow = false;
+      this.group.add(disc);
+      const rimMatFire = new THREE.MeshStandardMaterial({ color: 0x402010, emissive: new THREE.Color(0xffb347), emissiveIntensity: 1.1, roughness: 1 });
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(h.r, 0.07, 6, 48), rimMatFire);
+      ring.rotation.x = Math.PI / 2;
+      ring.position.set(h.x, 0.05, h.z);
+      this.group.add(ring);
+      const flameMat = new THREE.MeshStandardMaterial({ color: 0xff7a20, emissive: new THREE.Color(0xffc04a), emissiveIntensity: 1.2, roughness: 1 });
+      for (let k = 0; k < 7; k++) {
+        const a = (k / 7) * Math.PI * 2 + h.x;
+        const rad = k === 0 ? 0 : h.r * (0.35 + 0.4 * ((k * 37) % 5) / 5);
+        const hgt = 0.7 + 0.35 * ((k * 53) % 4) / 4;
+        const cone = new THREE.Mesh(new THREE.ConeGeometry(0.2, hgt, 6), flameMat);
+        cone.position.set(h.x + Math.cos(a) * rad, hgt / 2, h.z + Math.sin(a) * rad);
+        this.group.add(cone);
+        this.flames.push({ mesh: cone, phase: k * 1.3 + h.z, baseY: hgt });
+      }
+    }
+
     // 浮遊クリスタル（発光 → ブルームの効き具合を確認する目印）
     const crystalGeo = new THREE.OctahedronGeometry(0.45, 0);
     const palette = [0x7ff0ff, 0xffb3f5, 0xb9ff8a, 0xffd36a];
@@ -167,8 +249,47 @@ export class Arena {
     }
   }
 
+  /** 壊せる物の見た目を、壊れた（隠す）/ 戻した（出す）に合わせる（World.setActive と一緒に呼ぶ）。壊せる物でない添字は何もしない */
+  setBroken(index: number, broken: boolean): void {
+    const g = this.breakables.get(index);
+    if (!g) return;
+    g.visible = !broken;
+    if (!broken) {
+      g.rotation.z = 0;
+      this.wobbles.delete(index);
+    }
+  }
+
+  /** 壊せる物が叩かれた: 少し揺らす（描画の演出だけ） */
+  pulse(index: number): void {
+    if (this.breakables.has(index)) this.wobbles.set(index, 1);
+  }
+
+  /** 戦闘のやり直し: 壊れた物をすべて元に戻す */
+  restoreAll(): void {
+    for (const i of this.breakables.keys()) this.setBroken(i, false);
+  }
+
   /** 描画時の演出更新（ゲームロジックには影響しない） */
   animate(timeSec: number): void {
+    for (const [i, w] of this.wobbles) {
+      const g = this.breakables.get(i);
+      const next = w - 0.06;
+      if (!g || next <= 0) {
+        if (g) g.rotation.z = 0;
+        this.wobbles.delete(i);
+        continue;
+      }
+      this.wobbles.set(i, next);
+      if (g.visible) g.rotation.z = Math.sin(next * 38) * 0.07 * next;
+    }
+    for (const m of this.fireGlows) m.emissiveIntensity = 0.55 + 0.2 * Math.sin(timeSec * 5) + 0.08 * Math.sin(timeSec * 13.7);
+    for (const f of this.flames) {
+      const k = 0.75 + 0.35 * Math.sin(timeSec * 7 + f.phase) + 0.12 * Math.sin(timeSec * 17.3 + f.phase * 2);
+      f.mesh.scale.y = k;
+      f.mesh.position.y = (f.baseY * k) / 2;
+      f.mesh.rotation.z = Math.sin(timeSec * 3 + f.phase) * 0.12;
+    }
     this.crystals.forEach((c, i) => {
       c.rotation.y = timeSec * 0.8 + i;
       c.position.y = 2.2 + Math.sin(timeSec * 1.6 + i * 1.3) * 0.25;

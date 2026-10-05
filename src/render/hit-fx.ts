@@ -109,6 +109,10 @@ export const FX_TINT = {
   mystic: new THREE.Color(0.7, 0.72, 1),
   /** 薬瓶で回復したときの光（緑がかった白） */
   heal: new THREE.Color(0.7, 1, 0.8),
+  /** 木箱・樽が壊れたときの破片の閃光（木の色） */
+  wood: new THREE.Color(1, 0.78, 0.45),
+  /** 炎の床で燃えたときの閃光（橙） */
+  fire: new THREE.Color(1, 0.55, 0.2),
 } as const;
 
 export class HitFx {
