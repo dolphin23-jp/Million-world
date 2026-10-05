@@ -177,14 +177,16 @@ export class World {
 
   /**
    * 線分 (ax, az) → (bx, bz) を高さ y で飛ばし、最初に遮る障害物（上面が y より高いもの）に当たるか。当たったら out に書いて true。
-   * 始点が障害物の中なら t = 0（その場で当たり）。境界（円の縁）は見ない（弾の寿命・縁の判定は ProjectileSystem）
+   * 始点が障害物の中なら t = 0（その場で当たり）。境界（円の縁）は見ない（弾の寿命・縁の判定は ProjectileSystem）。
+   * inflate > 0 なら、障害物を inflate だけ太らせて調べる（円柱は半径 + inflate、箱は半幅 + inflate）= 半径 inflate の体が、この線に沿って
+   * 動けるかの検査（体の中心を通る線が、太らせた障害物に当たらなければ、体は障害物に触れない。箱の角は四角のまま = 少し余裕を持つ側に倒れる）
    */
-  raycast(ax: number, az: number, bx: number, bz: number, y: number, out: RayHit): boolean {
+  raycast(ax: number, az: number, bx: number, bz: number, y: number, out: RayHit, inflate = 0): boolean {
     let best = Infinity;
     for (let i = 0; i < this.obstacles.length; i++) {
       const o = this.obstacles[i]!;
       if (o.top <= y) continue;
-      const t = o.kind === 'circle' ? rayCircle(ax, az, bx, bz, o, out, best) : this.rayBox(i, o, ax, az, bx, bz, out, best);
+      const t = o.kind === 'circle' ? rayCircle(ax, az, bx, bz, o, out, best, inflate) : this.rayBox(i, o, ax, az, bx, bz, out, best, inflate);
       if (t < best) {
         best = t;
         out.index = i;
@@ -304,7 +306,9 @@ export class World {
     return true;
   }
 
-  private rayBox(i: number, o: BoxObstacle, ax: number, az: number, bx: number, bz: number, out: RayHit, best: number): number {
+  private rayBox(i: number, o: BoxObstacle, ax: number, az: number, bx: number, bz: number, out: RayHit, best: number, inflate: number): number {
+    const hx = o.hx + inflate;
+    const hz = o.hz + inflate;
     const cs = this.cos[i]!;
     const sn = this.sin[i]!;
     const adx = ax - o.x;
@@ -322,10 +326,10 @@ export class World {
     let nx = 0;
     let nz = 0;
     // 始点が箱の中なら t = 0 の当たり（法線は始点から見て最も近い面の外向き）
-    const inside = Math.abs(alx) <= o.hx && Math.abs(alz) <= o.hz;
+    const inside = Math.abs(alx) <= hx && Math.abs(alz) <= hz;
     if (inside) {
-      const px = o.hx - Math.abs(alx);
-      const pz = o.hz - Math.abs(alz);
+      const px = hx - Math.abs(alx);
+      const pz = hz - Math.abs(alz);
       if (px < pz) nx = alx >= 0 ? 1 : -1;
       else nz = alz >= 0 ? 1 : -1;
     } else {
@@ -333,7 +337,7 @@ export class World {
       for (let axis = 0; axis < 2; axis++) {
         const a = axis === 0 ? alx : alz;
         const d = axis === 0 ? dlx : dlz;
-        const h = axis === 0 ? o.hx : o.hz;
+        const h = axis === 0 ? hx : hz;
         if (Math.abs(d) < EPS) {
           if (Math.abs(a) > h) return Infinity;
           continue;
@@ -397,13 +401,14 @@ function pushOutOfCircleObstacle(c: Circle, o: CircleObstacle): boolean {
 }
 
 /** 線分と円柱の最初の交点。best より手前なら out に書いてその t、そうでなければ best（= 当たらない・遠い）を返す */
-function rayCircle(ax: number, az: number, bx: number, bz: number, o: CircleObstacle, out: RayHit, best: number): number {
+function rayCircle(ax: number, az: number, bx: number, bz: number, o: CircleObstacle, out: RayHit, best: number, inflate: number): number {
   const dx = bx - ax;
   const dz = bz - az;
   const fx = ax - o.x;
   const fz = az - o.z;
   const a = dx * dx + dz * dz;
-  const c = fx * fx + fz * fz - o.r * o.r;
+  const r = o.r + inflate;
+  const c = fx * fx + fz * fz - r * r;
   let t: number;
   if (c <= 0) {
     // 始点が円の中: その場で当たり。法線は中心から始点への向き

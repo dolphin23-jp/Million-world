@@ -188,6 +188,46 @@ describe('World.raycast / lineOfSight: 弾・視線の遮り', () => {
   });
 });
 
+describe('World.raycast の inflate: 体の幅つきの掃引（M7-4a）', () => {
+  it('円柱: 半径 r の体が柱に触れずに通れる線だけが通る（柱の半径 + r の太さで調べる）', () => {
+    const w = world(circle(5, 0, 1, 3));
+    const out = createRayHit();
+    // 中心の線が柱の中心から 1.3 離れて通る: 点（r = 0）なら当たらないが、r = 0.5 の体は柱（1.0）に触れる（1.3 < 1.5）
+    expect(w.raycast(0, 1.3, 10, 1.3, 0, out)).toBe(false);
+    expect(w.raycast(0, 1.3, 10, 1.3, 0, out, 0.5)).toBe(true);
+    // 1.6 離れていれば r = 0.5 でも通れる（1.6 > 1.5）
+    expect(w.raycast(0, 1.6, 10, 1.6, 0, out, 0.5)).toBe(false);
+    // 当たった点は太らせた面（柱の中心から 1.5 の距離）の上で、法線は柱の中心から外向き
+    expect(w.raycast(0, 0, 10, 0, 0, out, 0.5)).toBe(true);
+    expect(out.x).toBeCloseTo(3.5);
+    expect(out.nx).toBeCloseTo(-1);
+  });
+
+  it('箱: 半幅を r だけ太らせる。yaw を回した箱でも同じ。始点が太らせた箱の中なら t = 0', () => {
+    const w = world(box(0, 5, 2, 0.3, 0, 0.9));
+    const out = createRayHit();
+    expect(w.raycast(2.4, 0, 2.4, 10, 0, out)).toBe(false); // 箱の端（2.0）の外 0.4 を通る: 点は通る
+    expect(w.raycast(2.4, 0, 2.4, 10, 0, out, 0.5)).toBe(true); // r = 0.5 の体は触れる（2.4 < 2.5）
+    expect(w.raycast(2.6, 0, 2.6, 10, 0, out, 0.5)).toBe(false);
+    // 手前の面: 厚み（0.3）+ r の位置で止まる（z = 5 − 0.3 − 0.5）
+    expect(w.raycast(0, 0, 0, 10, 0, out, 0.5)).toBe(true);
+    expect(out.z).toBeCloseTo(4.2);
+    expect(out.nz).toBeCloseTo(-1);
+    expect(w.raycast(0, 4.6, 0, 10, 0, out, 0.5)).toBe(true);
+    expect(out.t).toBe(0);
+    const turned = world(box(0, 5, 2, 0.3, Math.PI / 2, 0.9)); // 長辺が z 方向
+    expect(turned.raycast(0.7, 0, 0.7, 10, 0, out, 0.5)).toBe(true); // 短辺の半幅 0.3 + 0.5 = 0.8 より内側
+    expect(turned.raycast(0.9, 0, 0.9, 10, 0, out, 0.5)).toBe(false);
+  });
+
+  it('inflate の既定は 0（従来どおり）。高さ y の扱いも同じ（上面が y 以下なら遮らない）', () => {
+    const w = world(circle(5, 0, 1, 0.85));
+    const out = createRayHit();
+    expect(w.raycast(0, 0, 10, 0, 0, out)).toBe(true);
+    expect(w.raycast(0, 0, 10, 0, 0.85, out, 0.5)).toBe(false);
+  });
+});
+
 describe('World.groundHeight: 足場の高さ（M7-2）', () => {
   const flat = (x: number, z: number, hx: number, hz: number, top: number): Obstacle => box(x, z, hx, hz, 0, top);
   it('障害物が無ければ地面（0）。障害物の上なら、その上面の高さ', () => {

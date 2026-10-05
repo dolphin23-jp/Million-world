@@ -3,6 +3,8 @@ import { clamp, damp, dampAngle } from '../core/math';
 import { Shake } from '../core/shake';
 import { LOCKON } from '../combat/data/lockon';
 import { lockYaw } from '../combat/lockon';
+import { cameraClearDistance } from './camera-collision';
+import type { World } from '../world/world';
 
 /**
  * 三人称カメラ（docs/04-controls.md）。
@@ -26,6 +28,12 @@ export const CAMERA = {
   /** ボスがいるあいだ（ADR-029）、背の高い（3.9m）ボスの頭まで映るよう、カメラを引く距離（m）と、注視点を上げる高さ（m） */
   bossPullBack: 2.4,
   bossLookUp: 0.75,
+  /** 障害物との衝突（M7-4a。ADR-043）: カメラの大きさ（半径 m）・障害物の手前に残す余裕（m）・寄せられる最小の距離（m。これ以上は近づかない = キャラの顔の前まで寄らない）・
+   * 障害物が外れたあと、距離が元へ戻る速さ（大きいほど速い。寄せるのは即座） */
+  collisionRadius: 0.3,
+  collisionMargin: 0.1,
+  collisionMinDistance: 1.1,
+  collisionReleaseLambda: 4,
 } as const;
 
 const _target = new THREE.Vector3();
@@ -52,6 +60,8 @@ export class ThirdPersonCamera {
   private bossBlend = 0;
   /** 開発用: 注視点をここに固定する（追従しない）。モーションシートで、動くキャラを定点から撮るために使う */
   private pinned: THREE.Vector3 | null = null;
+  /** 障害物に遮られない距離（m）。遮られたら即座に寄り、遮りが外れたらなめらかに戻る */
+  private clearDist = Infinity;
 
   constructor(aspect: number) {
     this.camera = new THREE.PerspectiveCamera(CAMERA.fov, aspect, 0.1, 500);
@@ -95,8 +105,8 @@ export class ThirdPersonCamera {
     this.camera.updateProjectionMatrix();
   }
 
-  /** 描画フレーム: 追従対象（足元のワールド座標）に向けて更新 */
-  update(targetFoot: THREE.Vector3, frameDt: number): void {
+  /** 描画フレーム: 追従対象（足元のワールド座標）に向けて更新。world があれば、注視点からカメラまでの線が障害物に遮られる手前までカメラを寄せる（固定中は寄せない） */
+  update(targetFoot: THREE.Vector3, frameDt: number, world: World | null = null): void {
     _target.set(targetFoot.x, targetFoot.y + CAMERA.lookHeight, targetFoot.z);
     // ロック: 注視点を対象寄りに。距離は離れた敵が映る分だけ引く
     this.lockBlend = damp(this.lockBlend, this.lockActive ? 1 : 0, 6, frameDt);
@@ -120,7 +130,15 @@ export class ThirdPersonCamera {
       this.follow.z = damp(this.follow.z, _target.z, CAMERA.followLambda, frameDt);
     }
     const cp = Math.cos(this.pitch);
-    _offset.set(Math.sin(this.yaw) * cp, Math.sin(this.pitch), Math.cos(this.yaw) * cp).multiplyScalar(this.distance + extra);
+    let dist = this.distance + extra;
+    if (world && !this.pinned) {
+      // 障害物（柱・高い壁）の陰にカメラが入らない: 遮られたら手前へ即座に寄り、外れたらなめらかに戻る
+      const d = cameraClearDistance(world, this.follow.x, this.follow.y, this.follow.z, Math.sin(this.yaw) * cp, Math.sin(this.pitch), Math.cos(this.yaw) * cp, dist, CAMERA.collisionRadius);
+      const clear = d >= dist ? dist : Math.max(CAMERA.collisionMinDistance, d - CAMERA.collisionMargin);
+      this.clearDist = clear < this.clearDist ? clear : damp(this.clearDist, clear, CAMERA.collisionReleaseLambda, frameDt);
+      dist = Math.min(dist, this.clearDist);
+    }
+    _offset.set(Math.sin(this.yaw) * cp, Math.sin(this.pitch), Math.cos(this.yaw) * cp).multiplyScalar(dist);
     this.camera.position.copy(this.follow).add(_offset);
     // 床より下に潜らない
     if (this.camera.position.y < 0.35) this.camera.position.y = 0.35;
