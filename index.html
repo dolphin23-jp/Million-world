@@ -36,6 +36,8 @@
       <div id="btn-item" class="tbtn tbtn-item"></div>
       <!-- スキル欄（剣技。アイテム欄と同じ部品。タップで使う・長押しか上へ払うと一覧）。ADR-031 -->
       <div id="btn-skill" class="tbtn tbtn-skill"></div>
+      <!-- 杖の魔法（ADR-048）: 全部を並列のボタンで並べる（杖を構えているあいだだけ出る）。中身は src/input/spell-buttons.ts が作る。置き場所は src/style.css の #spell-grid -->
+      <div id="spell-grid"></div>
       <!-- 装備の切替（次の装備へ）。ラベルは今の装備名（src/input/touch.ts の setEquipLabel） -->
       <div id="btn-equip" class="tbtn tbtn-equip"><span>装備</span></div>
     </div>
@@ -48,7 +50,7 @@
       <div id="mystical-gauge" data-state="ready"><div class="mystical-fill"></div></div>
       <div id="hp-player" class="hp"><div class="hp-lag"></div><div class="hp-fill"></div></div>
       <!-- レベルと経験値（HP バーの左。ADR-033）。値は src/ui/hud.ts の setGrowth -->
-      <div id="lv-box"><span class="lv-num">Lv 1</span><div class="lv-bar"><div class="lv-fill"></div></div><span class="tier-badge" data-tier="1"></span><span class="buff-badge"><span class="buff-text"></span><span class="buff-bar"><span class="buff-fill"></span></span></span></div>
+      <div id="lv-box"><span class="lv-num">Lv 1</span><div class="lv-bar"><div class="lv-fill"></div></div><span class="tier-badge" data-tier="1"></span><span class="buff-badge"><span class="buff-text"></span><span class="buff-bar"><span class="buff-fill"></span></span></span><span class="buff-badge regen-badge"><span class="buff-text">再生</span><span class="buff-bar"><span class="buff-fill"></span></span></span></div>
       <div id="hp-boss" class="hp" style="display: none"><div class="hp-lag"></div><div class="hp-fill"></div><div class="poise"><div class="poise-fill"></div></div><span class="hp-name"></span></div>
       <div id="hp-target" class="hp" style="display: none"><div class="hp-lag"></div><div class="hp-fill"></div><div class="poise"><div class="poise-fill"></div></div><span class="hp-name"></span></div>
       <div id="debug"></div>

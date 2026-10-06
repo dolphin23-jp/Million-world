@@ -242,6 +242,8 @@ export class EnemyVisual {
   private seenHit = 0;
   /** 被弾の演出（0..1 で減衰）。実時間で減らす */
   private flash = 0;
+  /** 継続の刻みの合図（Enemy.chipSerial）を処理し終えた値 */
+  private seenChip = 0;
   private squash = 0;
   private lean = 0;
   private shake = 0;
@@ -684,6 +686,11 @@ export class EnemyVisual {
       this.lean = 1;
       this.shake = 1;
       this.shakeSeed = e.hitSerial * 12.9898;
+    }
+    // 継続の刻み（吹雪・火炎放射）: 軽く光って、少しだけ揺れる（つぶれ・のけぞりは起こさない）
+    if (e.chipSerial !== this.seenChip) {
+      this.seenChip = e.chipSerial;
+      this.flash = Math.max(this.flash, 0.3);
     }
     this.flash = Math.max(0, this.flash - frameDt / 0.11);
     this.squash = Math.max(0, this.squash - frameDt / 0.28);

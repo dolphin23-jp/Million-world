@@ -1,10 +1,12 @@
 import { hitboxHits, type HitEvent, type HitOrigin } from '../combat/hit';
 import { end, reflect, segmentHitsCircle, type Projectile, type ProjectileEnd, type ProjectileSystem } from '../combat/projectile';
 import type { ParryEffectDef } from '../combat/data/guard';
+import { CRIT } from '../combat/data/crit';
+import { HIT_FEEDBACK } from '../combat/data/hit-feedback';
 import { PROJECTILE_HEIGHT } from '../combat/data/projectiles';
 import type { DamageResult } from '../combat/health';
 import type { Circle } from '../world/collision';
-import { PLAYER_ID, type AttackerView, type CombatTarget, type DefenderView } from './combat';
+import { NEVER_CRIT, PLAYER_ID, type AttackerView, type CombatTarget, type DefenderView } from './combat';
 
 /**
  * 飛び道具の命中の解決（ADR-026）。弾そのものの動きは src/combat/projectile.ts、ここは「誰に当たるか・防がれるか」を決める。
@@ -128,6 +130,68 @@ export function resolveReflectedProjectiles<T extends CombatTarget>(
     _pt.x = bx;
     _pt.z = bz;
     const ev = eventOf(p, PLAYER_ID, best.body.id);
+    const result = best.takeHit(ev);
+    end(p, 'hit', onEnd);
+    onHit(ev, best, result, p);
+  }
+  return total;
+}
+
+/** 魔弾の撃ち手として読む部分（会心率・会心ダメージ。Player がそのまま満たす。省略 = 会心しない） */
+export interface BoltOwnerView {
+  readonly critRate?: number;
+  readonly critDamage?: number;
+}
+
+/**
+ * 杖の魔弾（team 'bolt'。ADR-048）を、最初に当たった 1 体（飛んだ線分の始点に近い順）へ当てる。ふつうの攻撃と同じ扱い（反撃の倍率・弾き返しはなし）。
+ * 弾のダメージ・ノックバック・ヒットストップは撃つ時点で倍率まで掛かっていて、ここでは会心だけを命中ごとに抽選する（rng() < 会心率）。
+ * 倒れている・死んでいる相手（invulnerable）はすり抜ける。新しく当たった数を返す
+ */
+export function resolveBoltProjectiles<T extends CombatTarget>(
+  system: ProjectileSystem,
+  targets: readonly T[],
+  owner: BoltOwnerView,
+  onHit: (ev: HitEvent, target: T, result: DamageResult, p: Projectile) => void,
+  onEnd?: OnEnd,
+  rng: () => number = NEVER_CRIT,
+): number {
+  let total = 0;
+  for (const p of system.pool) {
+    if (!p.alive || p.team !== 'bolt') continue;
+    let best: T | null = null;
+    let bestD = Infinity;
+    let bx = 0;
+    let bz = 0;
+    for (const t of targets) {
+      if (t.body.invulnerable) continue;
+      if (!segmentHitsCircle(p.prevX, p.prevZ, p.x, p.z, t.body, p.def.radius, _pt)) continue;
+      const d = Math.hypot(t.body.x - p.prevX, t.body.z - p.prevZ);
+      if (d < bestD) {
+        best = t;
+        bestD = d;
+        bx = _pt.x;
+        bz = _pt.z;
+      }
+    }
+    if (!best) continue;
+    total++;
+    _pt.x = bx;
+    _pt.z = bz;
+    const rate = owner.critRate ?? 0;
+    const crit = rate > 0 && rng() < rate;
+    const ev: HitEvent = {
+      attackerId: PLAYER_ID,
+      targetId: best.body.id,
+      damage: Math.round(p.damage * (crit ? owner.critDamage ?? CRIT.baseDamage : 1)),
+      knockback: p.knockback * (crit ? CRIT.knockbackScale : 1),
+      hitStop: Math.min(p.hitStop + (crit ? CRIT.hitStopBonus : 0), HIT_FEEDBACK.maxHitStop),
+      dirX: p.dirX,
+      dirZ: p.dirZ,
+      x: _pt.x,
+      z: _pt.z,
+      ...(crit ? { crit: true as const } : {}),
+    };
     const result = best.takeHit(ev);
     end(p, 'hit', onEnd);
     onHit(ev, best, result, p);

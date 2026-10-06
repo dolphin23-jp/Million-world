@@ -4,8 +4,9 @@ import type { ToonMaterial } from '../render/toon';
 import type { CharacterAsset } from '../character/loader';
 import { Animator, overlayPose } from '../character/animator';
 import { bakeAttack, type AuthoredAttack, type BakeStats, type FrameTrace } from '../character/authoring';
-import { AUTHORED_ATTACKS, GREATSWORD_VARIANT, SHIELD_VARIANT, hasShieldVariant } from '../character/data/authored';
+import { AUTHORED_ATTACKS, GREATSWORD_VARIANT, SHIELD_VARIANT, STAFF_VARIANT, hasShieldVariant } from '../character/data/authored';
 import { GS_CARRY, GS_IDLE } from '../character/data/greatsword';
+import { STAFF_CARRY, STAFF_IDLE } from '../character/data/staff';
 import { SHIELD_CARRY, SHIELD_IDLE } from '../character/data/guard';
 import type { WeaponId } from '../combat/data/loadouts';
 import { HERO } from '../character/data/hero';
@@ -17,6 +18,7 @@ import { POSTURE_LEAN, POSTURE_SHARE, POSTURE_SPEED } from '../character/data/po
 import { approach } from '../core/math';
 import { buildSword } from './sword';
 import { buildGreatsword } from './greatsword';
+import { buildStaff } from './staff';
 import { buildShield, shieldMount } from './shield';
 
 /**
@@ -32,6 +34,8 @@ interface WeaponView {
   baseEmissive: THREE.Color;
   baseY: number;
   tipY: number;
+  /** 光ったときの発光色（剣・大剣は金色、杖の宝珠は青白い魔力の色） */
+  glowColor: THREE.Color;
 }
 
 /** 両手持ち（大剣）で、手付けの腕を持ち替える骨（走りは胴・脚だけ元の動きにして、腕は構えの姿勢で固定する） */
@@ -65,6 +69,8 @@ export class HeroVisual {
   /** 溜めの光（0..1。段階に向けて近づく）と、段階が上がった瞬間の閃光（1 → 0 に減衰） */
   private swordGlow = 0;
   private glowPulse = 0;
+  /** 魔法を放った合図（Player.castSerial）を処理し終えた値 */
+  private seenCast = 0;
   private seenChargeLevel = 0;
   /** 立ち姿の前傾補正（ADR-024）と、いまの傾き（度。状態に応じて出し入れする）。骨が見つからないときは補正なし */
   private readonly posture: PostureTrim | null;
@@ -115,6 +121,20 @@ export class HeroVisual {
     const carry = this.animator.getClip(GS_CARRY.name);
     const run = this.animator.getClip(HERO.clips.run);
     if (carry && run) this.animator.addClip(HERO.clips.run + GREATSWORD_VARIANT, overlayPose(HERO.clips.run + GREATSWORD_VARIANT, run, carry, ARM_BONES, carry.duration));
+    // 杖を持つとき（ADR-048）: 待機は杖を立てた構えの息づかい（'idle@staff'）、走りは杖を立てて持つ腕のまま胴・脚だけ走りの動き
+    const staffIdle = bakeAttack(this.capture.rig, STAFF_IDLE, 60, this.capture.extras);
+    this.animator.addClip(staffIdle.clip.name, staffIdle.clip);
+    this.authoredStats[staffIdle.clip.name] = staffIdle.stats;
+    this.authoredTrace[staffIdle.clip.name] = staffIdle.trace;
+    const staffCarry = this.animator.getClip(STAFF_CARRY.name);
+    if (staffCarry && run) this.animator.addClip(HERO.clips.run + STAFF_VARIANT, overlayPose(HERO.clips.run + STAFF_VARIANT, run, staffCarry, ARM_BONES, staffCarry.duration));
+    // ジャンプ・落下・着地も、腕は杖を立てて持つまま（剣の握りのままだと、杖が体の横へ突き出る）
+    if (staffCarry) {
+      for (const n of ['jump', 'fall', 'land']) {
+        const base = this.animator.getClip(n);
+        if (base) this.animator.addClip(n + STAFF_VARIANT, overlayPose(n + STAFF_VARIANT, base, staffCarry, ARM_BONES, staffCarry.duration));
+      }
+    }
     // 乗り上がり・乗り越え（M7-3）: 世界の障害物の高さ・厚みの分を焼いておく（ほかの組み合わせは使うときに焼く）
     for (const spec of traverseSpecs) this.ensureTraverse(traverseName(spec), traverseDef(spec));
     // 武器: ボーン空間は cm（Armature 0.01 倍）なのでソケットを 100 倍にして m 単位の剣を置く。片手剣・大剣とも同じ右手のソケット（装備しているほうだけ見せる）
@@ -126,11 +146,14 @@ export class HeroVisual {
     socket.scale.setScalar(100);
     const sword = this.makeWeapon(buildSword(), BLADE_RANGE.sword);
     const greatsword = this.makeWeapon(buildGreatsword(), BLADE_RANGE.greatsword);
+    const staff = this.makeWeapon(buildStaff(), BLADE_RANGE.staff, STAFF_GLOW_COLOR);
     socket.add(sword.group);
     socket.add(greatsword.group);
-    this.weapons = { sword, greatsword };
+    socket.add(staff.group);
+    this.weapons = { sword, greatsword, staff };
     this.weapon = sword;
     greatsword.group.visible = false;
+    staff.group.visible = false;
     if (bone) bone.add(socket);
     else console.warn(`[hero] ボーンがありません: ${HERO.sword.bone}`);
 
@@ -165,9 +188,9 @@ export class HeroVisual {
     return new PostureTrim({ hips: b.hips, spine02: b.spine02, spine01: b.spine01, spine: b.spine, neck: b.neck, head: b.head, upLegL: b.upLegL, upLegR: b.upLegR }, POSTURE_SHARE);
   }
 
-  private makeWeapon(group: THREE.Group, range: { baseY: number; tipY: number }): WeaponView {
+  private makeWeapon(group: THREE.Group, range: { baseY: number; tipY: number }, glowColor: THREE.Color = CHARGE_COLOR): WeaponView {
     const steel = group.userData.steel as ToonMaterial;
-    return { group, steel, baseIntensity: steel.emissiveIntensity, baseEmissive: steel.emissive.clone(), baseY: range.baseY, tipY: range.tipY };
+    return { group, steel, baseIntensity: steel.emissiveIntensity, baseEmissive: steel.emissive.clone(), baseY: range.baseY, tipY: range.tipY, glowColor };
   }
 
   /** 刃（武器のローカル +Y が刃先方向）の根元寄りと先端の世界座標。アニメ更新直後の骨の位置から求める */
@@ -221,8 +244,15 @@ export class HeroVisual {
     if (p.state === 'charge') {
       target = CHARGE_GLOW[Math.min(p.chargeLevel, CHARGE_GLOW.length - 1)]!;
       if (p.chargeLevel > this.seenChargeLevel) this.glowPulse = 1;
+    } else if (p.state === 'attack' && p.loadout.weapon === 'staff') {
+      // 杖（ADR-048）: 詠唱のあいだ宝珠が光を溜め、魔法を放った瞬間に閃く。放出（火炎放射）のあいだは強く光ったまま、放ったあとは薄れていく
+      target = p.casting ? 1 : p.channeling ? 0.9 : 0.35;
     } else if (p.state === 'attack' && p.attackPower > 1) {
       target = Math.min(1, (p.attackPower - 1) / 0.6);
+    }
+    if (p.castSerial !== this.seenCast) {
+      this.seenCast = p.castSerial;
+      this.glowPulse = 1;
     }
     this.seenChargeLevel = p.state === 'charge' ? p.chargeLevel : 0;
     // 立ち上がりは速く（構えに入ってすぐ光り始める）、消えるのはゆっくり
@@ -230,7 +260,7 @@ export class HeroVisual {
     this.glowPulse = Math.max(0, this.glowPulse - frameDt / 0.16);
     const k = Math.min(1, this.swordGlow + this.glowPulse * 0.5);
     const w = this.weapon;
-    w.steel.emissive.copy(w.baseEmissive).lerp(CHARGE_COLOR, k);
+    w.steel.emissive.copy(w.baseEmissive).lerp(w.glowColor, k);
     w.steel.emissiveIntensity = w.baseIntensity + 1.8 * k;
   }
 
@@ -367,6 +397,8 @@ export class HeroVisual {
 const BLADE_RANGE: Record<WeaponId, { baseY: number; tipY: number }> = {
   sword: { baseY: 0.3, tipY: 1.17 },
   greatsword: { baseY: 0.5, tipY: 1.62 },
+  // 杖は剣筋を出さない（詠唱は当たりを持たない）。帯の位置は宝珠の付近（念のため）
+  staff: { baseY: 0.9, tipY: 1.3 },
 };
 
 /** パリィの受付中の盾の光（水色）と、受け止めた・弾いた瞬間の閃光（暖色） */
@@ -377,3 +409,5 @@ const _flash = new THREE.Color();
 /** 溜めの段階ごとの刃の光（0..1）と、最大のときの発光色（金色） */
 const CHARGE_GLOW = [0.35, 0.7, 1] as const;
 const CHARGE_COLOR = new THREE.Color(0xffc24a);
+/** 杖の宝珠の発光（詠唱のあいだ光る。青白い魔力の色） */
+const STAFF_GLOW_COLOR = new THREE.Color(0x9fe6ff);

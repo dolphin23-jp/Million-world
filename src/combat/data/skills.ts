@@ -8,7 +8,25 @@ import type { WeaponId } from './loadouts';
  * コストはクールダウン（スキルごと）。レベル 1〜SKILL_LEVEL_MAX: 威力・クールダウンが良くなり、連なりが伸びる（minLevel の段が解放される）。
  */
 
-export type SkillId = 'yotsuba' | 'samidare' | 'tatsumaki' | 'iai' | 'juji' | 'hayate' | 'houzan' | 'issen' | 'ouzu' | 'kenzan' | 'hiryu';
+export type SkillId =
+  | 'yotsuba'
+  | 'samidare'
+  | 'tatsumaki'
+  | 'iai'
+  | 'juji'
+  | 'hayate'
+  | 'houzan'
+  | 'issen'
+  | 'ouzu'
+  | 'kenzan'
+  | 'hiryu'
+  // 杖の魔法（ADR-048）。画面に並列のボタンで並べる。魔法を放った瞬間からクールダウン
+  | 'thunder'
+  | 'blizzard'
+  | 'flame'
+  | 'explosion'
+  | 'regen'
+  | 'hurricane';
 
 export const SKILL_LEVEL_MAX = 10;
 
@@ -254,10 +272,85 @@ export const SKILLS: Record<SkillId, SkillDef> = {
     cooldownFrames: 960,
     cooldownPerLevel: COOLDOWN_PER_LEVEL,
   },
+
+  // ---- 杖（魔法。ADR-048）。1 つの詠唱 = 1 つの魔法（steps は詠唱の攻撃 1 つ）。数値の中身は data/spells.ts、詠唱は data/spell-attacks.ts。
+  //      レベルで威力（回復量も）が増え、クールダウンが短くなる（剣技の進化のような動きの変化は無い）。クールダウンは魔法を放った瞬間から数える ----
+  thunder: {
+    id: 'thunder',
+    name: '落雷',
+    short: '落雷',
+    detail: 'ターゲットとその周囲に雷を落とす（麻痺は後回し）。落ちる前に床へ輪が出る',
+    family: 'staff',
+    steps: [{ attack: 'spThunder' }],
+    power: 1,
+    powerPerLevel: POWER_PER_LEVEL,
+    cooldownFrames: 600,
+    cooldownPerLevel: COOLDOWN_PER_LEVEL,
+  },
+  blizzard: {
+    id: 'blizzard',
+    name: '吹雪',
+    short: '吹雪',
+    detail: '前方の扇に吹雪を吹きつけ続ける近距離の魔法（凍結は後回し）',
+    family: 'staff',
+    steps: [{ attack: 'spBlizzard' }],
+    power: 1,
+    powerPerLevel: POWER_PER_LEVEL,
+    cooldownFrames: 540,
+    cooldownPerLevel: COOLDOWN_PER_LEVEL,
+  },
+  flame: {
+    id: 'flame',
+    name: '火炎放射',
+    short: '火炎',
+    detail: '前方の直線に炎を放ち続ける。放つあいだは動けないが、向きは変えられる',
+    family: 'staff',
+    steps: [{ attack: 'spFlame' }],
+    power: 1,
+    powerPerLevel: POWER_PER_LEVEL,
+    cooldownFrames: 780,
+    cooldownPerLevel: COOLDOWN_PER_LEVEL,
+  },
+  explosion: {
+    id: 'explosion',
+    name: '爆発',
+    short: '爆発',
+    detail: 'ターゲットとその周囲の広い範囲を爆破する。詠唱が長く、威力は最大',
+    family: 'staff',
+    steps: [{ attack: 'spExplosion' }],
+    power: 1,
+    powerPerLevel: POWER_PER_LEVEL,
+    cooldownFrames: 1080,
+    cooldownPerLevel: COOLDOWN_PER_LEVEL,
+  },
+  regen: {
+    id: 'regen',
+    name: '再生',
+    short: '再生',
+    detail: '一定時間、体力が少しずつ回復する（INT で回復量が増える）',
+    family: 'staff',
+    steps: [{ attack: 'spRegen' }],
+    power: 1,
+    powerPerLevel: POWER_PER_LEVEL,
+    cooldownFrames: 1200,
+    cooldownPerLevel: COOLDOWN_PER_LEVEL,
+  },
+  hurricane: {
+    id: 'hurricane',
+    name: '旋風',
+    short: '旋風',
+    detail: '自分の周囲に、同心円の暴風を内から外へ巻き起こす。囲まれたときの切り札',
+    family: 'staff',
+    steps: [{ attack: 'spHurricane' }],
+    power: 1,
+    powerPerLevel: POWER_PER_LEVEL,
+    cooldownFrames: 720,
+    cooldownPerLevel: COOLDOWN_PER_LEVEL,
+  },
 };
 
 /** 一覧に並べる順（系統ごとにまとまる） */
-export const SKILL_ORDER: readonly SkillId[] = ['yotsuba', 'samidare', 'tatsumaki', 'iai', 'juji', 'hayate', 'houzan', 'issen', 'ouzu', 'kenzan', 'hiryu'];
+export const SKILL_ORDER: readonly SkillId[] = ['yotsuba', 'samidare', 'tatsumaki', 'iai', 'juji', 'hayate', 'houzan', 'issen', 'ouzu', 'kenzan', 'hiryu', 'thunder', 'blizzard', 'flame', 'explosion', 'regen', 'hurricane'];
 
 export function isSkillId(v: unknown): v is SkillId {
   return typeof v === 'string' && Object.prototype.hasOwnProperty.call(SKILLS, v);

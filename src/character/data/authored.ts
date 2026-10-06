@@ -25,6 +25,8 @@ import { HIRYU, HIRYU_4, HIRYU_7, KENZAN, KENZAN_4, KENZAN_5, OUZU, OUZU_3, OUZU
 import { CROSS, CROSS_2, CROSS_3, GALE, GALE_6, GALE_8, IAI, IAI_4, IAI_7 } from './skill-sword-ex';
 import { GSK_ISSEN, GSK_ISSEN_BACK, GSK_ISSEN_LUNGE, GSK_RIP, GSK_SLAM, GSK_SLAM_LEAP, GSK_SWEEP1, GSK_SWEEP2 } from './skill-greatsword';
 import { GS_GUARD, GS_GUARD_HIT, GS_PARRY } from './gs-guard';
+import { STAFF_CARRY, STAFF_STANCE } from './staff';
+import { SP_BLIZZARD, SP_EXPLOSION, SP_FLAME, SP_HURRICANE, SP_REGEN, SP_THUNDER, ST_BOLT1, ST_BOLT2, ST_BOLT3 } from './spell-casts';
 import { FALL_CLIP, GS_FALL, GS_JUMP, GS_LAND, JUMP_CLIP, LAND_CLIP } from './jump';
 
 /** 手付けアニメ（authoring.ts）で作る攻撃と回避。HeroVisual が読込時に焼いて、名前でクリップとして登録する */
@@ -126,6 +128,18 @@ export const AUTHORED_ATTACKS: Record<string, AuthoredAttack> = {
   gsSpin3: GS_SPIN3,
   gsSpinSlam: GS_SPIN_SLAM,
   gsReturnSweep: GS_RETURN_SWEEP,
+  // 杖（片手持ちの魔法の媒体。ADR-048）。構え = 詠唱クリップの始点・終点、走りの腕。詠唱のクリップは spell-casts.ts
+  staffStance: STAFF_STANCE,
+  staffCarry: STAFF_CARRY,
+  stBolt1: ST_BOLT1,
+  stBolt2: ST_BOLT2,
+  stBolt3: ST_BOLT3,
+  spThunder: SP_THUNDER,
+  spBlizzard: SP_BLIZZARD,
+  spFlame: SP_FLAME,
+  spExplosion: SP_EXPLOSION,
+  spRegen: SP_REGEN,
+  spHurricane: SP_HURRICANE,
   guardGreatsword: GS_GUARD,
   guardGreatswordHit: GS_GUARD_HIT,
   guardGreatswordParry: GS_PARRY,
@@ -133,6 +147,9 @@ export const AUTHORED_ATTACKS: Record<string, AuthoredAttack> = {
 
 /** 盾版のクリップ名の接尾辞。盾を持つときは、左腕を盾の持ち位置に固定して焼き直したクリップ（名前 + この接尾辞）を再生する（ADR-020） */
 export const SHIELD_VARIANT = '@shield';
+
+/** 杖版のクリップ名の接尾辞。杖を持つときは、待機・走りが杖を立てて持つ版（'idle@staff' / 走りの腕）で探される（ADR-048）。詠唱のクリップは杖専用で、版を持たない */
+export const STAFF_VARIANT = '@staff';
 
 /** 大剣版のクリップ名の接尾辞。大剣を持つときは、ロール（'dodge@greatsword'）・待機・走りがこの接尾辞つきの版で探される（なければそのまま） */
 export const GREATSWORD_VARIANT = '@greatsword';
@@ -142,5 +159,6 @@ const GUARD_CLIP_NAMES: ReadonlySet<string> = new Set(['guardShield', 'guardShie
 
 /** 盾版（左腕固定）を焼くクリップか。ガードのクリップと、両手持ちの大剣のクリップ（盾は持てない）には作らない */
 export function hasShieldVariant(name: string): boolean {
-  return !GUARD_CLIP_NAMES.has(name) && AUTHORED_ATTACKS[name]?.twoHanded === undefined;
+  const def = AUTHORED_ATTACKS[name];
+  return !GUARD_CLIP_NAMES.has(name) && def?.twoHanded === undefined && def?.noShield !== true;
 }

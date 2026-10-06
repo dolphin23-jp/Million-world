@@ -21,6 +21,9 @@ export class Hud {
   private readonly buffBadge: HTMLElement;
   private readonly buffFill: HTMLElement;
   private buffKey = '';
+  private readonly regenBadge: HTMLElement;
+  private readonly regenFill: HTMLElement;
+  private regenOn = false;
   /** レベル表示の直近の状態（変化があったときだけ DOM を触る） */
   private lvKey = '';
   private readonly mysticFx: HTMLElement;
@@ -67,6 +70,8 @@ export class Hud {
     this.tierBadge = this.lvBox.querySelector('.tier-badge') as HTMLElement;
     this.buffBadge = this.lvBox.querySelector('.buff-badge') as HTMLElement;
     this.buffFill = this.buffBadge.querySelector('.buff-fill') as HTMLElement;
+    this.regenBadge = this.lvBox.querySelector('.regen-badge') as HTMLElement;
+    this.regenFill = this.regenBadge.querySelector('.buff-fill') as HTMLElement;
     this.mysticFx = document.getElementById('mystical-fx')!;
     this.mysticGauge = document.getElementById('mystical-gauge')!;
     this.mysticFill = this.mysticGauge.querySelector('.mystical-fill') as HTMLElement;
@@ -118,6 +123,18 @@ export class Hud {
       label.textContent = stacks > 0 ? `闘気 ×${stacks}${stacks >= max ? ' MAX' : ''}  +${percent}%` : '';
     }
     if (stacks > 0) this.buffFill.style.width = `${Math.round(ratio * 100)}%`;
+  }
+
+  /**
+   * 再生（杖の魔法。ADR-048）の印（闘気の印の下）。on = 効いているあいだだけ出す、ratio = 残り時間 0..1（細い帯）。
+   * 出る・隠れるときだけクラスを触り、帯の長さは毎回合わせる
+   */
+  setRegen(on: boolean, ratio: number): void {
+    if (on !== this.regenOn) {
+      this.regenOn = on;
+      this.regenBadge.classList.toggle('on', on);
+    }
+    if (on) this.regenFill.style.width = `${Math.round(ratio * 100)}%`;
   }
 
   /** 敵の段階の印（レベルの下）。戦闘を始めるたびに合わせる（ADR-036） */

@@ -1,5 +1,9 @@
-import { ATTACKS, CHARGES } from './data/attacks';
+import { CHARGES } from './data/attacks';
+import { MOVE_ATTACKS } from './data/spell-attacks';
 import { moveName } from './data/move-names';
+import { SKILLS } from './data/skills';
+import { SPELL_SKILL_ORDER } from './data/spells';
+import { skillInfo } from './skills';
 import type { Moveset } from './data/moveset';
 import type { GuideData } from './move-guide';
 
@@ -37,17 +41,19 @@ function follow(id: string, data: GuideData, cycle: readonly string[]): MoveNode
   return out;
 }
 
-export function buildMoveTree(moveset: Moveset, chargeId: string, data: GuideData = { attacks: ATTACKS, charges: CHARGES, name: moveName }): MoveNode[] {
+export function buildMoveTree(moveset: Moveset, chargeId: string | null, data: GuideData = { attacks: MOVE_ATTACKS, charges: CHARGES, name: moveName }): MoveNode[] {
   const root = (input: string, id: string, needsLock = false, note: string | null = null): MoveNode => ({ input, needsLock, name: data.name(id), note, children: follow(id, data, [id]) });
-  const nodes: MoveNode[] = [
-    root('攻撃', moveset.light),
-    root('前 + 攻撃', moveset.lunge),
-    root('横 + 攻撃', moveset.sweep, true),
-    root('後ろ + 攻撃', moveset.retreat, true),
-    root('ロール直後 + 攻撃', moveset.dashRoll),
-    root('後ろステップ直後 + 攻撃', moveset.dashBack),
+  // 入力で技が変わらない装備（杖。どの入力でも魔弾の連打）は、始動の技を 1 つだけ出す（同じ技が何行も並ばないように）
+  const slots: [string, string, boolean][] = [
+    ['攻撃', moveset.light, false],
+    ['前 + 攻撃', moveset.lunge, false],
+    ['横 + 攻撃', moveset.sweep, true],
+    ['後ろ + 攻撃', moveset.retreat, true],
+    ['ロール直後 + 攻撃', moveset.dashRoll, false],
+    ['後ろステップ直後 + 攻撃', moveset.dashBack, false],
   ];
-  const c = data.charges[chargeId];
+  const nodes: MoveNode[] = slots.filter(([, id], i) => i === 0 || id !== moveset.light).map(([input, id, lock]) => root(input, id, lock));
+  const c = chargeId === null ? undefined : data.charges[chargeId];
   if (c) {
     nodes.push(root('攻撃を長押し → 離す', c.next, false, '溜めるほど強い'));
     // 段階で技が変わるもの（最大まで溜めたときの技など）
@@ -57,4 +63,15 @@ export function buildMoveTree(moveset: Moveset, chargeId: string, data: GuideDat
     });
   }
   return nodes;
+}
+
+/**
+ * 杖の魔法の一覧（技表の下に出す。ADR-048）: 画面に並んだボタンの順（1〜）に、魔法の名前・クールダウン・説明。levelOf = いまのスキルのレベル（クールダウンがレベルで縮む）。
+ * 魔法は選択を介さず、ボタンを押せばそのまま詠唱に入る（入力は「魔法ボタン n」）
+ */
+export function buildSpellNodes(levelOf: (id: (typeof SPELL_SKILL_ORDER)[number]) => number): MoveNode[] {
+  return SPELL_SKILL_ORDER.map((id, i) => {
+    const info = skillInfo(SKILLS[id], levelOf(id));
+    return { input: `魔法ボタン ${i + 1}`, needsLock: false, name: SKILLS[id].name, note: `CT ${info.cooldownSec.toFixed(0)} 秒・${SKILLS[id].detail}`, children: [] };
+  });
 }

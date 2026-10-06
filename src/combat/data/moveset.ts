@@ -52,3 +52,17 @@ export const GREATSWORD_MOVESET: Moveset = {
   dashRoll: 'gsDash',
   dashBack: 'gsRise',
 };
+
+/**
+ * 杖の技のセット（ADR-048）。通常攻撃は **1 ルートの連打だけ**（魔弾 → 魔弾 → 大魔弾。AttackDef.next）で、スティックの向き・回避の直後でも同じ 1 発目が出る
+ * （剣のような踏み込み・薙ぎ・ダッシュ斬りの使い分けは無い）。溜め（長押し）も無い（LoadoutDef.charge = null）。
+ * 魔法（落雷・吹雪・火炎放射 ほか）はスキルボタン（画面に並列）で出す。
+ */
+export const STAFF_MOVESET: Moveset = {
+  light: 'stBolt1',
+  lunge: 'stBolt1',
+  retreat: 'stBolt1',
+  sweep: 'stBolt1',
+  dashRoll: 'stBolt1',
+  dashBack: 'stBolt1',
+};

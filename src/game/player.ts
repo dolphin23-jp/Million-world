@@ -18,6 +18,7 @@ import { HitTracker, isActiveFrame, type HitEvent, type Hurtbox } from '../comba
 import { Knockback } from '../combat/knockback';
 import type { SkillRun } from '../combat/skills';
 import type { SkillId } from '../combat/data/skills';
+import type { SpellId } from '../combat/data/spells';
 import { angleDelta, approach, lerp, lerpAngle, rotateTowards } from '../core/math';
 import { PLAYER_ID } from './combat';
 import type { CharacterAsset } from '../character/loader';
@@ -53,6 +54,9 @@ const FLAT_WORLD: World = openWorld(1e6);
 
 /** スーパーアーマーが攻撃を耐えたあとの短い無敵（フレーム）。続けて当たって一気に削られないようにする */
 const ARMOR_INVULN_FRAMES = 24;
+
+/** 詠唱で魔法を放つ前に、ロック対象・スティックの向きへ向き直れる速さ（rad/s。杖。ADR-048） */
+const CAST_AIM_TURN = 7;
 
 /** ガードを押してから、構えに入れる状況になるまで待てるフレーム（先行入力。攻撃の硬直中などに押しても構えられる） */
 const GUARD_BUFFER_FRAMES = 12;
@@ -117,6 +121,14 @@ export class Player {
   private skillRun: { run: SkillRun; i: number } | null = null;
   skillSerial = 0;
   lastSkill: SkillId | null = null;
+  /**
+   * 詠唱（杖。ADR-048）: 魔法を放った瞬間（AttackDef.cast.at）に増える合図と、その魔法・術者の位置と向き・威力の倍率・スキルから放ったならそのスキル（Game が魔法を起こすのに読む）。
+   * castFired = いまの詠唱で魔法を放ったか（被弾・回避で詠唱が中断されたら放たれない）
+   */
+  castSerial = 0;
+  readonly lastCast: { spell: SpellId; x: number; z: number; yaw: number; power: number; skill: SkillId | null } = { spell: 'bolt1', x: 0, z: 0, yaw: 0, power: 1, skill: null };
+  private castFired = false;
+  private castFrame = 0;
   private attackBuffered = false;
   /** 直近の sim ステップでのスティックの向き（対象に対して。ロックなしは倒していれば前）。操作ガイドが読む（ADR-024） */
   stickDir: StickDir = 'none';
@@ -786,7 +798,7 @@ export class Player {
     const ref = this.aimYaw() ?? this.yaw;
     const stick = classifyStick(mLen, Math.atan2(mx, mz), ref, this.hasAim);
     const afterDodge = afterDodgeOf(this.framesSinceDodge, this.dodgeKind);
-    this.beginAttack(ATTACKS[pickAttack(this.loadout.moveset, { stick, afterDodge })]!, mx, mz, mLen);
+    this.beginAttack(findAttack(pickAttack(this.loadout.moveset, { stick, afterDodge }))!, mx, mz, mLen);
   }
 
   /** 照準（ロック対象）の方の yaw。照準がない、またはほぼ重なっていれば null */
@@ -799,6 +811,7 @@ export class Player {
 
   private beginAttack(def: AttackDef, mx: number, mz: number, mLen: number, power = 1, continuing = false): void {
     this.attackBuffered = false;
+    this.castFired = false;
     // 剣技の連なりは、剣技として始めた攻撃（beginSkill・連なりの次段）だけが持つ。ふつうの攻撃を始めたら連なりは終わり
     this.skillRun = null;
     // 連携の履歴: 次段の受付から続けた技は足す（長さは MAX_CHAIN まで）。そうでなければ、この技だけから始める
@@ -875,10 +888,13 @@ export class Player {
       this.lastImpact.z = this.body.z + Math.cos(this.yaw) * im.dist;
       this.lastImpact.power = im.power * this.attackPower;
     }
+    // 詠唱（杖。ADR-048）: 魔法を放つ時刻（描画されている姿勢が at に達する step）に合図を出す。持続魔法は、放ったあと放出のあいだ向きだけ変えられる
+    if (a.cast) this.stepCast(dt, a, fr, f, mx, mz, mLen);
     // 長押し: 1 段目を押し続けていたら、予備動作の途中で溜めへ移る（離したら通常の 1 段目のまま）
     if (!intent.attackHeld) this.heldSinceBegin = false;
-    if (a.id === this.loadout.moveset.light && this.heldSinceBegin && f >= CHARGES[this.loadout.charge]!.holdFrames && f < fr.startup) {
-      this.beginCharge(CHARGES[this.loadout.charge]!);
+    const chargeDef = this.loadout.charge === null ? null : CHARGES[this.loadout.charge]!;
+    if (chargeDef && a.id === this.loadout.moveset.light && this.heldSinceBegin && f >= chargeDef.holdFrames && f < fr.startup) {
+      this.beginCharge(chargeDef);
       return;
     }
     // 回避キャンセル（持続終了後。多段の技は dodgeCancelAt = 最初の窓のあと から）
@@ -910,7 +926,7 @@ export class Player {
       const ref = this.aimYaw() ?? this.yaw;
       const follow = pickFollowUp(a.next, a.branches, classifyStick(mLen, Math.atan2(mx, mz), ref, this.hasAim));
       if (follow) {
-        this.beginAttack(ATTACKS[follow]!, mx, mz, mLen, 1, true);
+        this.beginAttack(findAttack(follow)!, mx, mz, mLen, 1, true);
         return;
       }
     }
@@ -920,6 +936,66 @@ export class Player {
       this.attackBuffered = false;
       this.setState(mLen > 0.01 ? 'run' : 'idle');
     }
+  }
+
+  /**
+   * 詠唱の 1 step（stepAttack から）。放つ時刻（fr.startup。attackActive と同じ対応）になったら castSerial を増やして魔法を放つ。
+   * 持続魔法（CastDef.channel）は、放ったあと seconds のあいだ、ロック対象（なければスティックの向き）へ turnRate で向きを変えられる（足は動かさない）
+   */
+  private stepCast(dt: number, a: AttackDef, fr: AttackFrames, f: number, mx: number, mz: number, mLen: number): void {
+    const cast = a.cast!;
+    if (!this.castFired && f + 1 >= fr.startup) {
+      this.castFired = true;
+      this.castFrame = f;
+      this.castSerial++;
+      const c = this.lastCast;
+      c.spell = cast.spell;
+      c.x = this.body.x;
+      c.z = this.body.z;
+      c.yaw = this.yaw;
+      c.power = this.attackPower;
+      c.skill = this.skillRun ? this.skillRun.run.skill : null;
+    }
+    // 向き: 放つ前は、ロック対象（なければスティックの向き）へ向き直れる（魔弾・落雷の狙いを、詠唱のあいだに合わせられる）。
+    // 持続魔法は放ったあとも、放出のあいだ向きを変えられる。ほかの魔法は放ったあと向きを固定する
+    const turn = this.castFired ? (cast.channel && this.channeling ? cast.channel.turnRate : 0) : CAST_AIM_TURN;
+    if (turn > 0) {
+      const aim = this.aimYaw();
+      const want = aim ?? (mLen > 0.2 ? Math.atan2(mx, mz) : null);
+      if (want !== null) this.yaw = rotateTowards(this.yaw, want, turn * dt);
+    }
+  }
+
+  /**
+   * 魔法を放ったあとの詠唱を続けているあいだの合図の番号（castSerial）。詠唱の前・回避や被弾でやめた・終わったあとは 0。
+   * 吹雪が「術者がまだその詠唱を続けているか」を見るのに使う（SpellCasterView）
+   */
+  get liveCastSerial(): number {
+    return this.state === 'attack' && !!this.attack?.cast && this.castFired ? this.castSerial : 0;
+  }
+
+  /** 持続魔法（火炎放射）を放出しているあいだか（放ってから CastDef.channel.seconds の間）。魔法の見た目・当たりが術者の向きに付いていく */
+  get channeling(): boolean {
+    const a = this.attack;
+    const ch = a?.cast?.channel;
+    if (this.state !== 'attack' || !a || !ch || !this.castFired) return false;
+    return (this.stateFrame - this.castFrame) / 60 < ch.seconds / a.rate;
+  }
+
+  /** いま放出している持続魔法の合図の番号（castSerial。放出していなければ 0）。SpellSystem の光線が「自分の詠唱がまだ続いているか」を見るのに使う */
+  get channelingSerial(): number {
+    return this.channeling ? this.castSerial : 0;
+  }
+
+  /** 詠唱の進み（0〜1。魔法を放つ時刻まで）。詠唱の途中でなければ 0。足元の魔法陣が大きく・速くなるのに使う */
+  get castProgress(): number {
+    const fr = this.attackFrames;
+    return this.casting && fr && fr.startup > 0 ? Math.min(1, this.stateFrame / fr.startup) : 0;
+  }
+
+  /** 詠唱の途中か（魔法を放つ前）。杖の宝珠が光る・操作ガイドが読む */
+  get casting(): boolean {
+    return this.state === 'attack' && !!this.attack?.cast && !this.castFired;
   }
 
   /** 溜めの構えに入る（1 段目の予備動作の途中から）。動けない。離すと重撃、段階は保持の長さで上がる */
@@ -1021,7 +1097,7 @@ export class Player {
       // この攻撃自体がダッシュ。回避は終わったことにして、あとの攻撃を「回避直後」にしない
       this.framesSinceDodge = 9999;
       // 回避の途中からの攻撃: ロールならダッシュ斬り、後ろステップなら踏み込み（pickAttack）。向きは回避の向き（ロック中は対象）
-      this.beginAttack(ATTACKS[pickAttack(this.loadout.moveset, { stick: 'none', afterDodge: this.dodgeKind })]!, Math.sin(this.yaw), Math.cos(this.yaw), 1);
+      this.beginAttack(findAttack(pickAttack(this.loadout.moveset, { stick: 'none', afterDodge: this.dodgeKind }))!, Math.sin(this.yaw), Math.cos(this.yaw), 1);
       return;
     }
     if (f >= def.cancelFrame && this.canGuard()) {
@@ -1052,7 +1128,7 @@ export class Player {
 
   /** ガードの先行入力が残っていて、構え直しの待ちが明けているか（構えに入れる状況かは呼ぶ側が決める） */
   private canGuard(): boolean {
-    return this.guardBuffer > 0 && this.guardLock <= 0;
+    return this.loadout.guard !== null && this.guardBuffer > 0 && this.guardLock <= 0;
   }
 
   /** 構えに入る。その場で止まる（慣性で滑らない）。進行中の攻撃・溜めは捨てる */
@@ -1167,6 +1243,8 @@ export class Player {
   get attackActive(): boolean {
     const fr = this.attackFrames;
     if (this.state !== 'attack' || fr === null) return false;
+    // 詠唱（杖）は当たり判定を持たない（魔法の当たりは SpellSystem・魔弾が決める）
+    if (this.attack?.cast) return false;
     // 多段ヒットの技は、窓のあいだだけ当たりが出る
     if (fr.windows.length > 0) return this.winIdx >= 0;
     return isActiveFrame(fr.startup, fr.active, this.stateFrame);
@@ -1178,7 +1256,7 @@ export class Player {
    */
   get trailActive(): boolean {
     const a = this.attack;
-    if (this.state !== 'attack' || !a) return false;
+    if (this.state !== 'attack' || !a || a.cast) return false;
     const t = (this.stateFrame / 60) * a.rate;
     return t >= a.trail[0] && t <= a.trail[1];
   }

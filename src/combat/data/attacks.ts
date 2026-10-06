@@ -25,6 +25,7 @@ import { COMBO_SLAM, HOP_THRUST, LUNGE_SLASH, SWEEP_BACK } from '../../character
 import { SLAM_RIP, SPIN_REV, SPIN_RISE, SWALLOW } from '../../character/data/sword-chain-ex';
 import { GS_BOUNCE, GS_CRUSH, GS_RETURN_SWEEP, GS_SPIN3, GS_SPIN_SLAM } from '../../character/data/gs-chain-ex';
 import type { HitboxDef } from '../hit';
+import type { SpellId } from './spells';
 
 const deg = (d: number) => (d * Math.PI) / 180;
 
@@ -67,6 +68,18 @@ export interface ImpactDef {
   t: number;
   dist: number;
   power: number;
+}
+
+/**
+ * 詠唱（ADR-048。杖）: この攻撃は当たり判定を持たず、時刻 at に魔法 spell を放つ（Player.castSerial が増える。放つ魔法の中身は data/spells.ts）。
+ * 放つ前に被弾して中断されたら魔法は出ない（スキルならクールダウンも消費しない）。回避でキャンセルできるのは放ったあとから（dodgeCancelAt を at の直後に置く）
+ */
+export interface CastDef {
+  spell: SpellId;
+  /** 魔法を放つ時刻（区間先頭からの秒。詠唱が終わる = 杖を振り下ろす・突き出す瞬間）。AttackDef.activeStart と同じにする */
+  at: number;
+  /** 持続魔法（火炎放射）: 放ったあと seconds 秒のあいだ、その場で保って放出し続け、向きだけ turnRate（rad/s）で変えられる。無ければ放ったら終わり（吹雪のように、放った向きに固定） */
+  channel?: { seconds: number; turnRate: number };
 }
 
 export interface AttackDef {
@@ -117,6 +130,8 @@ export interface AttackDef {
   windows?: readonly HitWindow[];
   /** スーパーアーマー（ArmorDef）。無ければひるむ */
   armor?: ArmorDef;
+  /** 詠唱（杖）。あれば当たり判定は持たず、at に魔法を放つ（CastDef） */
+  cast?: CastDef;
   /** 回避・ガードでキャンセルできるようになる時刻（区間先頭からの秒）。省略 = activeEnd（持続の終わり）。多段の技は、最初の窓のあとに置くと途中でやめられる。溜めのある技は、溜めの途中（activeStart より前）にも置ける */
   dodgeCancelAt?: number;
 }

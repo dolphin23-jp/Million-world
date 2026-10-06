@@ -72,6 +72,8 @@ export class Enemy {
   readonly knockback = new Knockback();
   /** 被弾のたびに増える（見た目側が被弾を検出するため）と、直近の被弾 */
   hitSerial = 0;
+  /** 継続の刻み（HitEvent.chip）を受けるたびに増える。見た目が軽い反応を起こす（hitSerial は増えない） */
+  chipSerial = 0;
   lastHit: HitEvent | null = null;
   /** パリィで弾かれるたびに増える（見た目側が反応を起こすため） */
   parrySerial = 0;
@@ -363,7 +365,9 @@ export class Enemy {
     const phaseBefore = this.phase;
     const r = applyDamage(this.health, ev.damage);
     if (this.dead) return r;
-    this.hitSerial++;
+    // 継続の刻み（chip）は、見た目の被弾の反応（hitSerial）を起こさず、軽い反応（chipSerial）だけ起こす（刻みのたびに白く光り続けない）。とどめは通常の被弾
+    if (ev.chip === true && !r.killed) this.chipSerial++;
+    else this.hitSerial++;
     this.lastHit = ev;
     if (!r.killed && this.phase > phaseBefore) this.phaseSerial++;
     const armor = this.move;
@@ -374,8 +378,10 @@ export class Enemy {
       this.breakPoise(ev);
       return r;
     }
-    const holds = !r.killed && (staggered || (this.armored && ev.damage < armor.armorBreakDamage));
-    const scale = this.def.knockbackScale * (staggered ? 1 : holds ? armor.armorKnockbackScale : 1);
+    // 継続の刻み（chip。杖の吹雪・火炎放射）はひるませない。ノックバックも体勢ゲージの削りも、ふつうの命中と同じ
+    const chip = ev.chip === true;
+    const holds = !r.killed && (staggered || chip || (this.armored && ev.damage < armor.armorBreakDamage));
+    const scale = this.def.knockbackScale * (staggered || chip ? 1 : holds ? armor.armorKnockbackScale : 1);
     this.knockback.start(ev.dirX, ev.dirZ, ev.knockback * scale, this.def.knockbackFrames);
     if (r.killed) {
       this.body.invulnerable = true;
