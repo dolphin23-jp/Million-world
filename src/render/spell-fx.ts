@@ -167,6 +167,31 @@ function makeWindTexture(): THREE.CanvasTexture {
   return tex;
 }
 
+/** 帯の濃淡: 幅の中央が濃く、両端へ向けて消える（火炎放射の床の焦げ跡。u = 幅方向）。長さ方向（v）は根元がやや濃い */
+function makeStripTexture(): THREE.CanvasTexture {
+  const w = 64;
+  const h = 64;
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const g = c.getContext('2d')!;
+  const img = g.createImageData(w, h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const u = Math.abs((x + 0.5) / w - 0.5) * 2; // 0 = 中央
+      const along = 1 - Math.pow(y / h, 1.6) * 0.5; // v = 0 が根元
+      const a = Math.max(0, 1 - u * u) * along;
+      const i = (y * w + x) * 4;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = 255;
+      img.data[i + 3] = Math.round(a * 255);
+    }
+  }
+  g.putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 /** 扇の濃淡: 中心から縁へ向かって薄くなる横 1 本のグラデーション（u = 中心からの距離） */
 function makeFanTexture(): THREE.CanvasTexture {
   const w = 128;
@@ -289,6 +314,9 @@ interface ConeSlot {
 }
 
 interface BeamSlot {
+  /** 床に残る炎の帯（上から見たときも、後ろから見たときも、どこへ向かっているかが読める） */
+  floor: THREE.Mesh;
+  floorMat: THREE.MeshBasicMaterial;
   core: THREE.Mesh;
   coreMat: THREE.MeshBasicMaterial;
   mid: THREE.Mesh;
@@ -337,6 +365,7 @@ export class SpellFx {
   private readonly circleTex = makeCircleTexture();
   private readonly windTex = makeWindTexture();
   private readonly fanTex = makeFanTexture();
+  private readonly stripTex = makeStripTexture();
   private readonly dotTex = glowTexture();
 
   constructor() {
@@ -507,7 +536,17 @@ export class SpellFx {
       flash.visible = false;
       flash.renderOrder = 9;
       this.group.add(flash);
-      this.beams.push({ core, coreMat, mid, midMat, flash, flashMat, acc: 0 });
+      const floorMat = new THREE.MeshBasicMaterial({ map: this.stripTex, color: 0xff6a1a, transparent: true, opacity: 0, depthWrite: false, fog: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+      // 根元（原点）から +Z へ長さ 1、幅 1 の板（床に寝かせる）
+      const strip = new THREE.PlaneGeometry(1, 1);
+      strip.rotateX(-Math.PI / 2);
+      strip.translate(0, 0, 0.5);
+      const floor = new THREE.Mesh(strip, floorMat);
+      floor.visible = false;
+      floor.frustumCulled = false;
+      floor.renderOrder = 3;
+      this.group.add(floor);
+      this.beams.push({ floor, floorMat, core, coreMat, mid, midMat, flash, flashMat, acc: 0 });
     }
   }
 
@@ -641,7 +680,7 @@ export class SpellFx {
     for (const r of this.rings) r.group.visible = false;
     for (const c of this.cones) c.mesh.visible = false;
     for (const b of this.beams) {
-      b.core.visible = b.mid.visible = b.flash.visible = false;
+      b.floor.visible = b.core.visible = b.mid.visible = b.flash.visible = false;
     }
     this.circle.visible = false;
     this.circleK = 0;
@@ -858,8 +897,8 @@ export class SpellFx {
           (Math.random() - 0.4) * 1.2,
           Math.cos(a) * speed,
           life,
-          big ? 0.22 : 0.13,
-          big ? 0.5 : 0.3,
+          big ? 0.3 : 0.18,
+          big ? 0.65 : 0.4,
           big ? 0.95 : 0.85,
           pal.main,
           pal.edge,
@@ -915,6 +954,12 @@ export class SpellFx {
       slot.midMat.opacity = 0.5 * fade;
       slot.coreMat.color.copy(pal.core);
       slot.coreMat.opacity = 0.7 * fade;
+      slot.floor.visible = fade > 0.01;
+      slot.floor.position.set(fx.x, 0.05, fx.z);
+      slot.floor.rotation.y = fx.yaw;
+      slot.floor.scale.set(sp.width * (1.15 + 0.1 * flick), 1, len);
+      slot.floorMat.color.copy(pal.floor);
+      slot.floorMat.opacity = 0.5 * fade * (0.8 + 0.2 * flick);
       slot.flash.visible = fade > 0.01;
       slot.flash.position.set(fx.x, 1.0, fx.z);
       const fs = 1.5 * (0.8 + 0.3 * flick);
@@ -927,7 +972,7 @@ export class SpellFx {
       const dz = Math.cos(fx.yaw);
       while (slot.acc >= 1) {
         slot.acc -= 1;
-        const spread = (Math.random() - 0.5) * 0.28;
+        const spread = (Math.random() - 0.5) * 0.36;
         const a = fx.yaw + spread;
         const speed = 11 + Math.random() * 7;
         const life = Math.min(0.75, (len / speed) * (0.7 + Math.random() * 0.35));
@@ -940,8 +985,8 @@ export class SpellFx {
           0.4 + Math.random() * 1.4,
           Math.cos(a) * speed,
           life,
-          0.34,
-          0.95 + Math.random() * 0.35,
+          0.4,
+          1.1 + Math.random() * 0.4,
           0.8,
           pal.core,
           pal.edge,
@@ -956,7 +1001,7 @@ export class SpellFx {
     }
     for (let i = n; i < this.beams.length; i++) {
       const b = this.beams[i]!;
-      b.core.visible = b.mid.visible = b.flash.visible = false;
+      b.floor.visible = b.core.visible = b.mid.visible = b.flash.visible = false;
     }
   }
 

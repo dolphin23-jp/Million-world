@@ -128,6 +128,13 @@ export class HeroVisual {
     this.authoredTrace[staffIdle.clip.name] = staffIdle.trace;
     const staffCarry = this.animator.getClip(STAFF_CARRY.name);
     if (staffCarry && run) this.animator.addClip(HERO.clips.run + STAFF_VARIANT, overlayPose(HERO.clips.run + STAFF_VARIANT, run, staffCarry, ARM_BONES, staffCarry.duration));
+    // ジャンプ・落下・着地も、腕は杖を立てて持つまま（剣の握りのままだと、杖が体の横へ突き出る）
+    if (staffCarry) {
+      for (const n of ['jump', 'fall', 'land']) {
+        const base = this.animator.getClip(n);
+        if (base) this.animator.addClip(n + STAFF_VARIANT, overlayPose(n + STAFF_VARIANT, base, staffCarry, ARM_BONES, staffCarry.duration));
+      }
+    }
     // 乗り上がり・乗り越え（M7-3）: 世界の障害物の高さ・厚みの分を焼いておく（ほかの組み合わせは使うときに焼く）
     for (const spec of traverseSpecs) this.ensureTraverse(traverseName(spec), traverseDef(spec));
     // 武器: ボーン空間は cm（Armature 0.01 倍）なのでソケットを 100 倍にして m 単位の剣を置く。片手剣・大剣とも同じ右手のソケット（装備しているほうだけ見せる）

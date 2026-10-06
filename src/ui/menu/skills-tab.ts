@@ -71,7 +71,7 @@ export class SkillsTab implements MenuTab {
     pt.append(h('span', undefined, 'スキルポイント'));
     this.skillPts = h('b');
     pt.appendChild(this.skillPts);
-    head.append(pt, h('div', 'sk-hint', 'ポイントを使うと、剣技は威力が伸びてクールダウンが縮み（Lv4・Lv7 で動きが変わる）、パッシブは習得して強くなる'));
+    head.append(pt, h('div', 'sk-hint', 'ポイントを使うと、剣技は威力が伸びてクールダウンが縮み（Lv4・Lv7 で動きが変わる）、杖の魔法は威力（再生は回復量）が伸びてクールダウンが縮み、パッシブは習得して強くなる'));
     root.appendChild(head);
 
     for (const fam of FAMILIES) {
@@ -170,7 +170,7 @@ export class SkillsTab implements MenuTab {
         const top = h('div', 'sk-top');
         const name = h('div', 'sk-name');
         name.append(h('b', undefined, def.name));
-        if (def.family) name.append(h('span', 'pa-tag', def.family === 'sword' ? '片手剣' : '大剣'));
+        if (def.family) name.append(h('span', 'pa-tag', FAMILY_NAME[def.family]));
         const lv = h('span', 'sk-lv');
         name.appendChild(lv);
         const ctrl = h('div', 'st-ctrl');
@@ -191,7 +191,7 @@ export class SkillsTab implements MenuTab {
         const now = h('div', 'pa-now');
         const next = h('div', 'pa-next');
         const prereq = def.prereq ? h('div', 'pa-prereq') : null;
-        const inactive = def.family ? h('div', 'pa-inactive', `いまは効かない（${def.family === 'sword' ? '片手剣' : '大剣'}を構えているあいだだけ効く）`) : null;
+        const inactive = def.family ? h('div', 'pa-inactive', `いまは効かない（${FAMILY_NAME[def.family]}を構えているあいだだけ効く）`) : null;
         card.append(top, pipsEl, detail, now, next);
         if (prereq) card.appendChild(prereq);
         if (inactive) card.appendChild(inactive);
@@ -231,7 +231,8 @@ export class SkillsTab implements MenuTab {
       c.pips.forEach((p, i) => p.classList.toggle('on', i < lv));
       c.plus.disabled = !g.canAddSkill(c.id);
       c.minus.disabled = !g.canRemoveSkill(c.id);
-      setText(c.stat, `威力 ×${info.power.toFixed(2)}　クールダウン ${info.cooldownSec.toFixed(1)} 秒　連なり ${info.steps} 段`);
+      // 杖の魔法は 1 つの詠唱 = 1 つの魔法（連なりは無い）。再生の「威力」は回復量
+      setText(c.stat, def.family === 'staff' ? `威力 ×${info.power.toFixed(2)}　クールダウン ${info.cooldownSec.toFixed(1)} 秒` : `威力 ×${info.power.toFixed(2)}　クールダウン ${info.cooldownSec.toFixed(1)} 秒　連なり ${info.steps} 段`);
       for (const e of c.evo) e.row.classList.toggle('on', lv >= e.level);
     }
     for (const c of this.passiveCards) {

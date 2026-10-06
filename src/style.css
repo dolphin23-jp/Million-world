@@ -387,6 +387,8 @@ body {
 #spell-grid {
   position: absolute;
   display: none;
+  /* ボタンの隙間でカメラのドラッグを塞がない（ボタンだけが指を受ける） */
+  pointer-events: none;
   grid-template-columns: repeat(3, 62px);
   gap: 8px;
   right: calc(332px + var(--safe-right));
@@ -403,6 +405,7 @@ html[data-weapon='staff'] #move-guide {
   display: none;
 }
 .spell-btn {
+  pointer-events: auto;
   position: relative;
   width: 62px;
   height: 62px;

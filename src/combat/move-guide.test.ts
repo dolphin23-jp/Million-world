@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { buildGuide, GUIDE_SLOTS, type GuideContext } from './move-guide';
-import { buildMoveTree, type MoveNode } from './move-tree';
+import { buildMoveTree, buildSpellNodes, type MoveNode } from './move-tree';
+import { LOADOUTS } from './data/loadouts';
+import { SPELL_ATTACKS } from './data/spell-attacks';
+import { SPELL_SKILL_ORDER } from './data/spells';
 import { MOVE_NAMES } from './data/move-names';
 import { GREATSWORD_MOVESET, SWORD_MOVESET } from './data/moveset';
 import { ATTACKS, CHARGES, resolveAttack } from './data/attacks';
@@ -141,8 +144,10 @@ describe('buildGuide（操作ガイドの表示内容）', () => {
     for (const state of ['guard', 'hit', 'dead'] as const) expect(buildGuide(base({ state })).mode).toBe('hidden');
   });
 
-  it('すべての技の id に表示名がある（名前の付け忘れ）', () => {
+  it('すべての技の id に表示名がある（名前の付け忘れ）。杖の魔弾の連打も（魔法は SKILLS の名前を使う）', () => {
     for (const id of Object.keys(ATTACKS)) expect(MOVE_NAMES[id], `表示名が無い: ${id}`).toBeTruthy();
+    for (const id of Object.values(LOADOUTS.staff.moveset)) expect(MOVE_NAMES[id], `表示名が無い: ${id}`).toBeTruthy();
+    for (const id of ['stBolt1', 'stBolt2', 'stBolt3']) expect(SPELL_ATTACKS[id] && MOVE_NAMES[id], id).toBeTruthy();
   });
 });
 
@@ -184,5 +189,24 @@ describe('buildMoveTree（技表）', () => {
     expect(flat(nodes).length).toBeLessThan(40);
     expect(flat(nodes)[0]).toBe('攻撃: a');
     expect(flat(nodes)[1]).toBe('  連打: b');
+  });
+});
+
+describe('buildMoveTree（杖。ADR-048）', () => {
+  const flat = (nodes: MoveNode[], depth = 0): string[] => nodes.flatMap((n) => [`${'  '.repeat(depth)}${n.input}: ${n.name}`, ...flat(n.children, depth + 1)]);
+
+  it('どの入力でも魔弾の連打なので、始動の技は 1 行だけ（同じ技が何行も並ばない）。魔弾 → 魔弾（払い上げ）→ 大魔弾 の 1 ルート。溜めは無い', () => {
+    const l = LOADOUTS.staff;
+    const lines = flat(buildMoveTree(l.moveset, l.charge));
+    expect(lines).toEqual(['攻撃: 魔弾', '  連打: 魔弾（払い上げ）', '    連打: 大魔弾']);
+  });
+
+  it('杖の魔法の一覧: 並列ボタンの順に 6 行。名前・クールダウン（レベルで縮む）・説明が付く', () => {
+    const nodes = buildSpellNodes(() => 1);
+    expect(nodes.map((n) => n.input)).toEqual(SPELL_SKILL_ORDER.map((_, i) => `魔法ボタン ${i + 1}`));
+    expect(nodes.map((n) => n.name)).toEqual(['落雷', '吹雪', '火炎放射', '爆発', '再生', '旋風']);
+    expect(nodes[0]!.note).toMatch(/^CT 10 秒/);
+    const lv10 = buildSpellNodes(() => 10);
+    expect(Number(/CT (\d+) 秒/.exec(lv10[0]!.note!)![1])).toBeLessThan(Number(/CT (\d+) 秒/.exec(nodes[0]!.note!)![1]));
   });
 });

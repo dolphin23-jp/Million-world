@@ -79,7 +79,7 @@ import { MovesTab } from '../ui/menu/moves-tab';
 import { SettingsTab } from '../ui/menu/settings-tab';
 import { TierTab } from '../ui/menu/tier-tab';
 import { buildGuide, type GuideContext } from '../combat/move-guide';
-import { buildMoveTree } from '../combat/move-tree';
+import { buildMoveTree, buildSpellNodes } from '../combat/move-tree';
 import { onVisibility } from '../platform/safari';
 import { loadCharacter } from '../character/loader';
 import { HERO } from '../character/data/hero';
@@ -1399,7 +1399,10 @@ export class Game {
   /** 技表を、いまの装備の技で作り直す */
   private refreshMoveList(): void {
     const l = this.player.loadout;
-    this.movesTab.setMoves(l.name, buildMoveTree(l.moveset, l.charge));
+    const tree = buildMoveTree(l.moveset, l.charge);
+    // 杖: 通常攻撃（魔弾の連打）の下に、並列の魔法ボタンの一覧（名前・クールダウン・説明）を並べる
+    if (l.weapon === 'staff') tree.push(...buildSpellNodes((id) => this.skills.level(id)));
+    this.movesTab.setMoves(l.name, tree);
   }
 
   /** ミスティカルドッジの画面の色・ゲージ（発動中は残り、切れたあとは次までの溜まり具合） */

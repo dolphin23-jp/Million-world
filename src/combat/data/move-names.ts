@@ -44,6 +44,10 @@ export const MOVE_NAMES: Readonly<Record<string, string>> = {
   gsSpin3: '逆の大回転',
   gsSpinSlam: '回転叩きつけ',
   gsReturnSweep: '薙ぎ返し',
+  // 杖（魔弾の連打。魔法は SKILLS の名前）
+  stBolt1: '魔弾',
+  stBolt2: '魔弾（払い上げ）',
+  stBolt3: '大魔弾',
 };
 
 /** 技の表示名。未登録なら id のまま（データを足して名前を忘れたとき、画面で気づける） */

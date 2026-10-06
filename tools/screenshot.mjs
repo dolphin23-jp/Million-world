@@ -1829,6 +1829,152 @@ try {
     await page.screenshot({ path: file });
   }
 
+  // 杖（魔法。ADR-048）: 杖を構えると、ガード・スキル欄・操作ガイドが隠れ、6 つの魔法ボタンが並列に出る。通常攻撃は魔弾（12 ダメージ）、魔法は
+  // 落雷（予告の輪 → 着弾）・吹雪（扇に刻み）・火炎放射（帯に刻み）・爆発・再生（体力が増える）・旋風（同心円）。クールダウンは魔法を放った瞬間から。
+  // 詠唱が潰されたら（放つ前の被弾）クールダウンに入らない。数値と UI を確かめ、各魔法の見せ場を撮る
+  const STAFF_TRIO = { waves: [[{ type: 'imp', offset: -0.3, radius: 5.5 }, { type: 'imp', offset: 0, radius: 6 }, { type: 'imp', offset: 0.3, radius: 5.5 }]], waveGapFrames: 100, victoryDelayFrames: 75, defeatDelayFrames: 150, maxAttackers: 2 };
+  const staffSetup = (spec) =>
+    page.evaluate((spec) => {
+      const g = window.__mw.game;
+      g.loop.stop();
+      g.setLoadout('staff');
+      g.restart(spec.trio);
+      g.critRng = () => 1;
+      g.stepNow(30);
+      g.player.body.x = 0;
+      g.player.body.z = 0;
+      g.player.yaw = 0;
+      const es = g.enemies.map((e) => e.enemy);
+      es[0].place(-1.6, 4.5, Math.PI);
+      es[1].place(0, 4.8, Math.PI);
+      es[2].place(1.7, 4.4, Math.PI);
+      for (const e of es) e.health.hp = e.health.max = 9999;
+      g.player.health.hp = Math.round(g.player.health.max * 0.5);
+      g.renderNow(45);
+    }, spec);
+  /** 魔法を押して n ステップ進める（プレイヤーの位置を固定し、敵に攻撃させない = 検証を決定的にする）。敵の HP の合計の減りと、ボタン・クールダウンの状態を返す */
+  const staffRun = (kind, n) =>
+    page.evaluate(({ kind, n }) => {
+      const g = window.__mw.game;
+      const es = g.enemies.map((e) => e.enemy);
+      const hp0 = es.map((e) => e.health.hp);
+      const php0 = g.player.health.hp;
+      g.inject(kind.attack ? { attackPressed: true } : { spellPressed: kind.index });
+      for (let i = 0; i < n; i++) {
+        g.player.body.x = 0;
+        g.player.body.z = 0;
+        for (const e of es) e.cooldown = 999;
+        g.stepNow(1);
+      }
+      g.renderNow(2);
+      return {
+        dealt: es.map((e, i) => hp0[i] - e.health.hp),
+        cast: g.player.castSerial,
+        cd: kind.id ? g.skills.cooldownRatio(kind.id) : 0,
+        heal: g.player.health.hp - php0,
+        state: g.player.state,
+        atk: g.player.attack ? g.player.attack.id : null,
+      };
+    }, { kind, n });
+  {
+    await staffSetup({ trio: STAFF_TRIO });
+    const ui = await page.evaluate(() => {
+      const vis = (sel) => {
+        const el = document.querySelector(sel);
+        return el ? getComputedStyle(el).display !== 'none' : false;
+      };
+      return {
+        weapon: document.getElementById('touch-layer')?.dataset.weapon,
+        spells: [...document.querySelectorAll('#spell-grid .spell-btn')].map((b) => b.querySelector('.spell-label')?.textContent),
+        grid: vis('#spell-grid'),
+        guard: vis('#btn-guard'),
+        skill: vis('#btn-skill'),
+        guide: vis('#move-guide'),
+        item: vis('#btn-item'),
+      };
+    });
+    console.log(`[staff] UI ${JSON.stringify(ui)}`);
+    if (ui.weapon !== 'staff' || ui.spells.join() !== '落雷,吹雪,火炎,爆発,再生,旋風' || !ui.grid || ui.guard || ui.skill || ui.guide || !ui.item) {
+      console.error('[staff] 杖を構えると、魔法ボタン 6 つ（落雷・吹雪・火炎・爆発・再生・旋風）が出て、ガード・スキル欄・操作ガイドが隠れ、アイテム欄は残るはず');
+      process.exitCode = 3;
+    }
+    await page.screenshot({ path: 'artifacts/shot-staff-idle.png' });
+
+    // 魔弾（通常攻撃）: 撃った弾が正面の敵に当たる（12）。弾が飛んでいる絵
+    await staffSetup({ trio: STAFF_TRIO });
+    const boltFly = await staffRun({ attack: true }, 24);
+    await page.screenshot({ path: 'artifacts/shot-staff-bolt.png' });
+    const boltHit = await staffRun({ attack: false, index: -1 }, 6);
+    console.log(`[staff] 魔弾 飛行 ${JSON.stringify(boltFly)} 命中後 ${JSON.stringify(boltHit)}`);
+    const boltTotal = await page.evaluate(() => window.__mw.game.enemies.map((e) => e.enemy.health.max - e.enemy.health.hp));
+    if (boltTotal.reduce((a, b) => a + b, 0) !== 12) {
+      console.error(`[staff] 魔弾 1 発の当たりは 12 ダメージ（正面の敵 1 体だけ）のはず: ${JSON.stringify(boltTotal)}`);
+      process.exitCode = 3;
+    }
+
+    // 魔法 6 種: [名前, ボタンの番号, スキル id, 見せ場までのステップ, 検証]
+    const spellScenes = [
+      ['thunder', 0, 'thunder', 57 + 28, (r) => r.cd > 0.9 && r.dealt.every((d) => d > 0) && r.dealt.reduce((a, b) => a + b, 0) >= 150],
+      ['blizzard', 1, 'blizzard', 36 + 30, (r) => r.cd > 0.9 && r.dealt.every((d) => d >= 16 * 3)],
+      ['flame', 2, 'flame', 36 + 50, (r) => r.cd > 0.9 && r.dealt[1] >= 7 * 6 && r.state === 'attack'],
+      ['explosion', 3, 'explosion', 63 + 34, (r) => r.cd > 0.9 && r.dealt.every((d) => d >= 60)],
+      ['regen', 4, 'regen', 36 + 90, (r) => r.cd > 0.9 && r.heal >= 4],
+      ['hurricane', 5, 'hurricane', 51 + 42, (r) => r.cd > 0.9 && r.dealt.every((d) => d > 0)],
+    ];
+    for (const [name, index, id, steps, ok] of spellScenes) {
+      await staffSetup({ trio: STAFF_TRIO });
+      const r = await staffRun({ attack: false, index, id }, steps);
+      console.log(`[staff] ${name} ${JSON.stringify(r)}`);
+      if (!ok(r)) {
+        console.error(`[staff] ${name}: 魔法を放った瞬間からクールダウンに入り、敵に当たる（再生は体力が増える）はず`);
+        process.exitCode = 3;
+      }
+      await page.screenshot({ path: `artifacts/shot-staff-${name}.png` });
+    }
+
+    // 詠唱が潰されたら（放つ前の被弾）クールダウンに入らず、魔法は放たれない
+    await staffSetup({ trio: STAFF_TRIO });
+    const broken = await page.evaluate(() => {
+      const g = window.__mw.game;
+      const cast0 = g.player.castSerial;
+      g.inject({ spellPressed: 0 });
+      g.stepNow(10);
+      g.player.takeHit({ attackerId: 1, targetId: 0, damage: 3, knockback: 0.5, hitStop: 0, dirX: 0, dirZ: -1, x: 0, z: 0 });
+      g.stepNow(120);
+      return { cast: g.player.castSerial - cast0, cd: g.skills.cooldownRatio('thunder'), strikes: g.spells.strikes.length };
+    });
+    console.log(`[staff] 詠唱の中断 ${JSON.stringify(broken)}`);
+    if (broken.cast !== 0 || broken.cd !== 0 || broken.strikes !== 0) {
+      console.error('[staff] 詠唱を放つ前に被弾したら、魔法は放たれず、クールダウンにも入らないはず');
+      process.exitCode = 3;
+    }
+
+    // 杖の一時停止メニュー: スキルタブに「杖（魔法）」の 6 本、技表に魔法の一覧
+    await page.click('#btn-menu');
+    await sleep(200);
+    await page.locator('.menu-tab').nth(1).click();
+    await sleep(200);
+    const menu = await page.evaluate(() => {
+      const titles = [...document.querySelectorAll('.sk-fam b')].map((b) => b.textContent);
+      const names = [...document.querySelectorAll('.sk-card .sk-name b')].map((b) => b.textContent);
+      return { titles, names: names.slice(-6) };
+    });
+    console.log(`[staff] メニュー ${JSON.stringify(menu)}`);
+    if (!menu.titles.includes('杖（魔法）') || menu.names.join() !== '落雷,吹雪,火炎放射,爆発,再生,旋風') {
+      console.error('[staff] スキルタブに「杖（魔法）」の魔法 6 本が並ぶはず');
+      process.exitCode = 3;
+    }
+    await page.screenshot({ path: 'artifacts/shot-staff-menu.png' });
+    await page.click('.menu-close');
+    await sleep(100);
+    // 装備を戻す（以降の撮影は片手剣）
+    await page.evaluate(() => {
+      const g = window.__mw.game;
+      g.setLoadout('sword');
+      g.loop.stop();
+    });
+  }
+
   // 一時停止メニュー（ADR-033）: レベル 7（ステータスポイント 18・スキルポイント 6）にして開き、ステータスを振る・スキルを上げる・技表・設定を撮る。
   // 振り分けが戦闘の数値・セーブに届いていること、− が開いてから振った分までしか戻せないこと、閉じると再開することも確かめる
   await page.evaluate(() => {
