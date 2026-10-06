@@ -2233,7 +2233,7 @@ try {
     console.error('[menu] スキルのレベル上げが SkillBook に届いていない');
     process.exitCode = 3;
   }
-  // パッシブ（ADR-037）: スキルタブの下に 12 本。未習得で前提が満たされないものは暗く、＋が押せない。剣術習熟に 1 ポイント振ると習得され、片手剣のダメージに +4% が足される
+  // パッシブ（ADR-037）: スキルタブの下に 13 本（槍術習熟を足して 12 → 13。ADR-049）。未習得で前提が満たされないものは暗く、＋が押せない。剣術習熟に 1 ポイント振ると習得され、片手剣のダメージに +4% が足される
   const pa0 = await page.evaluate(() => ({
     cards: document.querySelectorAll('.pa-card').length,
     locked: [...document.querySelectorAll('.pa-card.locked')].map((c) => c.querySelector('b')?.textContent),
@@ -2252,8 +2252,8 @@ try {
     text: document.querySelector('.pa-card .pa-now')?.textContent ?? '',
   }));
   console.log(`[passive-ui] 後 ${JSON.stringify(pa1)}`);
-  if (pa0.cards !== 12 || pa0.locked.length !== 4 || pa0.kp !== 2 || pa1.kp !== 1 || pa1.lv !== 1 || Math.abs(pa1.dmg - 1.07) > 1e-9 || pa1.learned !== 1) {
-    console.error('[passive-ui] パッシブの一覧（12 本・前提で暗いものが 4 本）・習得（ポイント −1・ダメージ +4%）が想定どおりでない');
+  if (pa0.cards !== 13 || pa0.locked.length !== 4 || pa0.kp !== 2 || pa1.kp !== 1 || pa1.lv !== 1 || Math.abs(pa1.dmg - 1.07) > 1e-9 || pa1.learned !== 1) {
+    console.error('[passive-ui] パッシブの一覧（13 本・前提で暗いものが 4 本）・習得（ポイント −1・ダメージ +4%）が想定どおりでない');
     process.exitCode = 3;
   }
   await page.evaluate(() => document.querySelector('.sk-passive-title')?.scrollIntoView({ block: 'start' }));
