@@ -381,6 +381,112 @@ body {
   box-shadow: 0 0 14px rgba(255, 211, 106, 0.55);
 }
 
+/* ---------- 杖の魔法（ADR-048） ---------- */
+/* 全部の魔法を並列のボタンで並べる（杖を構えているあいだだけ出る）。杖のときは、ガード・スキル欄・操作ガイドが隠れる。
+   置き場所は実機で決める: right / bottom / 列数（grid-template-columns）だけを触る。いまは 3 列 × 2 行（ガードとスキル欄のあった場所の左） */
+#spell-grid {
+  position: absolute;
+  display: none;
+  grid-template-columns: repeat(3, 62px);
+  gap: 8px;
+  right: calc(332px + var(--safe-right));
+  bottom: calc(14px + var(--safe-bottom));
+}
+#touch-layer[data-weapon='staff'] #spell-grid {
+  display: grid;
+}
+#touch-layer[data-weapon='staff'] #btn-guard,
+#touch-layer[data-weapon='staff'] #btn-skill {
+  display: none;
+}
+html[data-weapon='staff'] #move-guide {
+  display: none;
+}
+.spell-btn {
+  position: relative;
+  width: 62px;
+  height: 62px;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  --c: #7fd8ff;
+}
+.spell-orb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  margin-top: 2px;
+  background: radial-gradient(circle at 35% 30%, #fff, var(--c) 60%, rgba(0, 0, 0, 0.35));
+  box-shadow: 0 0 8px var(--c);
+}
+.spell-label {
+  line-height: 1;
+}
+.spell-lv {
+  position: absolute;
+  right: -3px;
+  top: -3px;
+  min-width: 26px;
+  height: 18px;
+  padding: 0 3px;
+  box-sizing: border-box;
+  border-radius: 9px;
+  background: #1a1c38;
+  border: 2px solid rgba(255, 255, 255, 0.7);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 14px;
+  text-align: center;
+}
+.spell-lv:empty {
+  display: none;
+}
+.spell-key {
+  position: absolute;
+  left: 4px;
+  top: 2px;
+  font-size: 9px;
+  font-weight: 700;
+  opacity: 0.6;
+}
+.spell-key:empty {
+  display: none;
+}
+/* 使い直しの待ち: 暗い扇が時計回りに消えていき、真ん中に残りの秒が出る */
+.spell-cd {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0;
+  background: conic-gradient(rgba(8, 10, 24, 0.7) var(--cd, 0deg), transparent 0);
+}
+.spell-btn.cooling .spell-cd {
+  opacity: 1;
+}
+.spell-btn.cooling {
+  border-color: rgba(255, 255, 255, 0.25);
+}
+.spell-btn.cooling .spell-orb {
+  opacity: 0.5;
+  box-shadow: none;
+}
+.spell-cd-num {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;
+  font-weight: 800;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+  pointer-events: none;
+}
+.spell-btn.pressed .spell-lv {
+  color: #fff;
+}
+
 /* ---------- HUD ---------- */
 #hud {
   position: fixed;
@@ -512,6 +618,16 @@ body {
   height: 100%;
   width: 100%;
   background: linear-gradient(90deg, #ffd27a, #ff9a3c);
+}
+/* 再生（杖の魔法。ADR-048）: 闘気の印と同じ形で、緑。残り時間の帯が減っていく */
+.regen-badge {
+  color: #c8ffd8;
+  background: rgba(8, 52, 28, 0.75);
+  border-color: rgba(120, 240, 170, 0.8);
+  box-shadow: 0 0 10px rgba(80, 230, 140, 0.45);
+}
+.regen-badge .buff-fill {
+  background: linear-gradient(90deg, #9dffb8, #3bd16f);
 }
 @keyframes lv-up {
   0% { transform: scale(1.7); color: #fff; text-shadow: 0 0 14px #ffe38a; }

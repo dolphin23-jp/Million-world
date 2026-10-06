@@ -11,19 +11,22 @@ import { Arena } from '../world/arena';
 import { pushOutOfCircle, separateCircles } from '../world/collision';
 import { FLYING_Y, type World } from '../world/world';
 import { Player } from './player';
-import { resolveEnemyAttacks, resolvePlayerAttack } from './combat';
-import { cutProjectiles, resolveProjectilesOnPlayer, resolveReflectedProjectiles, type ProjectileHandlers } from './projectile-combat';
+import { PLAYER_ID, resolveEnemyAttacks, resolvePlayerAttack } from './combat';
+import { cutProjectiles, resolveBoltProjectiles, resolveProjectilesOnPlayer, resolveReflectedProjectiles, type ProjectileHandlers } from './projectile-combat';
 import { MAX_PROJECTILES, ProjectileSystem, spawnShot, type Projectile, type ProjectileEnd } from '../combat/projectile';
 import { summonPoints, type SummonPoint } from '../ai/summon';
-import { PROJECTILES, PROJECTILE_HEIGHT } from '../combat/data/projectiles';
+import { PROJECTILES, PROJECTILE_HEIGHT, SPELL_PROJECTILES, type SpellProjectileId } from '../combat/data/projectiles';
+import { BOLT_BURSTS, SPELLS, SPELL_SKILL_ORDER, type BoltSpell, type SpellElement, type SpellId } from '../combat/data/spells';
+import { SpellSystem, pickSpellTarget, type SpellHandlers, type SpellHitInfo, type SpellTargetCand } from '../combat/spell-system';
+import { SpellFx, type SpellFxCaster } from '../render/spell-fx';
 import { JUMP } from '../combat/data/jump';
 import { traverseSpecsFor } from '../character/data/traverse';
 import { ProjectileRenderer } from '../render/projectiles';
 import type { Circle } from '../world/collision';
 import { Mystical } from '../combat/mystical';
 import { Inventory } from '../combat/inventory';
-import { SkillBook } from '../combat/skills';
-import { SKILLS, SKILL_ORDER, isSkillId, type SkillDef } from '../combat/data/skills';
+import { SkillBook, type SkillRun } from '../combat/skills';
+import { SKILLS, SKILL_ORDER, isSkillId, type SkillDef, type SkillId } from '../combat/data/skills';
 import { Growth } from '../combat/growth';
 import { KillBuff } from '../combat/buffs';
 import { KILL_BUFF } from '../combat/data/passives';
@@ -63,6 +66,7 @@ import { GROUND_IMPACT, HIT_FEEDBACK } from '../combat/data/hit-feedback';
 import { GUARD_FEEDBACK, type ParryEffectDef } from '../combat/data/guard';
 import { DEFAULT_LOADOUT, LOADOUTS, nextLoadout, type LoadoutId } from '../combat/data/loadouts';
 import { FX_TINT } from '../render/hit-fx';
+import type { StrikeFx, StrikePoint } from '../combat/spell-system';
 import type { HitEvent } from '../combat/hit';
 import type { DamageResult } from '../combat/health';
 import { ThirdPersonCamera } from './camera';
@@ -172,6 +176,32 @@ const ENEMY_WINDUP_SFX: Partial<Record<string, SfxName>> = { bat: 'batSqueak' };
 /** 溜めの段階が上がったときの合図 */
 const CHARGE_LEVEL_SFX: readonly SfxName[] = ['chargeLevel1', 'chargeLevel2'];
 
+/** 杖の魔法を押してから、詠唱を始められる状態になるまで待てるフレーム（先行入力。攻撃・回避の途中で押しても出せる） */
+const SPELL_BUFFER_FRAMES = 14;
+/** 吹雪・火炎放射の刻みのダメージ数字をまとめて出す間隔、刻みの音の間隔、火炎放射の轟音を重ねて鳴らす間隔（sim フレーム） */
+const CHIP_FLUSH_FRAMES = 20;
+const TICK_SFX_FRAMES = 7;
+const FLAME_SFX_FRAMES = 42;
+/** 魔法の系統ごとの、命中・杖の先の閃光の色と、ボタンの宝珠の色 */
+const ELEMENT_TINT: Record<SpellElement, THREE.Color> = {
+  arcane: FX_TINT.arcane,
+  lightning: FX_TINT.lightning,
+  ice: FX_TINT.ice,
+  fire: FX_TINT.fire,
+  blast: FX_TINT.blast,
+  heal: FX_TINT.heal,
+  wind: FX_TINT.wind,
+};
+const ELEMENT_COLOR: Record<SpellElement, string> = {
+  arcane: '#9fc0ff',
+  lightning: '#ffe45a',
+  ice: '#8fdcff',
+  fire: '#ff8a3a',
+  blast: '#ff6a3a',
+  heal: '#6fe39a',
+  wind: '#9ff0c8',
+};
+
 /** 最後の敵を倒したときのスローモーション（倍率、実時間の秒） */
 const FINISH_SLOW = { scale: 0.3, seconds: 0.9 };
 /** プレイヤーが倒れたときのスローモーション */
@@ -227,6 +257,25 @@ export class Game {
   readonly skills = new SkillBook();
   private seenSkillSerial = 0;
   private skillUiKey = '';
+  /**
+   * 杖の魔法（ADR-048）: sim（落雷・吹雪・火炎放射・爆発・旋風・再生の効果）と見た目。seenCastSerial = 魔法を放った合図（Player.castSerial）を処理し終えた値。
+   * spellTargets = 魔法・魔弾の当たりの相手（敵と壊せる物。毎ステップ作り直して使い回す）、spellCands = ターゲットを選ぶ候補（生きている敵の位置）。
+   * pendingSpell = 押した魔法の頼み（始められる状態になるまで短く待つ先行入力）
+   */
+  readonly spells: SpellSystem;
+  private readonly spellFx = new SpellFx();
+  private seenCastSerial = 0;
+  private readonly spellTargets: (Enemy | Breakable)[] = [];
+  private readonly spellCands: SpellTargetCand[] = [];
+  private pendingSpell: { id: SkillId; run: SkillRun; frames: number } | null = null;
+  private spellUiKey = '';
+  /** 吹雪・火炎放射の刻みのダメージ数字は敵ごとにまとめて出す（刻みのたびに出すと画面が埋まる）。chipFlush = 次にまとめて出すまでのステップ、tickSfx = 刻みの音の間隔 */
+  private readonly chipSums = new Map<number, { x: number; z: number; sum: number; crit: boolean; height: number }>();
+  private chipFlush = 0;
+  private tickSfx = 0;
+  /** 火炎放射の轟音を重ね鳴らす間隔を数える */
+  private flameSfx = 0;
+  private readonly fxCaster: SpellFxCaster = { x: 0, y: 0, z: 0, casting: null, castProgress: 0 };
   /** ボスが呼んだ手下の id（倒してもアイテムを落とさない = 呼ばせて稼げないように） */
   private readonly summonedIds = new Set<number>();
   /** 成長（経験値・レベル・ポイント・ステータス。ADR-033）。セーブから読み、変わるたびに保存する。ステージ・闘技場に依存しない（経験値は撃破の合図から受け取る） */
@@ -274,7 +323,7 @@ export class Game {
   private readonly movesTab: MovesTab;
   private paused = false;
   private readonly guideCtx: GuideContext = {
-    state: 'idle', moveset: LOADOUTS[DEFAULT_LOADOUT].moveset, chargeId: LOADOUTS[DEFAULT_LOADOUT].charge, attackId: null, trail: [], frame: 0, cancelFrame: 0, total: 0,
+    state: 'idle', moveset: LOADOUTS[DEFAULT_LOADOUT].moveset, chargeId: LOADOUTS[DEFAULT_LOADOUT].charge ?? '', attackId: null, trail: [], frame: 0, cancelFrame: 0, total: 0,
     queued: false, stick: 'none', locked: false, afterDodge: null, chargeLevel: 0,
   };
   readonly loop: GameLoop;
@@ -324,6 +373,7 @@ export class Game {
 
     this.arena = new Arena();
     this.world = this.arena.world;
+    this.spells = new SpellSystem(this.world, PLAYER_ID, () => this.critRng());
     this.breakables = createBreakables(this.world);
     this.scene.add(this.arena.group);
 
@@ -344,6 +394,7 @@ export class Game {
     this.scene.add(this.lanes.group);
     this.scene.add(this.circles.group);
     this.scene.add(this.projectileFx.group);
+    this.scene.add(this.spellFx.group);
     this.scene.add(this.swordTrail.mesh);
     this.hud.onRetry(() => {
       this.sfx.play('ui');
@@ -371,6 +422,7 @@ export class Game {
       }
     };
     this.touch.setEquipLabel(this.player.loadout.name);
+    this.syncWeaponUi();
     this.refreshMoveList();
     this.input.add(this.touch);
     this.input.add(new KeyboardInput());
@@ -511,13 +563,13 @@ export class Game {
   }
 
   /** プレイヤーの攻撃が敵に当たった。ヒットストップ・画面の揺れ・エフェクト・ダメージ数字を起こす */
-  private onPlayerHit(ev: HitEvent, enemy: Enemy, result: DamageResult, riposte = false): void {
+  private onPlayerHit(ev: HitEvent, enemy: Enemy, result: DamageResult, riposte = false, tint?: THREE.Color): void {
     const fb = hitFeedback(ev, result.killed);
     this.hitStop.trigger(fb.hitStop);
     this.cam.shake.trigger(fb.shakeAmp, fb.shakeSeconds);
     const y = HIT_FEEDBACK.impactHeight;
-    // 弾かれた敵への反撃は、水色がかった閃光と大きな数字で「反撃が通った」を見せる
-    this.hitFx.burst(ev.x, y, ev.z, ev.dirX, ev.dirZ, fb.power, riposte ? FX_TINT.parry : undefined);
+    // 弾かれた敵への反撃は、水色がかった閃光と大きな数字で「反撃が通った」を見せる（杖の魔法は、系統の色の閃光）
+    this.hitFx.burst(ev.x, y, ev.z, ev.dirX, ev.dirZ, fb.power, riposte ? FX_TINT.parry : tint);
     // 会心は数字を専用の見た目（大きな金色）にし、命中の音の上にきらめく音を重ねる（とどめでも、反撃でも会心が読める）
     this.damageNumbers.spawn(enemy.body.x, y + 0.5, enemy.body.z, result.dealt, fb.crit ? 'crit' : riposte && !result.killed ? 'riposte' : fb.style);
     this.sfx.play(fb.style === 'heavy' || riposte ? 'hitHeavy' : 'hit');
@@ -538,6 +590,277 @@ export class Game {
     if (enemy.def.boss) for (const e of this.enemySims) if (e !== enemy) e.vanish();
     // 最後のウェーブの最後の 1 体: スローモーション
     if (this.encounter.onLastWave && !this.enemySims.some((e) => !e.dead)) this.hitStop.slow(FINISH_SLOW.scale, FINISH_SLOW.seconds);
+  }
+
+  // ---------------------------------------------------------------- 杖の魔法（ADR-048）
+
+  /** 装備している武器の系統を UI に教える（杖のときは魔法の並列ボタンが出て、ガード・スキル欄・操作ガイドが隠れる。CSS の [data-weapon]） */
+  private syncWeaponUi(): void {
+    const w = this.player.loadout.weapon;
+    this.touch.setWeapon(w);
+    document.documentElement.dataset.weapon = w;
+    this.spellUiKey = '';
+    if (w !== 'staff') this.pendingSpell = null;
+  }
+
+  /** 魔法ボタンを押した（番号 = 並べた順）。杖を構えているときだけ。使えない（クールダウン中）なら「使えない」音。使えるなら詠唱を頼む（始められる状態になるまで短く待つ） */
+  private pressSpell(index: number): void {
+    const p = this.player;
+    if (p.dead || p.loadout.weapon !== 'staff') return;
+    const id = SPELL_SKILL_ORDER[index];
+    if (!id) return;
+    const run = this.skills.prepareById(id, this.mods.skillPower);
+    if (!run) {
+      this.sfx.play('itemDeny');
+      return;
+    }
+    this.pendingSpell = { id, run, frames: SPELL_BUFFER_FRAMES };
+  }
+
+  /** 待っている詠唱の頼みを、毎ステップ Player へ出し直す。始まった（onSkillStart）・時間切れ・ほかの詠唱でクールダウンに入った・倒れたら捨てる */
+  private stepPendingSpell(): void {
+    const sp = this.pendingSpell;
+    if (!sp) return;
+    if (this.player.dead || sp.frames-- <= 0 || !this.skills.ready(sp.id)) {
+      this.pendingSpell = null;
+      return;
+    }
+    this.player.requestSkill(sp.run);
+  }
+
+  /** 生きている敵の位置（ターゲットを選ぶ候補）。オブジェクトは使い回す */
+  private collectSpellCands(): readonly SpellTargetCand[] {
+    let n = 0;
+    for (const e of this.enemySims) {
+      if (e.dead) continue;
+      const c = this.spellCands[n] ?? (this.spellCands[n] = { id: 0, x: 0, z: 0 });
+      c.id = e.id;
+      c.x = e.body.x;
+      c.z = e.body.z;
+      n++;
+    }
+    this.spellCands.length = n;
+    return this.spellCands;
+  }
+
+  /** 魔法を放った（Player.castSerial が増えた）: クールダウンに入り、魔法の効果を作り、放つ瞬間の演出（杖の先の閃光・音・名前）を出す */
+  private onCast(): void {
+    const p = this.player;
+    this.seenCastSerial = p.castSerial;
+    const c = p.lastCast;
+    const spell = SPELLS[c.spell];
+    if (c.skill) {
+      this.skills.start(c.skill, this.mods.skillCooldown);
+      this.damageNumbers.spawnText(c.x, p.y + 1.95, c.z, SKILLS[c.skill].name, 'skill', 1.1);
+    }
+    const dx = Math.sin(c.yaw);
+    const dz = Math.cos(c.yaw);
+    // 杖の先（宝珠の高さ・向いている方へ）の閃光
+    this.hitFx.burst(c.x + dx * 0.9, p.y + 1.15, c.z + dz * 0.9, dx, dz, spell.kind === 'bolt' ? (spell.burst ? 0.55 : 0.35) : 0.7, ELEMENT_TINT[spell.element]);
+    if (spell.kind === 'bolt') {
+      this.fireBolt(spell, c.spell, c.x, c.z, dx, dz, c.power);
+      return;
+    }
+    const target = pickSpellTarget(this.collectSpellCands(), c.x, c.z, c.yaw, this.lockedEnemy()?.id ?? null);
+    this.spells.cast(spell, { x: c.x, z: c.z, yaw: c.yaw, power: c.power, serial: p.castSerial }, target);
+    switch (spell.kind) {
+      case 'strike':
+        this.sfx.play('spellCast');
+        break;
+      case 'cone':
+        this.sfx.play('spellBlizzard');
+        break;
+      case 'beam':
+        this.sfx.play('spellFlame');
+        this.flameSfx = FLAME_SFX_FRAMES;
+        break;
+      case 'regen':
+        this.sfx.play('spellRegen');
+        this.hitFx.burst(p.body.x, p.y + 0.5, p.body.z, 0, 0, 0.8, FX_TINT.heal);
+        break;
+      default:
+        break; // 旋風は輪が広がるたびに鳴る（onSpellRing）
+    }
+  }
+
+  /** 魔弾を撃つ: 杖の先から、向いている方へまっすぐ。ダメージ・ノックバック・ヒットストップは、撃つ時点の倍率（威力・STR）まで掛けておく（会心は当たったときに抽選） */
+  private fireBolt(spell: BoltSpell, id: SpellId, x: number, z: number, dx: number, dz: number, power: number): void {
+    const p = this.player;
+    const def = SPELL_PROJECTILES[spell.projectile as SpellProjectileId];
+    this.projectiles.spawnBolt(
+      def,
+      id,
+      x + dx * def.muzzle,
+      z + dz * def.muzzle,
+      dx,
+      dz,
+      spell.damage * power * p.damageMul,
+      spell.knockback * (1 + (power - 1) * 0.5) * p.knockbackMul,
+      Math.round(spell.hitStop * power),
+    );
+    this.sfx.play(spell.burst ? 'castBolt3' : 'castBolt');
+  }
+
+  /** 魔弾・魔法の当たりの相手（敵と、まだ壊れていない壊せる物）を作り直す */
+  private collectSpellTargets(): void {
+    const t = this.spellTargets;
+    t.length = 0;
+    for (const e of this.enemySims) t.push(e);
+    for (const b of this.breakables) if (!b.broken) t.push(b);
+  }
+
+  /**
+   * 魔弾の命中と、魔法の効果を 1 ステップ進める（敵の攻撃を解決するより前）。
+   * 魔弾 → 最初に当たった 1 体（命中で爆ぜる魔弾は、その場で範囲のダメージ）、魔法 → SpellSystem（落雷・吹雪・火炎放射・爆発・旋風・再生）
+   */
+  private stepSpells(): void {
+    this.collectSpellTargets();
+    resolveBoltProjectiles(this.projectiles, this.spellTargets, this.player, (ev, target, result, p) => this.onBoltHit(ev, target, result, p), this.onProjectileEndCb, this.critRng);
+    this.spells.step(this.player, this.spellTargets, this.spellHandlers);
+    // 刻みのダメージ数字は敵ごとにまとめて出す
+    if (--this.chipFlush <= 0) {
+      this.chipFlush = CHIP_FLUSH_FRAMES;
+      this.flushChip();
+    }
+    if (this.tickSfx > 0) this.tickSfx--;
+    // 火炎放射の轟音: 放出しているあいだ、0.7 秒おきに重ねて鳴らす（雑音バッファの長さの制約。sfx.ts）
+    if (this.flameSfx > 0 && this.spells.beams.some((b) => !b.ended)) {
+      if (--this.flameSfx === 0) {
+        this.sfx.play('spellFlameLoop');
+        this.flameSfx = FLAME_SFX_FRAMES;
+      }
+    } else {
+      this.flameSfx = 0;
+    }
+    // 再生の印（残り時間）
+    const rg = this.spells.regen;
+    this.hud.setRegen(rg !== null, rg ? 1 - rg.age / rg.spell.frames : 0);
+  }
+
+  private readonly spellHandlers: SpellHandlers<Enemy | Breakable> = {
+    onHit: (ev, target, result, info) => this.onSpellHit(ev, target, result, info),
+    onLand: (fx, point, index) => this.onSpellLand(fx, point, index),
+    onRing: (_fx, ring) => this.onSpellRing(ring),
+    onHeal: (amount) => this.onSpellHeal(amount),
+  };
+
+  /** 魔弾が当たった: ふつうの攻撃と同じ演出（青白の閃光）と、魔弾の弾ける音。大魔弾は命中した所で爆ぜる（直撃した相手には当てない） */
+  private onBoltHit(ev: HitEvent, target: Enemy | Breakable, result: DamageResult, p: Projectile): void {
+    if (target instanceof Breakable) this.onBreakableHit(ev, target, result);
+    else this.onPlayerHit(ev, target, result, false, FX_TINT.arcane);
+    this.sfx.play('boltHit');
+    const burst = p.spell ? BOLT_BURSTS[p.spell] : undefined;
+    if (!burst) return;
+    this.spells.addBurst(burst, ev.x, ev.z, 1, this.player.castSerial, target.body.id);
+    this.sfx.play('boltBurst');
+    this.hitFx.burst(ev.x, HIT_FEEDBACK.impactHeight, ev.z, ev.dirX, ev.dirZ, 1, FX_TINT.arcane);
+  }
+
+  /** 魔法が当たった。壊せる物 → 壊せる物の演出、敵への継続の刻み（chip）→ 軽い演出（数字はまとめて）、ほかの敵への命中 → ふつうの攻撃と同じ演出（系統の色） */
+  private onSpellHit(ev: HitEvent, target: Enemy | Breakable, result: DamageResult, info: SpellHitInfo): void {
+    if (target instanceof Breakable) {
+      this.onBreakableHit(ev, target, result);
+      return;
+    }
+    const tint = ELEMENT_TINT[info.spell.element];
+    if (ev.chip !== true || result.killed) {
+      if (result.killed) this.flushChipOf(target.id);
+      this.onPlayerHit(ev, target, result, false, tint);
+      return;
+    }
+    // 継続の刻み: 小さな火花・間引いた音・数字は敵ごとの合計を、一定の間隔で
+    let s = this.chipSums.get(target.id);
+    if (!s) {
+      s = { x: target.body.x, z: target.body.z, sum: 0, crit: false, height: target.def.height * 0.6 + 0.4 };
+      this.chipSums.set(target.id, s);
+    }
+    s.x = target.body.x;
+    s.z = target.body.z;
+    s.sum += result.dealt;
+    if (ev.crit) s.crit = true;
+    this.hitFx.burst(ev.x, HIT_FEEDBACK.impactHeight, ev.z, ev.dirX, ev.dirZ, 0.22, tint);
+    if (this.tickSfx <= 0) {
+      this.tickSfx = TICK_SFX_FRAMES;
+      this.sfx.play('spellTick', { gain: Math.max(0.5, distanceGain(Math.hypot(target.body.x - this.player.body.x, target.body.z - this.player.body.z))) });
+    }
+  }
+
+  /** 刻みのダメージ数字を、敵ごとの合計で出して空にする */
+  private flushChip(): void {
+    for (const s of this.chipSums.values()) this.damageNumbers.spawn(s.x, s.height, s.z, s.sum, s.crit ? 'crit' : 'light');
+    this.chipSums.clear();
+  }
+
+  /** 1 体ぶんだけ（その敵がとどめを刺されたとき。最後の数字より先に、たまっていた合計を出す） */
+  private flushChipOf(id: number): void {
+    const s = this.chipSums.get(id);
+    if (!s) return;
+    this.damageNumbers.spawn(s.x, s.height, s.z, s.sum, s.crit ? 'crit' : 'light');
+    this.chipSums.delete(id);
+  }
+
+  /** 落雷・爆発（と魔弾の爆ぜる範囲）が着弾した: 音・画面の揺れ・地面の演出。見た目の主体は SpellFx（効果の状態から描く） */
+  private onSpellLand(fx: StrikeFx, point: StrikePoint, index: number): void {
+    const sp = fx.spell;
+    const d = Math.hypot(point.x - this.player.body.x, point.z - this.player.body.z);
+    const gain = Math.max(0.55, distanceGain(d));
+    if (sp.id === 'thunder') {
+      this.sfx.play('spellThunder', { gain: gain * (index === 0 ? 1 : 0.6) });
+      this.cam.shake.trigger(index === 0 ? 0.1 : 0.05, 0.18);
+      this.hitFx.burst(point.x, 1, point.z, 0, 0, index === 0 ? 1 : 0.6, FX_TINT.lightning);
+      this.groundFx.burst(point.x, point.z, index === 0 ? 0.5 : 0.3);
+    } else if (sp.id === 'explosion') {
+      this.sfx.play('spellExplosion', { gain });
+      this.cam.shake.trigger(0.24, 0.35);
+      this.hitFx.burst(point.x, 1.2, point.z, 0, 0, 1.3, FX_TINT.blast);
+      this.groundFx.burst(point.x, point.z, 1.1);
+    }
+  }
+
+  /** 旋風の輪が 1 つ広がり始めた: 風の音（輪が外へ行くほど少し小さく）。最初の輪では画面が揺れる */
+  private onSpellRing(ring: number): void {
+    this.sfx.play('spellRing', { gain: 1 - ring * 0.12 });
+    if (ring === 0) this.cam.shake.trigger(0.07, 0.25);
+  }
+
+  /** 再生の 1 刻み: 体力を回復して、緑の光・回復量の数字（体力が満タンなら何もしない） */
+  private onSpellHeal(amount: number): void {
+    const p = this.player;
+    if (p.dead) return;
+    const healed = p.heal(amount);
+    if (healed <= 0) return;
+    this.hud.setPlayerHp(p.health.hp, p.health.max);
+    this.hitFx.burst(p.body.x, p.y + HIT_FEEDBACK.playerImpactHeight, p.body.z, 0, 0, 0.35, FX_TINT.heal);
+    this.damageNumbers.spawn(p.body.x, p.y + HIT_FEEDBACK.playerImpactHeight + 0.7, p.body.z, healed, 'heal');
+  }
+
+  /** 魔法ボタンの表示（名前・色・レベル）とクールダウン。杖を構えているあいだだけ（毎描画フレーム） */
+  private syncSpellUi(): void {
+    const key = `${this.skills.serial}`;
+    if (key !== this.spellUiKey) {
+      this.spellUiKey = key;
+      this.touch.spells.setSpells(
+        SPELL_SKILL_ORDER.map((id, i) => ({ label: SKILLS[id].short, color: ELEMENT_COLOR[SPELLS[id].element], badge: `Lv${this.skills.level(id)}`, key: String(i + 1) })),
+      );
+    }
+    SPELL_SKILL_ORDER.forEach((id, i) => {
+      const left = this.skills.cooldownLeft(id);
+      this.touch.spells.setCooldown(i, this.skills.cooldownRatio(id), left / 60);
+    });
+  }
+
+  /** 魔法の見た目を、効果の状態から描く（毎描画フレーム）。術者の足元の位置・詠唱中の魔法（足元の魔法陣の色と大きさ）を渡す */
+  private updateSpellFx(alpha: number, frameDt: number): void {
+    const p = this.player;
+    p.getInterpolatedPosition(alpha, _pos);
+    const c = this.fxCaster;
+    c.x = _pos.x;
+    c.y = _pos.y;
+    c.z = _pos.z;
+    const cast = p.casting ? p.attack?.cast : undefined;
+    c.casting = cast ? SPELLS[cast.spell] : null;
+    c.castProgress = p.castProgress;
+    this.spellFx.update(this.spells, alpha, frameDt, c);
   }
 
   // ---------------------------------------------------------------- 壊せる物（M7-4d。ADR-046）・床の危険地帯（M7-4e）
@@ -936,6 +1259,11 @@ export class Game {
     this.seenSkillSerial = p.skillSerial;
     const id = p.lastSkill;
     if (!id) return;
+    // 杖の魔法のクールダウン・名前の文字・音は、魔法を放った瞬間（onCast）。詠唱が潰されたら消費しない
+    if (SKILLS[id].family === 'staff') {
+      this.pendingSpell = null;
+      return;
+    }
     this.skills.start(id, this.mods.skillCooldown);
     this.damageNumbers.spawnText(p.body.x, p.y + 1.95, p.body.z, SKILLS[id].name, 'skill', 1.2);
     this.sfx.play('skillStart');
@@ -944,6 +1272,11 @@ export class Game {
   /** スキルボタンの表示（いま選んでいるもの・一覧）とクールダウンの扇を合わせる。装備を替えると系統が替わって一覧も替わる */
   private syncSkillUi(): void {
     const fam = this.player.loadout.weapon;
+    if (fam === 'staff') {
+      this.syncSpellUi();
+      this.touch.item.setCooldown(this.inventory.cooldown / ITEMS[this.inventory.selected].cooldownFrames);
+      return;
+    }
     const key = `${fam}:${this.skills.serial}`;
     if (key !== this.skillUiKey) {
       this.skillUiKey = key;
@@ -1008,7 +1341,7 @@ export class Game {
   private onProjectileEnd(p: Projectile, reason: ProjectileEnd): void {
     if (reason === 'clear' || reason === 'hit' || reason === 'guard') return;
     const cut = reason === 'cut';
-    this.hitFx.burst(p.x, PROJECTILE_HEIGHT, p.z, p.dirX, p.dirZ, cut ? 0.55 : 0.3, p.team === 'player' ? FX_TINT.parry : FX_TINT.orb);
+    this.hitFx.burst(p.x, PROJECTILE_HEIGHT, p.z, p.dirX, p.dirZ, cut ? 0.55 : 0.3, p.team === 'player' ? FX_TINT.parry : p.team === 'bolt' ? FX_TINT.arcane : FX_TINT.orb);
     this.sfx.play('orbBreak', { gain: cut ? 1 : 0.6 });
     if (cut) this.hitStop.trigger(2);
   }
@@ -1053,6 +1386,7 @@ export class Game {
     const before = this.player.loadout.id;
     if (!this.player.equip(id)) return false;
     this.touch.setEquipLabel(LOADOUTS[id].name);
+    this.syncWeaponUi();
     this.refreshMoveList();
     if (id !== before) {
       this.applyGrowth(); // 武器の系統が変わると、系統つきのパッシブ（剣術習熟・剛力習熟）の効きが変わる
@@ -1081,7 +1415,7 @@ export class Game {
     const c = this.guideCtx;
     c.state = p.state;
     c.moveset = p.loadout.moveset;
-    c.chargeId = p.loadout.charge;
+    c.chargeId = p.loadout.charge ?? '';
     c.attackId = p.attack?.id ?? null;
     c.trail = p.chain;
     c.frame = p.stateFrame;
@@ -1116,6 +1450,7 @@ export class Game {
       intent.itemCycle = 0;
       intent.skillPressed = false;
       intent.skillCycle = 0;
+      intent.spellPressed = -1;
     }
     // アイテム: 選択の切替（キーボード）・使い直しの待ち・使用
     if (intent.itemCycle !== 0) this.inventory.cycle(intent.itemCycle);
@@ -1129,6 +1464,9 @@ export class Game {
     this.player.buffBonus = this.killBuff.bonus(this.mods.killBuff);
     this.syncBuffUi();
     if (intent.skillPressed) this.useSkill();
+    // 杖の魔法: 押したら詠唱を頼む（始められる状態になるまで短く待つ）。クールダウンは魔法を放った瞬間から数える
+    if (intent.spellPressed >= 0) this.pressSpell(intent.spellPressed);
+    this.stepPendingSpell();
     // 装備の切替（立っている・走っているあいだだけ）
     if (intent.equipPressed) this.cycleLoadout();
 
@@ -1172,6 +1510,7 @@ export class Game {
 
     this.player.step(dt, intent, this.cam.yaw);
     if (this.player.skillSerial !== this.seenSkillSerial) this.onSkillStart();
+    if (this.player.castSerial !== this.seenCastSerial) this.onCast();
     this.soundPlayerState();
     this.onGroundImpact();
 
@@ -1189,6 +1528,8 @@ export class Game {
     resolvePlayerAttack(this.player, this.enemySims, (ev, enemy, result, riposte) => this.onPlayerHit(ev, enemy, result, riposte), this.critRng);
     this.hitBreakables();
     cutProjectiles(this.projectiles, this.player, this.onProjectileEndCb);
+    // 杖: 魔弾の命中と、魔法（落雷・吹雪・火炎放射・爆発・旋風・再生）の効果。敵の攻撃より先に解決する（近接の攻撃と同じ約束）
+    this.stepSpells();
     resolveEnemyAttacks(this.enemySims, this.player, (ev, _enemy, result) => this.onEnemyHit(ev, result), {
       onGuard: (ev, _enemy, result) => this.onEnemyGuarded(ev, result),
       onParry: (ev, enemy, fx) => this.onEnemyParried(ev, enemy, fx),
@@ -1389,6 +1730,11 @@ export class Game {
     this.circles.clear();
     this.projectiles.clear();
     this.projectileFx.clear();
+    this.spells.clear();
+    this.spellFx.clear();
+    this.pendingSpell = null;
+    this.chipSums.clear();
+    this.seenCastSerial = this.player.castSerial;
     this.swordTrail.clear();
     this.damageNumbers.clear();
     this.hud.hideResult();
@@ -1431,6 +1777,7 @@ export class Game {
     this.lanes.update(this.enemySims, frameDt);
     this.circles.update(this.enemySims);
     this.projectileFx.update(this.projectiles, enemyAlpha, enemyAnimDt);
+    this.updateSpellFx(alpha, frameDt);
     if (draw) this.post.render();
     this.damageNumbers.update(this.cam.camera, frameDt, this.host.width, this.host.height);
     const locked = this.lockedEnemy();

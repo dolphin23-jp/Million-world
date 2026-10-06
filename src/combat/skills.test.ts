@@ -6,6 +6,9 @@ import { SKILL_ATTACKS, findAttack } from './data/skill-attacks';
 
 const SWORD = SKILL_ORDER.filter((id) => SKILLS[id].family === 'sword');
 const GREAT = SKILL_ORDER.filter((id) => SKILLS[id].family === 'greatsword');
+/** 杖の魔法（ADR-048）。剣技のような進化・多段の連なりは無い（1 つの詠唱 = 1 つの魔法）ので、剣技の約束を確かめるテストからは外す */
+const STAFF = SKILL_ORDER.filter((id) => SKILLS[id].family === 'staff');
+const MELEE = SKILL_ORDER.filter((id) => SKILLS[id].family !== 'staff');
 
 const LEVELS = Array.from({ length: SKILL_LEVEL_MAX }, (_, i) => i + 1);
 /** そのスキルがレベル lv で使う連なり（進化の差し替え後の攻撃 id） */
@@ -21,12 +24,14 @@ const allAttackIds = (id: SkillId): string[] => {
 };
 
 describe('スキルのデータの整合', () => {
-  it('武器の系統ごとの剣技の数（第 2 弾のあと。ADR-038）: 片手剣 6・大剣 5。名前（一覧）の順は系統ごとにまとまる', () => {
+  it('武器の系統ごとのスキルの数（剣技は第 2 弾のあと。ADR-038）: 片手剣 6・大剣 5・杖の魔法 6。名前（一覧）の順は系統ごとにまとまる', () => {
     expect(SWORD.length).toBe(6);
     expect(GREAT.length).toBe(5);
-    // 一覧（SKILL_ORDER）は片手剣が先、大剣があと（系統の途中で入れ替わらない）
-    const fam = SKILL_ORDER.map((id) => SKILLS[id].family);
-    expect(fam.join()).toBe([...fam].sort((a, b) => (a === b ? 0 : a === 'sword' ? -1 : 1)).join());
+    expect(STAFF.length).toBe(6);
+    // 一覧（SKILL_ORDER）は片手剣 → 大剣 → 杖の順（系統の途中で入れ替わらない）
+    const rank = { sword: 0, greatsword: 1, staff: 2 } as const;
+    const fam = SKILL_ORDER.map((id) => rank[SKILLS[id].family]);
+    expect(fam.join()).toBe([...fam].sort((a, b) => a - b).join());
   });
 
   it('id・名前は重複せず、ボタンに出す短い表記は 4 文字まで', () => {
@@ -209,7 +214,7 @@ describe('skillSteps: レベルで連なりが伸びる', () => {
 
 describe('剣技の進化（Lv4 と Lv7 だけ。ADR-034・038）', () => {
   it('モーション（連なりの攻撃 id）が変わるのは Lv3→4 と Lv6→7 の 2 回だけ。そのほかのレベルアップでは同じ連なりで数値だけが伸びる', () => {
-    for (const id of SKILL_ORDER) {
+    for (const id of MELEE) {
       const changed: number[] = [];
       for (let lv = 2; lv <= SKILL_LEVEL_MAX; lv++) {
         if (chainAt(id, lv).join() !== chainAt(id, lv - 1).join()) changed.push(lv);
@@ -258,7 +263,7 @@ describe('剣技の進化（Lv4 と Lv7 だけ。ADR-034・038）', () => {
 
   it('進化のたびに、当たり（窓の数 + 段）は減らない = 進化は必ず「増える・派手になる」', () => {
     const hits = (id: SkillId, lv: number): number => chainAt(id, lv).reduce((n, a) => n + (findAttack(a)!.windows?.length ?? 1), 0);
-    for (const id of SKILL_ORDER) {
+    for (const id of MELEE) {
       expect(hits(id, 4), id).toBeGreaterThanOrEqual(hits(id, 1));
       expect(hits(id, 7), id).toBeGreaterThanOrEqual(hits(id, 4));
       expect(hits(id, 7), id).toBeGreaterThan(hits(id, 1));
@@ -266,7 +271,7 @@ describe('剣技の進化（Lv4 と Lv7 だけ。ADR-034・038）', () => {
   });
 
   it('進化の説明（evolutions）は Lv4 と Lv7 の 2 件', () => {
-    for (const id of SKILL_ORDER) {
+    for (const id of MELEE) {
       const ev = SKILLS[id].evolutions;
       expect(ev, id).toBeDefined();
       expect(ev!.map((e) => e.level)).toEqual([4, 7]);

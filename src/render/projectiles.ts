@@ -7,13 +7,15 @@ import { addOutline } from './toon';
 /**
  * 飛び道具（鬼火。ADR-026）の描画。sim は src/combat/projectile.ts、ここは描くだけ。
  * 鬼火のかたち: 白い核の球 + 後ろへ尾を引く炎（円錐。ベタ塗りのトゥーン調）+ 球の輪郭線 + 加算のにじみ（ブルームに乗る）+ 床に落ちる光（奥行きの目印）。
- * 敵の弾は紫、パリィで弾き返した弾は水色（パリィの閃光と同じ色。「自分の弾になった」が読める）。
+ * 敵の弾は紫、パリィで弾き返した弾は水色（パリィの閃光と同じ色。「自分の弾になった」が読める）、杖の魔弾は青白（核の大きさは弾の半径に比例）。
  * 枠はプール（MAX 個を最初に作って使い回す）。ヒットストップ中は animDt が 0 で、尾のゆらぎも止まる。
  */
 
 const COLORS = {
   enemy: { core: 0xd9c9ff, flame: 0x8f6bff, halo: 0x9a78ff, outline: 0x2a1458 },
   player: { core: 0xcff4ff, flame: 0x5fd8ff, halo: 0x7fe8ff, outline: 0x0d4a63 },
+  /** 杖の魔弾（ADR-048）: 白い核・やわらかい青の尾（弾き返した水色の弾より青く、深い） */
+  bolt: { core: 0xffffff, flame: 0x6f9bff, halo: 0x9fc0ff, outline: 0x1a2f78 },
 } as const;
 
 /** 核の見た目の半径に対する当たりの半径の比（当たりのほうが少し大きい = 光の縁がかすったように見える） */
@@ -64,8 +66,12 @@ export class ProjectileRenderer {
   private readonly slots: Slot[] = [];
   private time = 0;
 
+  /** 核の大きさの基準になる弾の半径（鬼火。ほかの弾はこの半径との比で大きさが変わる） */
+  private readonly baseRadius: number;
+
   constructor(count: number, radius: number) {
     this.group.name = 'projectiles';
+    this.baseRadius = radius;
     const coreR = radius * CORE_RATIO;
     const coreGeo = new THREE.SphereGeometry(coreR, 14, 10);
     // 尾: 底が核の中心、先が −Z（飛ぶ向きの後ろ）の円錐
@@ -128,7 +134,7 @@ export class ProjectileRenderer {
       // 撃たれた直後は小さく、膨らんで収まる。弾き返した直後は一瞬大きく光る
       const born = Math.min(1, (p.age + alpha) / BIRTH_FRAMES);
       const pulse = 1 + 0.08 * Math.sin(this.time * 24 + i);
-      const scale = (0.45 + 0.55 * born) * pulse;
+      const scale = (0.45 + 0.55 * born) * pulse * (p.def.radius / this.baseRadius);
       s.root.scale.setScalar(scale);
       // 尾のゆらぎ（長さと太さ）。弾き返した弾は速いので尾が長い
       const flick = 1 + 0.22 * Math.sin(this.time * 31 + i * 2.3);

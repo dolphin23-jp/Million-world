@@ -1,4 +1,5 @@
-import { ATTACKS, CHARGES, type AttackDef, type ChargeDef } from './data/attacks';
+import { CHARGES, type AttackDef, type ChargeDef } from './data/attacks';
+import { MOVE_ATTACKS } from './data/spell-attacks';
 import { moveName } from './data/move-names';
 import type { Moveset } from './data/moveset';
 import { pickAttack, pickChargeRelease, pickFollowUp, type AfterDodge, type StickDir } from './moveset';
@@ -89,7 +90,7 @@ export interface GuideData {
   name: (id: string) => string;
 }
 
-const DEFAULT_DATA: GuideData = { attacks: ATTACKS, charges: CHARGES, name: moveName };
+const DEFAULT_DATA: GuideData = { attacks: MOVE_ATTACKS, charges: CHARGES, name: moveName };
 
 const NO_WINDOW: GuideWindow = { phase: 'none', amount: 0, queued: false };
 

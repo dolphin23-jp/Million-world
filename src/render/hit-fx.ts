@@ -113,6 +113,12 @@ export const FX_TINT = {
   wood: new THREE.Color(1, 0.78, 0.45),
   /** 炎の床で燃えたときの閃光（橙） */
   fire: new THREE.Color(1, 0.55, 0.2),
+  /** 杖の魔法（ADR-048）: 魔弾（青白）・雷（黄白）・吹雪（氷の水色）・爆発（橙の白）・旋風（淡い緑白） */
+  arcane: new THREE.Color(0.65, 0.8, 1),
+  lightning: new THREE.Color(1, 0.96, 0.55),
+  ice: new THREE.Color(0.7, 0.93, 1),
+  blast: new THREE.Color(1, 0.7, 0.35),
+  wind: new THREE.Color(0.75, 1, 0.88),
 } as const;
 
 export class HitFx {

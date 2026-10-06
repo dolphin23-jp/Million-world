@@ -41,5 +41,20 @@ export const PROJECTILES = {
 
 export type ProjectileId = keyof typeof PROJECTILES;
 
+/** 弾き返されない弾（プレイヤーの魔弾）の reflect の埋め草。team 'bolt' は弾き返しの対象にならず、値は使われない */
+const NO_REFLECT = { speedScale: 1, damage: 0, knockback: 0, hitStop: 0, lifetimeFrames: 1 } as const;
+
+/**
+ * プレイヤーの魔弾（杖。ADR-048）。敵の弾（PROJECTILES）とは別の表（敵の攻撃データが魔弾を指さないように）。
+ * damage / knockback / hitStop は魔法の定義（data/spells.ts の BoltSpell）が持つので、ここは飛び方と大きさ（見た目の核の大きさにも使う）だけ。
+ * 速さは敵の鬼火（9 m/s）より速く、走りながら当てやすい。射程 = speed × lifetimeFrames / 60。
+ */
+export const SPELL_PROJECTILES = {
+  arcaneBolt: { id: 'arcaneBolt', speed: 17, radius: 0.28, lifetimeFrames: 48, damage: 0, knockback: 0, hitStop: 0, muzzle: 0.9, reflect: NO_REFLECT },
+  arcaneBolt3: { id: 'arcaneBolt3', speed: 13, radius: 0.5, lifetimeFrames: 58, damage: 0, knockback: 0, hitStop: 0, muzzle: 0.9, reflect: NO_REFLECT },
+} as const satisfies Record<string, ProjectileDef>;
+
+export type SpellProjectileId = keyof typeof SPELL_PROJECTILES;
+
 /** 弾の見た目の高さ（m）。当たりは XZ の円で、高さは描画だけに使う */
 export const PROJECTILE_HEIGHT = 1.1;

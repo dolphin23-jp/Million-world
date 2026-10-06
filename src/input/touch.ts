@@ -1,6 +1,7 @@
 import type { InputIntent, InputSource } from './intent';
 import { TOUCH } from './data/touch';
 import { SlotButton } from './slot-button';
+import { SpellButtons } from './spell-buttons';
 
 /**
  * タッチ入力（docs/04-controls.md）。
@@ -23,6 +24,7 @@ interface Elements {
   btnLock: HTMLElement;
   btnItem: HTMLElement;
   btnSkill: HTMLElement;
+  spellGrid: HTMLElement;
 }
 
 function q<T extends HTMLElement>(id: string): T {
@@ -65,6 +67,8 @@ export class TouchInput implements InputSource {
   private lockEdge = false;
   private itemEdge = false;
   private skillEdge = false;
+  /** 杖の魔法ボタンの押下エッジ（ボタンの番号。押していなければ -1。ADR-048） */
+  private spellEdge = -1;
   /**
    * アイテム欄（ADR-030）。タップは使用の入力（itemPressed）、一覧から選ぶのは UI の操作なので onChoose で呼ぶ側へ直接知らせる。
    * 表示（setFace）と一覧（setOptions）は Game が教える。スキル欄を足すときは、同じ SlotButton をもう 1 つ作る
@@ -75,6 +79,8 @@ export class TouchInput implements InputSource {
   /** スキル欄（ADR-031）。アイテム欄と同じ部品。タップは使用の入力（skillPressed）、一覧から選ぶのは onSkillChoose */
   readonly skill: SlotButton;
   onSkillChoose: ((id: string) => void) | null = null;
+  /** 杖の魔法ボタン（ADR-048）。全部の魔法を並列に並べる。押したら詠唱を頼む（spellPressed）。何を並べるか・クールダウンは Game が教える */
+  readonly spells: SpellButtons;
 
   constructor() {
     this.el = {
@@ -91,6 +97,7 @@ export class TouchInput implements InputSource {
       btnLock: q('btn-lock'),
       btnItem: q('btn-item'),
       btnSkill: q('btn-skill'),
+      spellGrid: q('spell-grid'),
     };
     this.bindStick();
     this.bindCamera();
@@ -126,6 +133,13 @@ export class TouchInput implements InputSource {
       onTap: () => (this.skillEdge = true),
       onChoose: (id) => this.onSkillChoose?.(id),
     });
+    this.spells = new SpellButtons(this.el.spellGrid);
+    this.spells.onPress = (i) => (this.spellEdge = i);
+  }
+
+  /** 装備している武器の系統（ボタンの出し分け: 杖のときは魔法の並列ボタンが出て、ガード・スキル欄が隠れる。CSS の [data-weapon]） */
+  setWeapon(weapon: string): void {
+    this.el.layer.dataset.weapon = weapon;
   }
 
   /** 装備の切替ボタンの表示を今の装備名にする（入力層はロジックを知らないので外から教える） */
@@ -156,6 +170,7 @@ export class TouchInput implements InputSource {
     if (this.lockEdge) intent.lockPressed = true;
     if (this.itemEdge) intent.itemPressed = true;
     if (this.skillEdge) intent.skillPressed = true;
+    if (this.spellEdge >= 0) intent.spellPressed = this.spellEdge;
     if (this.switchEdge !== 0) intent.lockSwitch = this.switchEdge;
   }
 
@@ -168,6 +183,7 @@ export class TouchInput implements InputSource {
     this.lockEdge = false;
     this.itemEdge = false;
     this.skillEdge = false;
+    this.spellEdge = -1;
     this.switchEdge = 0;
   }
 

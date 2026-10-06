@@ -153,6 +153,11 @@ export class SkillBook {
     return this.cooldown[id] <= 0;
   }
 
+  /** クールダウンの残り（sim フレーム。使える = 0） */
+  cooldownLeft(id: SkillId): number {
+    return Math.max(0, this.cooldown[id]);
+  }
+
   /** クールダウンの残りの割合（1 = 使った直後、0 = 使える） */
   cooldownRatio(id: SkillId): number {
     return this.cooldownMax[id] > 0 ? Math.max(0, this.cooldown[id] / this.cooldownMax[id]) : 0;
@@ -164,10 +169,18 @@ export class SkillBook {
    */
   prepare(family: WeaponId, powerScale = 1): SkillRun | null {
     const def = this.selectedFor(family);
-    if (!def || !this.ready(def.id)) return null;
-    const steps = skillSteps(def, this.levels[def.id]);
+    return def ? this.prepareById(def.id, powerScale) : null;
+  }
+
+  /**
+   * スキルを id で指定して、連なりを作る（杖の魔法は、全部を画面に並列のボタンで並べて、押したものをそのまま使う。選択を介さない。ADR-048）。
+   * 未習得・クールダウン中なら null。ここではクールダウンに入らない
+   */
+  prepareById(id: SkillId, powerScale = 1): SkillRun | null {
+    if (this.levels[id] < 1 || !this.ready(id)) return null;
+    const steps = skillSteps(SKILLS[id], this.levels[id]);
     if (powerScale !== 1) for (const st of steps) st.power *= powerScale;
-    return steps.length > 0 ? { skill: def.id, steps } : null;
+    return steps.length > 0 ? { skill: id, steps } : null;
   }
 
   /** 使った: クールダウンに入る（cooldownScale は INT などによる倍率） */

@@ -1,4 +1,5 @@
 import { ATTACKS, type AttackDef, type HitWindow } from './attacks';
+import { SPELL_ATTACKS } from './spell-attacks';
 import {
   FLURRY,
   FLURRY5,
@@ -407,7 +408,7 @@ SKILL_ATTACKS.skGsIssenLunge = {
 // 剣技の第 2 弾（ADR-038）
 Object.assign(SKILL_ATTACKS, SKILL_ATTACKS_EX);
 
-/** 攻撃 id から定義を探す（ふつうの攻撃 → 剣技専用の攻撃の順） */
+/** 攻撃 id から定義を探す（ふつうの攻撃 → 剣技専用の攻撃 → 杖の詠唱の順） */
 export function findAttack(id: string): AttackDef | undefined {
-  return ATTACKS[id] ?? SKILL_ATTACKS[id];
+  return ATTACKS[id] ?? SKILL_ATTACKS[id] ?? SPELL_ATTACKS[id];
 }

@@ -56,6 +56,11 @@ export interface HitEvent {
   z: number;
   /** 会心（プレイヤーの攻撃のみ。ADR-035）。会心のときだけ true で付く（付かなければ通常の命中） */
   crit?: true;
+  /**
+   * 継続の 1 刻み（杖の吹雪・火炎放射。ADR-048）。ダメージと小さなノックバックだけで、ひるませない（体勢ゲージは削る）。
+   * ひるむ敵が刻みのたびに動けなくなって、放射がずっと敵を封じるのを避ける。付くときだけ true
+   */
+  chip?: true;
 }
 
 /** 円 target がヒットボックスに当たっているか */
@@ -144,7 +149,7 @@ export function makeHitEvent(
   attackerId: number,
   origin: HitOrigin,
   target: Circle & { id: number },
-  hit: { damage: number; knockback: number; hitStop: number; crit?: boolean },
+  hit: { damage: number; knockback: number; hitStop: number; crit?: boolean; chip?: boolean },
 ): HitEvent {
   let dx = target.x - origin.x;
   let dz = target.z - origin.z;
@@ -168,5 +173,6 @@ export function makeHitEvent(
     x: target.x - dx * target.r,
     z: target.z - dz * target.r,
     ...(hit.crit ? { crit: true as const } : {}),
+    ...(hit.chip ? { chip: true as const } : {}),
   };
 }

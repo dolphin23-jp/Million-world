@@ -1,4 +1,5 @@
-import { ATTACKS, CHARGES } from './data/attacks';
+import { CHARGES } from './data/attacks';
+import { MOVE_ATTACKS } from './data/spell-attacks';
 import { moveName } from './data/move-names';
 import type { Moveset } from './data/moveset';
 import type { GuideData } from './move-guide';
@@ -37,7 +38,7 @@ function follow(id: string, data: GuideData, cycle: readonly string[]): MoveNode
   return out;
 }
 
-export function buildMoveTree(moveset: Moveset, chargeId: string, data: GuideData = { attacks: ATTACKS, charges: CHARGES, name: moveName }): MoveNode[] {
+export function buildMoveTree(moveset: Moveset, chargeId: string | null, data: GuideData = { attacks: MOVE_ATTACKS, charges: CHARGES, name: moveName }): MoveNode[] {
   const root = (input: string, id: string, needsLock = false, note: string | null = null): MoveNode => ({ input, needsLock, name: data.name(id), note, children: follow(id, data, [id]) });
   const nodes: MoveNode[] = [
     root('攻撃', moveset.light),
@@ -47,7 +48,7 @@ export function buildMoveTree(moveset: Moveset, chargeId: string, data: GuideDat
     root('ロール直後 + 攻撃', moveset.dashRoll),
     root('後ろステップ直後 + 攻撃', moveset.dashBack),
   ];
-  const c = data.charges[chargeId];
+  const c = chargeId === null ? undefined : data.charges[chargeId];
   if (c) {
     nodes.push(root('攻撃を長押し → 離す', c.next, false, '溜めるほど強い'));
     // 段階で技が変わるもの（最大まで溜めたときの技など）

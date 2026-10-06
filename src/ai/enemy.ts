@@ -374,8 +374,10 @@ export class Enemy {
       this.breakPoise(ev);
       return r;
     }
-    const holds = !r.killed && (staggered || (this.armored && ev.damage < armor.armorBreakDamage));
-    const scale = this.def.knockbackScale * (staggered ? 1 : holds ? armor.armorKnockbackScale : 1);
+    // 継続の刻み（chip。杖の吹雪・火炎放射）はひるませない。ノックバックも体勢ゲージの削りも、ふつうの命中と同じ
+    const chip = ev.chip === true;
+    const holds = !r.killed && (staggered || chip || (this.armored && ev.damage < armor.armorBreakDamage));
+    const scale = this.def.knockbackScale * (staggered || chip ? 1 : holds ? armor.armorKnockbackScale : 1);
     this.knockback.start(ev.dirX, ev.dirZ, ev.knockback * scale, this.def.knockbackFrames);
     if (r.killed) {
       this.body.invulnerable = true;

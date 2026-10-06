@@ -30,6 +30,8 @@ export interface InputIntent {
   /** スキルボタンの押下エッジ（選んでいるスキルを使う。ADR-031）と、選択の切替（キーボード用）。Game が扱う */
   skillPressed: boolean;
   skillCycle: number;
+  /** 杖の魔法ボタンの押下エッジ（並列に並べたボタンの番号 0〜。押していなければ -1。ADR-048）。Game が扱う */
+  spellPressed: number;
   /** ロックオン対象切替（-1 左 / +1 右 / 0 なし） */
   lockSwitch: number;
 }
@@ -52,6 +54,7 @@ export function createEmptyIntent(): InputIntent {
     itemCycle: 0,
     skillPressed: false,
     skillCycle: 0,
+    spellPressed: -1,
     lockSwitch: 0,
   };
 }
@@ -91,6 +94,7 @@ export class InputAggregator {
     it.itemCycle = 0;
     it.skillPressed = false;
     it.skillCycle = 0;
+    it.spellPressed = -1;
     it.lockSwitch = 0;
     for (const s of this.sources) s.collect(it);
     const len = Math.hypot(it.moveX, it.moveY);

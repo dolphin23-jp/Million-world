@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { ATTACKS, CHARGES } from './attacks';
+import { CHARGES } from './attacks';
+import { MOVE_ATTACKS } from './spell-attacks';
 import { GUARDS, PARRY_EFFECTS } from './guard';
 import { DEFAULT_LOADOUT, LOADOUTS, LOADOUT_ORDER, isLoadoutId, nextLoadout } from './loadouts';
 import { AuthoredSampler, type AuthoredAttack } from '../../character/authoring';
@@ -37,11 +38,16 @@ describe('ロードアウト（素手が標準・盾は装備。ADR-020）', () 
     for (const v of ['', 'greatsword?', 'toString', '__proto__', null, undefined, 3]) expect(isLoadoutId(v)).toBe(false);
   });
 
-  it('技のセット・溜め・ガードはすべて実在する（ATTACKS / CHARGES / AUTHORED_ATTACKS）', () => {
+  it('技のセット・溜め・ガードはすべて実在する（MOVE_ATTACKS / CHARGES / AUTHORED_ATTACKS）', () => {
     for (const l of Object.values(LOADOUTS)) {
-      for (const [slot, id] of Object.entries(l.moveset)) expect(ATTACKS[id], `${l.id}.${slot}`).toBeDefined();
-      expect(CHARGES[l.charge], `${l.id}.charge`).toBeDefined();
+      for (const [slot, id] of Object.entries(l.moveset)) expect(MOVE_ATTACKS[id], `${l.id}.${slot}`).toBeDefined();
+      // 杖（ADR-048）は溜めもガードも持たない（null）。ほかは両方ある
+      if (l.charge !== null) expect(CHARGES[l.charge], `${l.id}.charge`).toBeDefined();
       const g = l.guard;
+      if (g === null) {
+        expect(l.weapon, l.id).toBe('staff');
+        continue;
+      }
       expect(g, l.id).toBe(GUARDS[g.id]);
       for (const [slot, clip] of Object.entries(g.clips)) expect(AUTHORED_ATTACKS[clip.name], `${l.id}.guard.${slot}`).toBe(clip);
     }
@@ -49,18 +55,19 @@ describe('ロードアウト（素手が標準・盾は装備。ADR-020）', () 
 
   it('盾の有無と、ガード・クリップの版・走る速さが対応している（大剣は両手持ちで盾は持たず、大剣版のクリップ・専用のガード・重さで遅い）', () => {
     for (const l of Object.values(LOADOUTS)) {
+      if (l.weapon === 'staff') continue; // 杖は別の項（下）
       if (l.weapon === 'greatsword') {
         expect(l.offhand).toBe('none');
-        expect(l.guard.id).toBe('greatsword');
+        expect(l.guard!.id).toBe('greatsword');
         expect(l.clipVariant).toBe(GREATSWORD_VARIANT);
         expect(l.runSpeedScale).toBeLessThan(1);
         expect(l.charge).toBe('greatsword');
       } else if (l.offhand === 'shield') {
-        expect(l.guard.id).toBe('shield');
+        expect(l.guard!.id).toBe('shield');
         expect(l.clipVariant).toBe(SHIELD_VARIANT);
         expect(l.runSpeedScale).toBeLessThan(1); // 盾の重さ
       } else {
-        expect(l.guard.id).toBe('sword');
+        expect(l.guard!.id).toBe('sword');
         expect(l.clipVariant).toBe('');
         expect(l.runSpeedScale).toBe(1);
       }

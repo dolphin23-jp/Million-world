@@ -1,6 +1,7 @@
 import type { Circle } from '../world/collision';
 import { createRayHit, type World } from '../world/world';
 import { PROJECTILES, PROJECTILE_HEIGHT, type ProjectileDef, type ProjectileId } from './data/projectiles';
+import type { SpellId } from './data/spells';
 
 /**
  * 飛び道具（鬼火など）の sim（ADR-026）。three にも DOM にも依存しない純粋なデータと関数。
@@ -20,8 +21,11 @@ export type ProjectileWorld = Pick<World, 'radius' | 'raycast'>;
 
 const WALL_HIT = createRayHit();
 
-/** 弾の持ち主の陣営。enemy = 敵の弾（プレイヤーに当たる）、player = パリィで弾き返した弾（敵に当たる） */
-export type ProjectileTeam = 'enemy' | 'player';
+/**
+ * 弾の持ち主の陣営。enemy = 敵の弾（プレイヤーに当たる）、player = パリィで弾き返した弾（敵に当たる。反撃の扱い）、
+ * bolt = 杖の魔弾（敵に当たる。ふつうの攻撃の扱い。弾き返しの対象にならず、プレイヤーの攻撃で斬り落とされない。ADR-048）
+ */
+export type ProjectileTeam = 'enemy' | 'player' | 'bolt';
 
 /** 消えた理由。expire = 寿命、wall = アリーナの縁・障害物に当たった、hit = 当たった、guard = 受け止められた、cut = 斬り落とされた、clear = 戦闘のやり直し */
 export type ProjectileEnd = 'expire' | 'wall' | 'hit' | 'guard' | 'cut' | 'clear';
@@ -51,6 +55,8 @@ export interface Projectile {
   lifetime: number;
   /** 弾き返されるたびに増える（見た目が色を替えるため） */
   reflectSerial: number;
+  /** 魔弾（team 'bolt'）の魔法 id（命中で爆ぜるかを Game が引く）。それ以外は null */
+  spell: SpellId | null;
   end: ProjectileEnd | null;
 }
 
@@ -79,6 +85,7 @@ export class ProjectileSystem {
         age: 0,
         lifetime: 0,
         reflectSerial: 0,
+        spell: null,
         end: null,
       });
     }
@@ -122,7 +129,22 @@ export class ProjectileSystem {
     p.age = 0;
     p.lifetime = def.lifetimeFrames;
     p.reflectSerial = 0;
+    p.spell = null;
     p.end = null;
+    return p;
+  }
+
+  /**
+   * 魔弾を撃つ（杖。ADR-048）。damage / knockback / hitStop は、撃つ時点の倍率（威力・STR）まで掛けた値（会心は当たったときに抽選する）。
+   * 弾き返されない（reflect のダミーは使われない）。プール 1 つを敵の弾と共有する（満杯なら一番古い弾を消す）
+   */
+  spawnBolt(def: ProjectileDef, spell: SpellId, x: number, z: number, dirX: number, dirZ: number, damage: number, knockback: number, hitStop: number): Projectile {
+    const p = this.spawn(def, 0, x, z, dirX, dirZ);
+    p.team = 'bolt';
+    p.spell = spell;
+    p.damage = damage;
+    p.knockback = knockback;
+    p.hitStop = hitStop;
     return p;
   }
 

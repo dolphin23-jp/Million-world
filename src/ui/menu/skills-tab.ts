@@ -23,8 +23,8 @@ export interface SkillsTabDeps {
   onChange: () => void;
 }
 
-const FAMILY_NAME: Record<WeaponId, string> = { sword: '片手剣', greatsword: '大剣' };
-const FAMILIES: readonly WeaponId[] = ['sword', 'greatsword'];
+const FAMILY_NAME: Record<WeaponId, string> = { sword: '片手剣', greatsword: '大剣', staff: '杖（魔法）' };
+const FAMILIES: readonly WeaponId[] = ['sword', 'greatsword', 'staff'];
 
 interface PassiveCard {
   id: PassiveId;
