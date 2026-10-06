@@ -85,7 +85,7 @@ export const GS1: AuthoredAttack = {
 };
 
 /** 2 段目の溜め: 1 段目の振り抜き（左の前下）からさらに左へ引き込んで腰を沈め、体を左へ巻く。剣は左へ水平に近く寝かせる（切っ先は床の上） */
-const COIL2 = {
+export const COIL2 = {
   hips: { yaw: -22, pitch: 8, z: 0.03, y: -0.24 },
   chest: { yaw: -44, pitch: 12 },
   head: { yaw: -14 },
@@ -96,7 +96,7 @@ const COIL2 = {
 };
 
 /** 逆袈裟の途中（体の前を通る最高速）: 左下から上へ。腰・胸は正面に戻り、剣が前を通る */
-const PASS2 = {
+export const PASS2 = {
   hips: { yaw: 0, pitch: 7, z: 0.05, y: -0.2 },
   chest: { yaw: 2, pitch: 10 },
   head: { yaw: 0 },

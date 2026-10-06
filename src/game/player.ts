@@ -57,8 +57,8 @@ const ARMOR_INVULN_FRAMES = 24;
 /** ガードを押してから、構えに入れる状況になるまで待てるフレーム（先行入力。攻撃の硬直中などに押しても構えられる） */
 const GUARD_BUFFER_FRAMES = 12;
 
-/** 連携の履歴（Player.chain）に残す技の数 */
-const MAX_CHAIN = 6;
+/** 連携の履歴（Player.chain）に残す技の数。片手剣の最長の連携（7 連。ADR-047）より長くしておく */
+const MAX_CHAIN = 8;
 /** 構えているあいだの向き直りの速さ（走るときの旋回速度に対する倍率） */
 const GUARD_TURN_SCALE = 0.6;
 

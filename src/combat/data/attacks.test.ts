@@ -437,11 +437,11 @@ describe('コンボの分岐（スティックの向きで続きが変わる。A
     }
   });
 
-  it('普通の続き（next）を奪わない: next のある技の分岐は、前（forward）以外の向き（横・後ろ）だけ。next の無い技（コンボの終わり）は、前へ倒したときだけ延長する', () => {
+  it('普通の続き（next）を奪わない: next のある技の分岐は、前（forward）以外の向き（横・後ろ）だけ。next の無い技（連携の終わり）は、そのまま押すだけでは終わり、前・横・後ろのどれかへ倒したときだけ延長する（ADR-047）', () => {
     for (const a of sources) {
       const dirs = Object.keys(a.branches!);
       if (a.next) expect(dirs, a.id).not.toContain('forward');
-      else expect(dirs, a.id).toEqual(['forward']);
+      else expect(dirs.length, a.id).toBeGreaterThan(0);
     }
   });
 
@@ -495,8 +495,8 @@ describe('溜めの段階で放つ技が変わる（ChargeDef.levelNext。ADR-02
 describe('地面を叩く技（AttackDef.impact。ADR-023）', () => {
   const smashes = Object.values(ATTACKS).filter((a) => a.impact);
 
-  it('地面を叩くのは、地割り・叩き落とし・飛翔叩きつけ（大剣）と落下斬り（片手剣）', () => {
-    expect(smashes.map((a) => a.id).sort()).toEqual(['comboSlam', 'gsDrop', 'gsRiseSlam', 'gsSmash']);
+  it('地面を叩くのは、地割り・叩き落とし・飛翔叩きつけ・大叩き割り・回転叩きつけ（大剣）と落下斬り（片手剣）', () => {
+    expect(smashes.map((a) => a.id).sort()).toEqual(['comboSlam', 'gsCrush', 'gsDrop', 'gsRiseSlam', 'gsSmash', 'gsSpinSlam']);
   });
 
   it('床に当たる時刻は当たりの持続の中、位置は体の前 1〜3m、強さは 0.3〜1.5。剣筋は床に当たるまで続く', () => {

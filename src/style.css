@@ -1218,7 +1218,9 @@ body {
   display: flex;
   align-items: baseline;
   justify-content: center;
-  gap: 6px;
+  /* 技名が長い連携は、はみ出さず 2 行に折り返す（履歴は MAX_TRAIL 件までだが、技名は 7 字のものもある） */
+  flex-wrap: wrap;
+  gap: 2px 6px;
   font-size: 13px;
 }
 .mg-head .mg-now {

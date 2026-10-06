@@ -12,6 +12,10 @@ export const MOVE_NAMES: Readonly<Record<string, string>> = {
   comboUpper: '打ち上げ',
   comboSlam: '落下斬り',
   hopThrust: '飛び込み突き',
+  slamRip: '地擦り斬り上げ',
+  swallow: '燕返し',
+  spinRev: '逆回転斬り',
+  spinRise: '回転斬り上げ',
   lungeSlash: '抜き払い',
   sweepBack: '返し薙ぎ',
   heavy: '溜め斬り',
@@ -35,6 +39,11 @@ export const MOVE_NAMES: Readonly<Record<string, string>> = {
   gsRiseSlam: '飛翔叩きつけ',
   gsHeavyRip: '地擦り斬り上げ',
   gsSmash: '地割り',
+  gsBounce: '跳ね上げ',
+  gsCrush: '大叩き割り',
+  gsSpin3: '逆の大回転',
+  gsSpinSlam: '回転叩きつけ',
+  gsReturnSweep: '薙ぎ返し',
 };
 
 /** 技の表示名。未登録なら id のまま（データを足して名前を忘れたとき、画面で気づける） */
