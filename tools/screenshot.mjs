@@ -229,6 +229,8 @@ try {
       process.exitCode = 3;
     }
     await page.screenshot({ path: 'artifacts/shot-staff-menu.png' });
+    // 開いたタブは次に開くときも残るので、ステータスのタブへ戻してから閉じる（このあとのメニューの撮影はステータスのタブから始まる）
+    await page.locator('.menu-tab').nth(0).click();
     await page.click('.menu-close');
     await sleep(100);
     // 装備を戻す（以降の撮影は片手剣）
@@ -1992,8 +1994,6 @@ try {
     await page.screenshot({ path: file });
   }
 
-  await staffScenes();
-
   // 一時停止メニュー（ADR-033）: レベル 7（ステータスポイント 18・スキルポイント 6）にして開き、ステータスを振る・スキルを上げる・技表・設定を撮る。
   // 振り分けが戦闘の数値・セーブに届いていること、− が開いてから振った分までしか戻せないこと、閉じると再開することも確かめる
   await page.evaluate(() => {
@@ -2318,6 +2318,9 @@ try {
     await p2.screenshot({ path: 'artifacts/shot-start-tier-fight.png' });
     await p2.close();
   }
+
+  // 杖（ADR-048）は最後に撮る（装備・メニューのタブなどの状態を、ほかのシーンへ持ち込まないため）
+  await staffScenes();
 
   const errors = logs.filter((l) => l.startsWith('[error]') || l.startsWith('[pageerror]'));
   console.log(logs.join('\n'));
