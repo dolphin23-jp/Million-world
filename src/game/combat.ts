@@ -110,8 +110,11 @@ export function resolvePlayerAttack<T extends CombatTarget>(
     const riposte = target.riposte ?? null;
     const rate = attacker.critRate ?? 0;
     const crit = rate > 0 && rng() < rate;
+    // 穂先の利（槍）: 間合いの先端で当てたら強い。中心どうしの距離で測る（弾かれた敵・壊せる物でも同じ）
+    const tip = atk.tip !== undefined && Math.hypot(box.x - _origin.x, box.z - _origin.z) >= atk.tip.from;
     const ev = makeHitEvent(PLAYER_ID, _origin, box, {
-      damage: Math.round(atk.damage * (win?.damageScale ?? 1) * p * (attacker.damageMul ?? 1) * (attacker.comboMul ?? 1) * (riposte ? riposte.riposteDamageScale * (attacker.riposteMul ?? 1) : 1) * (crit ? attacker.critDamage ?? CRIT.baseDamage : 1)),
+      tip,
+      damage: Math.round(atk.damage * (tip ? atk.tip!.scale : 1) * (win?.damageScale ?? 1) * p * (attacker.damageMul ?? 1) * (attacker.comboMul ?? 1) * (riposte ? riposte.riposteDamageScale * (attacker.riposteMul ?? 1) : 1) * (crit ? attacker.critDamage ?? CRIT.baseDamage : 1)),
       // ノックバックは威力の半分だけ倍率を掛ける（吹き飛びすぎない）。ヒットストップは威力に比例して伸びる
       knockback: atk.knockback * (win?.knockbackScale ?? 1) * (1 + (p - 1) * 0.5) * (attacker.knockbackMul ?? 1) * (riposte ? riposte.riposteKnockbackScale : 1) * (crit ? CRIT.knockbackScale : 1),
       hitStop: Math.min(Math.round(atk.hitStop * (win?.hitStopScale ?? 1) * p) + (crit ? CRIT.hitStopBonus : 0), HIT_FEEDBACK.maxHitStop),

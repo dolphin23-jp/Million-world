@@ -13,6 +13,8 @@ export const POSTURE_SHARE: PostureShare = { hips: 0.5, spine02: 0.9, spine01: 1
 export const POSTURE_LEAN = {
   sword: { idle: 12, guard: 8, charge: 0, run: 0, attack: 0, dodge: 0, hit: 0, dead: 0, air: 0, land: 0, traverse: 0 },
   greatsword: { idle: 12, guard: 8, charge: 0, run: 0, attack: 0, dodge: 0, hit: 0, dead: 0, air: 0, land: 0, traverse: 0 },
+  // 槍: 構えの姿勢（SP_READY）がもともと少し前傾なので、大剣と同じ。ガード（横に構える）は少しだけ
+  spear: { idle: 12, guard: 6, charge: 0, run: 0, attack: 0, dodge: 0, hit: 0, dead: 0, air: 0, land: 0, traverse: 0 },
   // 杖: 背筋を伸ばした静かな立ち姿（待機の前傾は小さめ。ガード・溜めは無い）
   staff: { idle: 6, guard: 0, charge: 0, run: 0, attack: 0, dodge: 0, hit: 0, dead: 0, air: 0, land: 0, traverse: 0 },
 } as const;
