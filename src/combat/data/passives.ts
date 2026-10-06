@@ -12,6 +12,7 @@ import type { WeaponId } from './loadouts';
 export type PassiveId =
   | 'swordMastery'
   | 'greatMastery'
+  | 'spearMastery'
   | 'critChance'
   | 'critPower'
   | 'comboArt'
@@ -90,6 +91,18 @@ export const PASSIVES: Record<PassiveId, PassiveDef> = {
     effects: [
       { key: 'damage', perLevel: 0.04 },
       { key: 'knockback', perLevel: 0.03 },
+    ],
+  },
+  spearMastery: {
+    id: 'spearMastery',
+    name: '槍術習熟',
+    detail: '槍を構えているあいだ、攻撃のダメージとふっ飛ばしが上がる',
+    category: 'attack',
+    levelMax: 5,
+    family: 'spear',
+    effects: [
+      { key: 'damage', perLevel: 0.04 },
+      { key: 'knockback', perLevel: 0.02 },
     ],
   },
   critChance: {
@@ -193,6 +206,7 @@ export const PASSIVES: Record<PassiveId, PassiveDef> = {
 export const PASSIVE_ORDER: readonly PassiveId[] = [
   'swordMastery',
   'greatMastery',
+  'spearMastery',
   'critChance',
   'critPower',
   'comboArt',

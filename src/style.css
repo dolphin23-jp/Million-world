@@ -901,6 +901,10 @@ html[data-weapon='staff'] #move-guide {
 .dmg-hurt {
   color: #ff5d5d;
 }
+/* 穂先の利（槍。間合いの先端で当てた）: 淡い黄緑の大きめの数字 */
+.dmg-tip {
+  color: #c8ff8a;
+}
 /* ガードで受けた削り（小さく控えめ）・パリィの文字・弾かれた敵への反撃 */
 .dmg-guard {
   color: #bcd6ff;

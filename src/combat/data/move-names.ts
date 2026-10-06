@@ -33,6 +33,9 @@ export const MOVE_NAMES: Readonly<Record<string, string>> = {
   spDash: '跳び突き',
   spRise: '突き上げ',
   spHeavy: '溜め突き',
+  spUpper: '払い上げ',
+  spPierce: '貫き突き',
+  spTwirl: '回し払い',
   // 大剣
   gs1: '袈裟斬り',
   gs2: '逆袈裟',

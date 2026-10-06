@@ -30,6 +30,8 @@ import { SP_CARRY, SP_DODGE, SP_DODGE_BACK, SP_STANCE } from './spear';
 import { SP1, SP2, SP3 } from './sp-combo';
 import { SP_DASH, SP_LUNGE, SP_RETREAT, SP_RISE, SP_SPIN } from './sp-moves';
 import { SP_CHARGE, SP_HEAVY } from './sp-heavy';
+import { SP_PIERCE, SP_TWIRL, SP_UPPER } from './sp-chain';
+import { SPK_BORE, SPK_BORE2, SPK_BORE3, SPK_FLURRY, SPK_FLURRY_12, SPK_FLURRY_9, SPK_WHIRL, SPK_WHIRL_3, SPK_WHIRL_4 } from './skill-spear';
 import { SP_GUARD, SP_GUARD_HIT, SP_PARRY } from './sp-guard';
 import { SP_BLIZZARD, SP_EXPLOSION, SP_FLAME, SP_HURRICANE, SP_REGEN, SP_THUNDER, ST_BOLT1, ST_BOLT2, ST_BOLT3 } from './spell-casts';
 import { FALL_CLIP, GS_FALL, GS_JUMP, GS_LAND, JUMP_CLIP, LAND_CLIP } from './jump';
@@ -158,7 +160,20 @@ export const AUTHORED_ATTACKS: Record<string, AuthoredAttack> = {
   spSpin: SP_SPIN,
   spDash: SP_DASH,
   spRise: SP_RISE,
+  spUpper: SP_UPPER,
+  spPierce: SP_PIERCE,
+  spTwirl: SP_TWIRL,
   spCharge: SP_CHARGE,
+  // 槍技の専用モーション（ADR-049。攻撃は SKILL_ATTACKS）
+  spkFlurry: SPK_FLURRY,
+  spkFlurry9: SPK_FLURRY_9,
+  spkFlurry12: SPK_FLURRY_12,
+  spkWhirl: SPK_WHIRL,
+  spkWhirl3: SPK_WHIRL_3,
+  spkWhirl4: SPK_WHIRL_4,
+  spkBore: SPK_BORE,
+  spkBore2: SPK_BORE2,
+  spkBore3: SPK_BORE3,
   spHeavy: SP_HEAVY,
   guardSpear: SP_GUARD,
   guardSpearHit: SP_GUARD_HIT,

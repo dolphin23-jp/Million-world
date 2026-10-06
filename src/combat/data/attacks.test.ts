@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { ATTACKS, CHARGES, DODGE, DODGES, resolveAttack, rootMotionOf } from './attacks';
-import { GREATSWORD_MOVESET, SWORD_MOVESET } from './moveset';
+import { GREATSWORD_MOVESET, SPEAR_MOVESET, SWORD_MOVESET } from './moveset';
 import { GS_DODGE, GS_DODGE_BACK, GS_STANCE } from '../../character/data/greatsword';
+import { SP_DODGE, SP_DODGE_BACK, SP_STANCE } from '../../character/data/spear';
+import { hitboxReach } from '../hit';
 import { AuthoredSampler } from '../../character/authoring';
 import { AUTHORED_ATTACKS } from '../../character/data/authored';
 import { HERO } from '../../character/data/hero';
@@ -415,6 +417,103 @@ describe('大剣の技（手付け・両手持ち。ADR-021）', () => {
   });
 });
 
+describe('槍の技（手付け・両手持ち・右手が前。ADR-049）', () => {
+  const spIds = Object.values(SPEAR_MOVESET)
+    .concat('sp2', 'sp3', CHARGES.spear!.next, 'spUpper', 'spPierce', 'spTwirl')
+    .filter((v, i, a) => a.indexOf(v) === i);
+
+  it('技のセットはすべて実在し、手付けクリップとして登録された両手持ち（twoHanded）で、長さが segmentDuration と一致する', () => {
+    for (const id of spIds) {
+      const a = ATTACKS[id]!;
+      expect(a, id).toBeDefined();
+      expect(a.authored, id).toBeDefined();
+      expect(AUTHORED_ATTACKS[a.segment], id).toBe(a.authored);
+      expect(a.authored!.twoHanded, id).toBeDefined();
+      expect(a.authored!.continueFrom, `${id} は構えか前の技の姿勢から続く`).toBeDefined();
+      expect(a.authored!.duration, id).toBeCloseTo(a.segmentDuration, 6);
+    }
+  });
+
+  it('連携は、どの続きも前の技の受付時点（cancelAt）の姿勢から続く: 突き → 二段突き → 薙ぎ払い →（前）貫き突き → 回し払い。1 段目の横は払い上げ', () => {
+    const follow = (from: string, to: string) => {
+      const a = ATTACKS[from]!;
+      const n = ATTACKS[to]!;
+      expect(n.authored!.continueFrom!.attack, `${from} → ${to}`).toBe(a.authored);
+      expect(n.authored!.continueFrom!.t, `${from} → ${to}`).toBeCloseTo(a.cancelAt, 6);
+    };
+    follow('sp1', 'sp2');
+    follow('sp2', 'sp3');
+    follow('sp3', 'spPierce');
+    follow('spPierce', 'spTwirl');
+    follow('sp1', 'spUpper');
+    expect(ATTACKS.sp1!.next).toBe('sp2');
+    expect(ATTACKS.sp2!.next).toBe('sp3');
+    expect(ATTACKS.sp3!.next).toBeUndefined();
+    expect(ATTACKS.sp3!.branches).toEqual({ forward: 'spPierce' });
+    expect(ATTACKS.sp1!.branches).toEqual({ side: 'spUpper' });
+  });
+
+  it('ロール直後・後ろステップ直後の技は、それぞれの回避（槍版）の受付の姿勢から続く。槍のロールは片手剣のロールとルート・長さが同じ', () => {
+    const dash = ATTACKS[SPEAR_MOVESET.dashRoll]!;
+    const rise = ATTACKS[SPEAR_MOVESET.dashBack]!;
+    expect(dash.authored!.continueFrom!.attack).toBe(SP_DODGE);
+    expect(rise.authored!.continueFrom!.attack).toBe(SP_DODGE_BACK);
+    expect(dash.authored!.continueFrom!.t).toBeCloseTo(DODGES.roll.cancelFrame / 60, 1);
+    expect(rise.authored!.continueFrom!.t).toBeCloseTo(DODGES.back.cancelFrame / 60, 1);
+    for (const [sp, sword] of [[SP_DODGE, DODGES.roll.clip], [SP_DODGE_BACK, DODGES.back.clip]] as const) {
+      expect(sp.duration).toBeCloseTo(sword.duration, 9);
+      const root = rootMotionOf({ ...ATTACKS.combo1!, id: sp.name, authored: sp })!;
+      const swordRoot = rootMotionOf({ ...ATTACKS.combo1!, id: sword.name, authored: sword })!;
+      for (let f = 0; f <= Math.round(sword.duration * 60); f++) expect(root(f / 60), `${sp.name} f${f}`).toBeCloseTo(swordRoot(f / 60), 9);
+    }
+    expect(AUTHORED_ATTACKS[SP_DODGE.name]).toBe(SP_DODGE);
+    expect(AUTHORED_ATTACKS[SP_DODGE_BACK.name]).toBe(SP_DODGE_BACK);
+    expect(AUTHORED_ATTACKS[SP_STANCE.name]).toBe(SP_STANCE);
+  });
+
+  it('素早く手数が多い: 1・2 段目は大剣の 1 段目より発生が速く、1 発のダメージは大剣より軽い。突きの線は片手剣の突きより長い', () => {
+    for (const id of ['sp1', 'sp2']) {
+      expect(resolveAttack(ATTACKS[id]!).startup, id).toBeLessThan(resolveAttack(ATTACKS.gs1!).startup);
+      expect(ATTACKS[id]!.damage, id).toBeLessThan(ATTACKS.gs1!.damage);
+    }
+    const line = (id: string) => {
+      const h = ATTACKS[id]!.hitbox;
+      if (h.kind !== 'line') throw new Error(`${id} は線ではない`);
+      return h;
+    };
+    expect(line('sp1').length).toBeGreaterThan(line('combo3').length);
+    expect(line('spLunge').length).toBeGreaterThan(line('lunge').length);
+    // 回転薙ぎは全方位
+    const spin = ATTACKS.spSpin!.hitbox;
+    expect(spin.kind === 'arc' && spin.halfAngle >= Math.PI).toBe(true);
+  });
+
+  it('溜め: 構えは 1 段目の引き絞りの途中から続き、押し続ける長さは構えのクリップが続く時刻と一致する。離すと溜め突き（槍の通常の技でいちばん重い）', () => {
+    const c = CHARGES.spear!;
+    const from = c.clip.continueFrom!;
+    expect(from.attack).toBe(ATTACKS[SPEAR_MOVESET.light]!.authored);
+    expect(c.holdFrames).toBe(Math.round(from.t * 60));
+    expect(c.holdFrames).toBeLessThan(resolveAttack(ATTACKS[SPEAR_MOVESET.light]!).startup);
+    expect(c.frames).toBe(Math.ceil(c.clip.duration * 60));
+    expect(ATTACKS[c.next]!.authored!.continueFrom!.attack).toBe(c.clip);
+    expect(c.next).toBe('spHeavy');
+    expect(c.levelPower).toHaveLength(c.levels.length + 1);
+    expect(c.maxHoldFrames).toBeGreaterThan(c.levels[c.levels.length - 1]!);
+    expect(AUTHORED_ATTACKS[c.clip.name]).toBe(c.clip);
+  });
+
+  it('穂先の利は槍の技だけが持つ（ほかの武器の技には無い）。数値は from が届く距離の内側、scale は 1 より大きい', () => {
+    const withTip = Object.values(ATTACKS).filter((a) => a.tip !== undefined).map((a) => a.id).sort();
+    expect(withTip).toEqual(spIds.filter((id) => ATTACKS[id]!.tip !== undefined).sort());
+    expect(withTip.length).toBeGreaterThan(5);
+    for (const a of Object.values(ATTACKS)) {
+      if (!a.tip) continue;
+      expect(a.tip.scale, a.id).toBeGreaterThan(1);
+      expect(hitboxReach(a.hitbox) + 0.5, a.id).toBeGreaterThan(a.tip.from);
+    }
+  });
+});
+
 describe('コンボの分岐（スティックの向きで続きが変わる。ADR-023）', () => {
   const sources = Object.values(ATTACKS).filter((a) => a.branches);
 
@@ -457,7 +556,7 @@ describe('コンボの分岐（スティックの向きで続きが変わる。A
     for (const id of Object.keys(ATTACKS)) visit(id, []);
     // 本線（始動の技から next をたどる）に、分岐先は入らない
     const main = new Set<string>();
-    for (const ms of [SWORD_MOVESET, GREATSWORD_MOVESET]) for (let id: string | undefined = ms.light; id; id = ATTACKS[id]!.next) main.add(id);
+    for (const ms of [SWORD_MOVESET, GREATSWORD_MOVESET, SPEAR_MOVESET]) for (let id: string | undefined = ms.light; id; id = ATTACKS[id]!.next) main.add(id);
     for (const a of sources) for (const to of Object.values(a.branches!)) expect(main.has(to), `${a.id} の分岐先 ${to} が本線に入っている`).toBe(false);
   });
 

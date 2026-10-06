@@ -583,8 +583,8 @@ export class Game {
     // 弾かれた敵への反撃は、水色がかった閃光と大きな数字で「反撃が通った」を見せる（杖の魔法は、系統の色の閃光）
     this.hitFx.burst(ev.x, y, ev.z, ev.dirX, ev.dirZ, fb.power * fxScale, riposte ? FX_TINT.parry : tint);
     // 会心は数字を専用の見た目（大きな金色）にし、命中の音の上にきらめく音を重ねる（とどめでも、反撃でも会心が読める）
-    this.damageNumbers.spawn(enemy.body.x, y + 0.5, enemy.body.z, result.dealt, fb.crit ? 'crit' : riposte && !result.killed ? 'riposte' : fb.style);
-    this.sfx.play(fb.style === 'heavy' || riposte ? 'hitHeavy' : 'hit');
+    this.damageNumbers.spawn(enemy.body.x, y + 0.5, enemy.body.z, result.dealt, fb.crit ? 'crit' : riposte && !result.killed ? 'riposte' : ev.tip && !result.killed ? 'tip' : fb.style);
+    this.sfx.play(fb.style === 'heavy' || riposte || ev.tip ? 'hitHeavy' : 'hit');
     if (fb.crit) this.sfx.play('crit');
     if (result.killed) this.sfx.play('kill');
     if (result.killed) this.onEnemyKilled(enemy);
@@ -1291,7 +1291,7 @@ export class Game {
     const key = `${fam}:${this.skills.serial}`;
     if (key !== this.skillUiKey) {
       this.skillUiKey = key;
-      const opt = (d: SkillDef) => ({ id: d.id, label: d.short, sub: d.name, badge: `Lv${this.skills.level(d.id)}`, icon: 'blade' as const, color: d.family === 'greatsword' ? '#ffb86f' : '#7fd8ff' });
+      const opt = (d: SkillDef) => ({ id: d.id, label: d.short, sub: d.name, badge: `Lv${this.skills.level(d.id)}`, icon: 'blade' as const, color: d.family === 'greatsword' ? '#ffb86f' : d.family === 'spear' ? '#a8f07a' : '#7fd8ff' });
       this.touch.skill.setOptions(this.skills.available(fam).map(opt));
       const sel = this.skills.selectedFor(fam);
       this.touch.skill.setFace(sel ? opt(sel) : null);

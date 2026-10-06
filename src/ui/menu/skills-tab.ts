@@ -71,7 +71,7 @@ export class SkillsTab implements MenuTab {
     pt.append(h('span', undefined, 'スキルポイント'));
     this.skillPts = h('b');
     pt.appendChild(this.skillPts);
-    head.append(pt, h('div', 'sk-hint', 'ポイントを使うと、剣技は威力が伸びてクールダウンが縮み（Lv4・Lv7 で動きが変わる）、杖の魔法は威力（再生は回復量）が伸びてクールダウンが縮み、パッシブは習得して強くなる'));
+    head.append(pt, h('div', 'sk-hint', 'ポイントを使うと、剣技・槍技は威力が伸びてクールダウンが縮み（Lv4・Lv7 で動きが変わる）、杖の魔法は威力（再生は回復量）が伸びてクールダウンが縮み、パッシブは習得して強くなる'));
     root.appendChild(head);
 
     for (const fam of FAMILIES) {

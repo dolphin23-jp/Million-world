@@ -6,6 +6,8 @@ import { SKILL_ATTACKS, findAttack } from './data/skill-attacks';
 
 const SWORD = SKILL_ORDER.filter((id) => SKILLS[id].family === 'sword');
 const GREAT = SKILL_ORDER.filter((id) => SKILLS[id].family === 'greatsword');
+/** 槍の槍技（ADR-049）。剣技と同じ約束（進化・連なり・継ぎ目）で動く */
+const SPEAR = SKILL_ORDER.filter((id) => SKILLS[id].family === 'spear');
 /** 杖の魔法（ADR-048）。剣技のような進化・多段の連なりは無い（1 つの詠唱 = 1 つの魔法）ので、剣技の約束を確かめるテストからは外す */
 const STAFF = SKILL_ORDER.filter((id) => SKILLS[id].family === 'staff');
 const MELEE = SKILL_ORDER.filter((id) => SKILLS[id].family !== 'staff');
@@ -24,9 +26,10 @@ const allAttackIds = (id: SkillId): string[] => {
 };
 
 describe('スキルのデータの整合', () => {
-  it('武器の系統ごとのスキルの数（剣技は第 2 弾のあと。ADR-038）: 片手剣 6・大剣 5・杖の魔法 6。名前（一覧）の順は系統ごとにまとまる', () => {
+  it('武器の系統ごとのスキルの数（剣技は第 2 弾のあと。ADR-038）: 片手剣 6・大剣 5・槍 3・杖の魔法 6。名前（一覧）の順は系統ごとにまとまる', () => {
     expect(SWORD.length).toBe(6);
     expect(GREAT.length).toBe(5);
+    expect(SPEAR.length).toBe(3);
     expect(STAFF.length).toBe(6);
     // 一覧（SKILL_ORDER）は片手剣 → 大剣 → 槍 → 杖の順（系統の途中で入れ替わらない）
     const rank = { sword: 0, greatsword: 1, spear: 2, staff: 3 } as const;
@@ -45,7 +48,7 @@ describe('スキルのデータの整合', () => {
     }
   });
 
-  it('連なりの攻撃 id（進化の差し替え先も）はすべて実在し（ATTACKS か SKILL_ATTACKS）、武器の系統と合っている（大剣の技は両手持ち）', () => {
+  it('連なりの攻撃 id（進化の差し替え先も）はすべて実在し（ATTACKS か SKILL_ATTACKS）、武器の系統と合っている（大剣・槍の技は両手持ち）', () => {
     for (const id of SKILL_ORDER) {
       const def = SKILLS[id];
       expect(def.steps.length).toBeGreaterThanOrEqual(1);
@@ -53,7 +56,7 @@ describe('スキルのデータの整合', () => {
         const a = findAttack(aid);
         expect(a, `${id}: ${aid}`).toBeTruthy();
         expect(a!.authored, `${id}: ${aid} は手付け`).toBeTruthy();
-        expect(a!.authored!.twoHanded !== undefined, `${id}: ${aid}`).toBe(def.family === 'greatsword');
+        expect(a!.authored!.twoHanded !== undefined, `${id}: ${aid}`).toBe(def.family === 'greatsword' || def.family === 'spear');
       }
     }
   });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ATTACKS, CHARGES, resolveAttack } from './data/attacks';
-import { GREATSWORD_MOVESET, SWORD_MOVESET, type Moveset } from './data/moveset';
+import { GREATSWORD_MOVESET, SPEAR_MOVESET, SWORD_MOVESET, type Moveset } from './data/moveset';
 
 /**
  * 通常攻撃の連携の長さ（ADR-047）: 片手剣は最大 7 連、大剣は最大 5 連。
@@ -46,6 +46,12 @@ describe('連携の長さ（ADR-047）', () => {
     expect(best.inputs).toEqual(['tap', 'forward', 'forward', 'tap']);
   });
 
+  it('槍は最大 5 連: 突き → 二段突き → 薙ぎ払い →（前）貫き突き → 回し払い。ロックなしでも出せる（前と連打だけ）', () => {
+    const best = longest(startsOf(SPEAR_MOVESET, 'spear'));
+    expect(best.ids).toEqual(['sp1', 'sp2', 'sp3', 'spPierce', 'spTwirl']);
+    expect(best.inputs).toEqual(['tap', 'tap', 'forward', 'tap']);
+  });
+
   it('入力ごとの連携の道（技表の木と同じ）。どの 1 歩も、続く技が実在してその入力で出る', () => {
     // [始動の技, ...[入力, 続く技]]
     const routes: [string, ...[Input, string][]][] = [
@@ -63,6 +69,9 @@ describe('連携の長さ（ADR-047）', () => {
       ['gsRetreat', ['forward', 'gsRetreatLunge']],
       ['gsRise', ['tap', 'gsRiseSlam']],
       ['gsHeavy', ['tap', 'gsHeavyRip']],
+      // 槍
+      ['sp1', ['tap', 'sp2'], ['tap', 'sp3'], ['forward', 'spPierce'], ['tap', 'spTwirl']],
+      ['sp1', ['side', 'spUpper']],
     ];
     for (const [start, ...steps] of routes) {
       let id = start;
@@ -74,7 +83,7 @@ describe('連携の長さ（ADR-047）', () => {
   });
 
   it('スティックの横・後ろで続く技は、ロック中だけ出る（ロックなしでは倒せば前になる）。7 連と 5 連の最長は前と連打だけで届く', () => {
-    for (const [m, c] of [[SWORD_MOVESET, 'sword'], [GREATSWORD_MOVESET, 'greatsword']] as const) {
+    for (const [m, c] of [[SWORD_MOVESET, 'sword'], [GREATSWORD_MOVESET, 'greatsword'], [SPEAR_MOVESET, 'spear']] as const) {
       const best = longest(startsOf(m, c));
       expect(best.inputs.every((i) => i === 'tap' || i === 'forward')).toBe(true);
     }
