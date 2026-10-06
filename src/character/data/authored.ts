@@ -26,6 +26,11 @@ import { CROSS, CROSS_2, CROSS_3, GALE, GALE_6, GALE_8, IAI, IAI_4, IAI_7 } from
 import { GSK_ISSEN, GSK_ISSEN_BACK, GSK_ISSEN_LUNGE, GSK_RIP, GSK_SLAM, GSK_SLAM_LEAP, GSK_SWEEP1, GSK_SWEEP2 } from './skill-greatsword';
 import { GS_GUARD, GS_GUARD_HIT, GS_PARRY } from './gs-guard';
 import { STAFF_CARRY, STAFF_STANCE } from './staff';
+import { SP_CARRY, SP_DODGE, SP_DODGE_BACK, SP_STANCE } from './spear';
+import { SP1, SP2, SP3 } from './sp-combo';
+import { SP_DASH, SP_LUNGE, SP_RETREAT, SP_RISE, SP_SPIN } from './sp-moves';
+import { SP_CHARGE, SP_HEAVY } from './sp-heavy';
+import { SP_GUARD, SP_GUARD_HIT, SP_PARRY } from './sp-guard';
 import { SP_BLIZZARD, SP_EXPLOSION, SP_FLAME, SP_HURRICANE, SP_REGEN, SP_THUNDER, ST_BOLT1, ST_BOLT2, ST_BOLT3 } from './spell-casts';
 import { FALL_CLIP, GS_FALL, GS_JUMP, GS_LAND, JUMP_CLIP, LAND_CLIP } from './jump';
 
@@ -140,6 +145,24 @@ export const AUTHORED_ATTACKS: Record<string, AuthoredAttack> = {
   spExplosion: SP_EXPLOSION,
   spRegen: SP_REGEN,
   spHurricane: SP_HURRICANE,
+  // 槍（両手持ち。右手が前。src/character/data/spear.ts ほか。ADR-049）
+  spStance: SP_STANCE,
+  spCarry: SP_CARRY,
+  'dodge@spear': SP_DODGE,
+  'dodgeBack@spear': SP_DODGE_BACK,
+  sp1: SP1,
+  sp2: SP2,
+  sp3: SP3,
+  spLunge: SP_LUNGE,
+  spRetreat: SP_RETREAT,
+  spSpin: SP_SPIN,
+  spDash: SP_DASH,
+  spRise: SP_RISE,
+  spCharge: SP_CHARGE,
+  spHeavy: SP_HEAVY,
+  guardSpear: SP_GUARD,
+  guardSpearHit: SP_GUARD_HIT,
+  guardSpearParry: SP_PARRY,
   guardGreatsword: GS_GUARD,
   guardGreatswordHit: GS_GUARD_HIT,
   guardGreatswordParry: GS_PARRY,
@@ -150,6 +173,9 @@ export const SHIELD_VARIANT = '@shield';
 
 /** 杖版のクリップ名の接尾辞。杖を持つときは、待機・走りが杖を立てて持つ版（'idle@staff' / 走りの腕）で探される（ADR-048）。詠唱のクリップは杖専用で、版を持たない */
 export const STAFF_VARIANT = '@staff';
+
+/** 槍版のクリップ名の接尾辞。槍を持つときは、ロール（'dodge@spear'）・待機・走り・ジャンプがこの接尾辞つきの版で探される（なければそのまま。ADR-049） */
+export const SPEAR_VARIANT = '@spear';
 
 /** 大剣版のクリップ名の接尾辞。大剣を持つときは、ロール（'dodge@greatsword'）・待機・走りがこの接尾辞つきの版で探される（なければそのまま） */
 export const GREATSWORD_VARIANT = '@greatsword';

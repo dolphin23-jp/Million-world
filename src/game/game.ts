@@ -157,6 +157,16 @@ const SWING_SFX: Record<string, SfxName> = {
   gsRetreatLunge: 'gsSwingLunge',
   gsRiseSlam: 'gsSwingDash',
   gsHeavyRip: 'gsSwingRise',
+  // 槍（ADR-049。専用の効果音はまだ無く、片手剣の突き・薙ぎ・跳びの音を使う）
+  sp1: 'swingLunge',
+  sp2: 'swingLunge',
+  sp3: 'swingSweep',
+  spLunge: 'swingLunge',
+  spRetreat: 'swingLunge',
+  spSpin: 'swingSweep',
+  spDash: 'swingDash',
+  spRise: 'swingRetreat',
+  spHeavy: 'swingHeavy',
   // 剣技（ADR-031 / 032）。多段の技は、2 つ目以降の窓が開くたびにも鳴らす（Player.swingSerial）
   skQuad1: 'swing1',
   skQuad2: 'swing2',

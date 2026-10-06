@@ -24,6 +24,9 @@ import { COMBO_HOP, COMBO_SPIN, COMBO_UPPER } from '../../character/data/combo-c
 import { COMBO_SLAM, HOP_THRUST, LUNGE_SLASH, SWEEP_BACK } from '../../character/data/sword-chain';
 import { SLAM_RIP, SPIN_REV, SPIN_RISE, SWALLOW } from '../../character/data/sword-chain-ex';
 import { GS_BOUNCE, GS_CRUSH, GS_RETURN_SWEEP, GS_SPIN3, GS_SPIN_SLAM } from '../../character/data/gs-chain-ex';
+import { SP1, SP2, SP3 } from '../../character/data/sp-combo';
+import { SP_DASH, SP_LUNGE, SP_RETREAT, SP_RISE, SP_SPIN } from '../../character/data/sp-moves';
+import { SP_CHARGE, SP_HEAVY } from '../../character/data/sp-heavy';
 import type { HitboxDef } from '../hit';
 import type { SpellId } from './spells';
 
@@ -980,6 +983,175 @@ export const ATTACKS: Record<string, AttackDef> = {
     knockback: 2.2,
     fade: 0.06,
   },
+
+  // ======== 槍（両手持ち・右手が前。src/character/data/sp-*.ts。ADR-049）========
+  // 長い間合いの突きが中心。片手剣より間合いが長く（突き 2.5m。穂先は構えの時点で体の 2m 前にある）、手数が多く、1 発は軽い。範囲は線（細い）なので、群れには当てにくい。
+  // 1 段目: 突き（0.62s）。右手を腰へ引き（0〜0.1）、0.19 に穂先が最も伸びる（右足が着地）。当たりは 0.14〜0.22s。伸びた姿勢を保つ 0.3s から次段を受け付ける。
+  sp1: {
+    id: 'sp1',
+    segment: 'sp1',
+    authored: SP1,
+    segmentDuration: SP1.duration,
+    activeStart: 0.14,
+    activeEnd: 0.22,
+    cancelAt: 0.3,
+    trail: [0.1, 0.28],
+    rate: 1,
+    lunge: 0,
+    // 受付で次の押しがあれば 2 段目（二段突き）
+    next: 'sp2',
+    hitbox: { kind: 'line', length: 2.5, radius: 0.3 },
+    damage: 11,
+    hitStop: 5,
+    knockback: 0.5,
+    fade: 0.08,
+  },
+  // 2 段目: 二段突き（0.55s）。1 段目の受付時点（0.3s）の姿勢から続ける。0.17 に穂先が最も伸びる（右足が着地）。当たりは 0.14〜0.21s。突き切った姿勢を保つ 0.27s から次段を受け付ける。
+  sp2: {
+    id: 'sp2',
+    segment: 'sp2',
+    authored: SP2,
+    segmentDuration: SP2.duration,
+    activeStart: 0.14,
+    activeEnd: 0.21,
+    cancelAt: 0.27,
+    trail: [0.1, 0.26],
+    rate: 1,
+    lunge: 0,
+    next: 'sp3',
+    hitbox: { kind: 'line', length: 2.5, radius: 0.3 },
+    damage: 12,
+    hitStop: 5,
+    knockback: 0.6,
+    fade: 0.05,
+  },
+  // 3 段目: 薙ぎ払い（0.82s）。2 段目の受付時点（0.27s）の姿勢から続ける。体を左から右へ回して払う（0.24 に穂先が体の前を通る最高速）。当たりは 0.2〜0.31s。コンボの終わり（硬直は長め）。
+  sp3: {
+    id: 'sp3',
+    segment: 'sp3',
+    authored: SP3,
+    segmentDuration: SP3.duration,
+    activeStart: 0.2,
+    activeEnd: 0.31,
+    cancelAt: 0.5,
+    trail: [0.14, 0.38],
+    rate: 1,
+    lunge: 0,
+    hitbox: { kind: 'arc', range: 2.5, halfAngle: deg(100) },
+    damage: 17,
+    hitStop: 8,
+    knockback: 1.6,
+    fade: 0.05,
+  },
+  // 踏み込み突き（スティック前 + 攻撃）: 腰を落として引き絞り（0.2〜0.27 は一拍）、0.36 に最高速で飛び込んで貫く（右足が着地）。槍の突きのうち、踏み込みがいちばん長い技（線 2.6m + 踏み込み 1.4m）。当たりは 0.3〜0.42s。ルートは 1.5m 進む。
+  spLunge: {
+    id: 'spLunge',
+    segment: 'spLunge',
+    authored: SP_LUNGE,
+    segmentDuration: SP_LUNGE.duration,
+    activeStart: 0.3,
+    activeEnd: 0.42,
+    cancelAt: 0.5,
+    trail: [0.24, 0.5],
+    rate: 1,
+    lunge: 0,
+    hitbox: { kind: 'line', length: 2.6, radius: 0.32 },
+    damage: 19,
+    hitStop: 8,
+    knockback: 1.8,
+    fade: 0.1,
+  },
+  // 跳び退き突き（ロック中に後ろ + 攻撃）: 後ろへ 1.3m 跳びながら穂先を突き出し、敵を押し返す。0.24 に最も伸びる。当たりは 0.2〜0.3s（跳んでいるあいだ）。
+  spRetreat: {
+    id: 'spRetreat',
+    segment: 'spRetreat',
+    authored: SP_RETREAT,
+    segmentDuration: SP_RETREAT.duration,
+    activeStart: 0.2,
+    activeEnd: 0.3,
+    cancelAt: 0.4,
+    trail: [0.14, 0.34],
+    rate: 1,
+    lunge: 0,
+    hitbox: { kind: 'line', length: 2.6, radius: 0.34 },
+    damage: 10,
+    hitStop: 6,
+    knockback: 2.4,
+    fade: 0.1,
+  },
+  // 回転薙ぎ（ロック中に横 + 攻撃）: 腰を沈めて左へ巻き込み、跳び上がって体ごと右へ 1 回転する。全方位（円）を薙ぐ。回転は 0.2〜0.46s、穂先が全周を通るのは 0.23〜0.43s（当たりもこの間）。
+  spSpin: {
+    id: 'spSpin',
+    segment: 'spSpin',
+    authored: SP_SPIN,
+    segmentDuration: SP_SPIN.duration,
+    activeStart: 0.23,
+    activeEnd: 0.43,
+    cancelAt: 999,
+    trail: [0.2, 0.46],
+    rate: 1,
+    lunge: 0,
+    hitbox: { kind: 'arc', range: 2.4, halfAngle: deg(180) },
+    damage: 16,
+    hitStop: 7,
+    knockback: 1.8,
+    fade: 0.1,
+  },
+  // 跳び突き（ロール直後）: 転がって着地した低い姿勢から、槍を引き上げて前へ 1.5m 跳び、斜め下へ突き下ろす（0.36 に両足で着地）。当たりは 0.3〜0.4s。ロールの着地の姿勢（0.43s）から続ける。
+  spDash: {
+    id: 'spDash',
+    segment: 'spDash',
+    authored: SP_DASH,
+    segmentDuration: SP_DASH.duration,
+    activeStart: 0.3,
+    activeEnd: 0.4,
+    cancelAt: 999,
+    trail: [0.22, 0.46],
+    rate: 1,
+    lunge: 0,
+    hitbox: { kind: 'line', length: 2.6, radius: 0.36 },
+    damage: 20,
+    hitStop: 9,
+    knockback: 2.0,
+    fade: 0.05,
+  },
+  // 突き上げ（後ろステップ直後）: 下がったあと、低い姿勢から踏み込んで槍を下から斜め上へ突き上げる。0.23 に最も伸びる（右足が着地）。当たりは 0.18〜0.28s。後ろステップの着地の姿勢（0.36s）から続ける。
+  spRise: {
+    id: 'spRise',
+    segment: 'spRise',
+    authored: SP_RISE,
+    segmentDuration: SP_RISE.duration,
+    activeStart: 0.18,
+    activeEnd: 0.28,
+    cancelAt: 0.38,
+    trail: [0.12, 0.38],
+    rate: 1,
+    lunge: 0,
+    hitbox: { kind: 'line', length: 2.5, radius: 0.4 },
+    damage: 15,
+    hitStop: 7,
+    knockback: 1.6,
+    fade: 0.05,
+  },
+  // 溜め突き（溜めを放つ。CHARGES.spear）: 深い引き絞りから、体ごと一気に飛び込んで貫く。0.17 に最高速（右足が着地）。当たりは 0.14〜0.25s。槍のいちばん長い間合い（線 2.7m + 踏み込み 1.6m）。
+  // 威力は溜めの段階で上がる。ルートは 1.6m 進む。突き切った姿勢を保つ（〜0.46s）あとは戻り（硬直は長い）。
+  spHeavy: {
+    id: 'spHeavy',
+    segment: 'spHeavy',
+    authored: SP_HEAVY,
+    segmentDuration: SP_HEAVY.duration,
+    activeStart: 0.14,
+    activeEnd: 0.25,
+    cancelAt: 999,
+    trail: [0.1, 0.34],
+    rate: 1,
+    lunge: 0,
+    hitbox: { kind: 'line', length: 2.7, radius: 0.36 },
+    damage: 36,
+    hitStop: 13,
+    knockback: 3.2,
+    fade: 0.04,
+  },
 };
 
 /**
@@ -1035,6 +1207,18 @@ export const CHARGES: Record<string, ChargeDef> = {
     next: 'gsHeavy',
     // 最大まで溜めたときだけ地割り（床へ叩きつけて衝撃が広がる）。途中で離せば溜め斬り（ADR-023）
     levelNext: [undefined, undefined, 'gsSmash'],
+    dodgeCancelFrame: 8,
+  },
+  // 槍: 1 段目（sp1）の引き絞り（6f = 0.1s）から、さらに深い引き絞りへ。威力の伸びは大剣より小さい（最大 1.8 倍 × 36 = 65）。離すと溜め突き（貫く線）
+  spear: {
+    id: 'spear',
+    clip: SP_CHARGE,
+    holdFrames: 6,
+    frames: Math.ceil(SP_CHARGE.duration * 60),
+    levels: [24, 56],
+    levelPower: [1, 1.35, 1.8],
+    maxHoldFrames: 110,
+    next: 'spHeavy',
     dodgeCancelFrame: 8,
   },
 };

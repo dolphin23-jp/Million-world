@@ -28,8 +28,8 @@ describe('スキルのデータの整合', () => {
     expect(SWORD.length).toBe(6);
     expect(GREAT.length).toBe(5);
     expect(STAFF.length).toBe(6);
-    // 一覧（SKILL_ORDER）は片手剣 → 大剣 → 杖の順（系統の途中で入れ替わらない）
-    const rank = { sword: 0, greatsword: 1, staff: 2 } as const;
+    // 一覧（SKILL_ORDER）は片手剣 → 大剣 → 槍 → 杖の順（系統の途中で入れ替わらない）
+    const rank = { sword: 0, greatsword: 1, spear: 2, staff: 3 } as const;
     const fam = SKILL_ORDER.map((id) => rank[SKILLS[id].family]);
     expect(fam.join()).toBe([...fam].sort((a, b) => a - b).join());
   });

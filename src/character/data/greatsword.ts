@@ -1,6 +1,7 @@
-import { TWO_HAND_POLE, type AuthoredAttack, type AuthoredKey, type TwoHand } from '../authoring';
+import type { AuthoredAttack, TwoHand } from '../authoring';
 import { DODGE_BACK, DODGE_CLIP } from './dodge';
 import { pose } from './stagger';
+import { twoHandDodge } from './two-hand';
 
 /**
  * 大剣（両手持ち）の手付けクリップの共通部分（ADR-021）。座標の約束は combo1.ts と同じ（胸の座標系。右 = −X、上 = +Y、前 = +Z）。
@@ -81,42 +82,6 @@ export const GS_IDLE: AuthoredAttack = {
 
 // ---------------------------------------------------------------- 回避（片手剣の回避を大剣用に作り直す）
 
-/** 動かす値に構えの値を足す（回避の最後のキーは idle = 0 を基準にした値なので、構えの姿勢の値へずらす。360° 回る向きは 360 + 構え） */
-function addReady(v: Record<string, number | undefined>, ready: Record<string, number>): Record<string, number> {
-  const out: Record<string, number> = {};
-  for (const [k, x] of Object.entries(v)) if (x !== undefined) out[k] = x + (ready[k] ?? 0);
-  return out;
-}
-
-/**
- * 片手剣の回避（ロール・後ろステップ）を、両手持ちの版に作り直す。ルート・足・腰と胸の動きは元のまま（sim の移動と無敵はそのクリップのルートに従うので、
- * rootZ のキーは変えない）。待機の腕（'idle'）は構えの腕に、終わりの腰・胸・頭の姿勢は構えの姿勢に置き換える。
- * 開始は構えから（continueFrom）なので、構えのまま入って、構えのまま終わる（待機 'idle@greatsword' へつなぎ目なく戻れる）。
- */
-function greatswordDodge(src: AuthoredAttack, name: string): AuthoredAttack {
-  const end = src.duration - 1e-6;
-  const keys: AuthoredKey[] = src.keys.map((k) => {
-    const next: AuthoredKey = { ...k };
-    if (k.grip === 'idle') {
-      // 待機の腕 → 構えの腕（左手は導かれるので、手付けの left は外す。肘の向きは両手持ちの既定）
-      delete next.left;
-      next.grip = GS_READY.grip;
-      next.blade = GS_READY.blade;
-      next.face = GS_READY.face;
-      next.roll = GS_READY.roll;
-      next.pole = GS_READY.pole;
-      next.leftPole = TWO_HAND_POLE;
-    }
-    if (k.t >= end) {
-      if (k.hips) next.hips = addReady(k.hips, GS_READY.hips);
-      if (k.chest) next.chest = addReady(k.chest, GS_READY.chest);
-      if (k.head) next.head = addReady(k.head, GS_READY.head);
-    }
-    return next;
-  });
-  return { name, duration: src.duration, twoHanded: GS_TWO_HAND, continueFrom: FROM_STANCE, keys };
-}
-
-/** 大剣を持つときのロールと後ろステップ（名前は大剣版として探される 'dodge@greatsword' / 'dodgeBack@greatsword'） */
-export const GS_DODGE = greatswordDodge(DODGE_CLIP, 'dodge@greatsword');
-export const GS_DODGE_BACK = greatswordDodge(DODGE_BACK, 'dodgeBack@greatsword');
+/** 大剣を持つときのロールと後ろステップ（名前は大剣版として探される 'dodge@greatsword' / 'dodgeBack@greatsword'）。作り方は two-hand.ts */
+export const GS_DODGE = twoHandDodge(DODGE_CLIP, 'dodge@greatsword', { twoHand: GS_TWO_HAND, ready: GS_READY, from: FROM_STANCE });
+export const GS_DODGE_BACK = twoHandDodge(DODGE_BACK, 'dodgeBack@greatsword', { twoHand: GS_TWO_HAND, ready: GS_READY, from: FROM_STANCE });
