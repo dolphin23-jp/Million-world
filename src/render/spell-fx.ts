@@ -28,14 +28,18 @@ interface Palette {
 
 const pal = (core: number, main: number, edge: number, floor: number): Palette => ({ core: new THREE.Color(core), main: new THREE.Color(main), edge: new THREE.Color(edge), floor: new THREE.Color(floor) });
 
+/**
+ * 床も空も明るい（加算で白を重ねると白飛びする）ので、粒・床の模様は通常の合成で彩度のある色にし、加算は小さな火花・稲妻・光の球だけに使う。
+ * core = 芯（明るい）、main = 本体、edge = 縁（暗い）、floor = 床の模様（予告の輪・陣・扇）
+ */
 const PALETTE: Record<SpellElement, Palette> = {
-  arcane: pal(0xffffff, 0x9fc0ff, 0x4468d8, 0x7fa8ff),
-  lightning: pal(0xfffbd0, 0xffe45a, 0x6f8dff, 0xffd93a),
-  ice: pal(0xffffff, 0xbdeaff, 0x5aa8e8, 0x8fdcff),
-  fire: pal(0xfff0b0, 0xff8a22, 0xb8260c, 0xff7a2a),
-  blast: pal(0xfff4c4, 0xff9a3a, 0xc8340e, 0xff5a2a),
-  heal: pal(0xf0fff4, 0x7ff0a8, 0x2fb86a, 0x6fe39a),
-  wind: pal(0xffffff, 0xb8ffd8, 0x4fc89a, 0x9ff0c8),
+  arcane: pal(0xffffff, 0x8fb4ff, 0x3a5ad0, 0x6f98ff),
+  lightning: pal(0xfffbd0, 0xffe040, 0x6f7dff, 0xf5c518),
+  ice: pal(0xf2fbff, 0x9fdcff, 0x4a90e0, 0x57b8f5),
+  fire: pal(0xffe070, 0xff7a1f, 0xb8260c, 0xff6a1a),
+  blast: pal(0xffe8a0, 0xff8a2a, 0xc03008, 0xff5a1a),
+  heal: pal(0xeaffef, 0x7ff0a8, 0x2fb86a, 0x3fd47f),
+  wind: pal(0xf2fff6, 0xa8f0cc, 0x3fb88a, 0x4fd8a0),
 };
 
 // ---------------------------------------------------------------- テクスチャ
@@ -183,7 +187,10 @@ function makeFanTexture(): THREE.CanvasTexture {
 
 // ---------------------------------------------------------------- 粒
 
-const MAX_PARTICLES = 220;
+/** 粒の数: 通常の合成（ほとんどの粒）と、加算の合成（小さな火花・光）。通常のほうが先頭 */
+const MAX_SOFT = 150;
+const MAX_SPARK = 80;
+const MAX_PARTICLES = MAX_SOFT + MAX_SPARK;
 
 interface Particle {
   sprite: THREE.Sprite;
@@ -204,6 +211,19 @@ interface Particle {
 }
 
 const _c = new THREE.Color();
+
+// ---------------------------------------------------------------- 杖の先の閃光
+
+const MAX_FLASHES = 5;
+
+interface Flash {
+  sprite: THREE.Sprite;
+  mat: THREE.SpriteMaterial;
+  active: boolean;
+  age: number;
+  life: number;
+  size: number;
+}
 
 // ---------------------------------------------------------------- 落雷・爆発の 1 点
 
@@ -293,7 +313,8 @@ export class SpellFx {
   private time = 0;
 
   private readonly particles: Particle[] = [];
-  private nextParticle = 0;
+  private nextSoft = 0;
+  private nextSpark = 0;
   private readonly strikes: StrikeSlot[] = [];
   private readonly strikeOwner = new Map<StrikePoint, StrikeSlot>();
   private readonly seenPoints = new Set<StrikePoint>();
@@ -308,6 +329,9 @@ export class SpellFx {
   private regenAcc = 0;
   private coneAcc = 0;
   private ringAcc = 0;
+  /** 杖の先の閃光（魔法を放った瞬間の小さな光の球）のプール */
+  private readonly flashes: Flash[] = [];
+  private nextFlash = 0;
 
   private readonly ringTex = makeRingTexture();
   private readonly circleTex = makeCircleTexture();
@@ -318,13 +342,21 @@ export class SpellFx {
   constructor() {
     this.group.name = 'spell-fx';
     this.buildParticles();
+    for (let i = 0; i < MAX_FLASHES; i++) {
+      const mat = new THREE.SpriteMaterial({ map: this.dotTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, fog: false, opacity: 0 });
+      const sprite = new THREE.Sprite(mat);
+      sprite.visible = false;
+      sprite.renderOrder = 12;
+      this.group.add(sprite);
+      this.flashes.push({ sprite, mat, active: false, age: 0, life: 0.15, size: 0.5 });
+    }
     this.buildStrikes();
     this.buildRings();
     this.buildCones();
     this.buildBeams();
     const geo = new THREE.PlaneGeometry(2, 2);
     geo.rotateX(-Math.PI / 2);
-    this.circleMat = this.floorMat(this.circleTex, 0xffffff, THREE.AdditiveBlending);
+    this.circleMat = this.floorMat(this.circleTex, 0xffffff, THREE.NormalBlending);
     this.circle = new THREE.Mesh(geo, this.circleMat);
     this.circle.visible = false;
     this.circle.renderOrder = 4;
@@ -340,7 +372,8 @@ export class SpellFx {
 
   private buildParticles(): void {
     for (let i = 0; i < MAX_PARTICLES; i++) {
-      const mat = new THREE.SpriteMaterial({ map: this.dotTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, opacity: 0 });
+      const additive = i >= MAX_SOFT;
+      const mat = new THREE.SpriteMaterial({ map: this.dotTex, transparent: true, blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending, depthWrite: false, fog: false, opacity: 0 });
       const sprite = new THREE.Sprite(mat);
       sprite.visible = false;
       sprite.renderOrder = 8;
@@ -366,7 +399,7 @@ export class SpellFx {
       const [tele, teleMat] = floor(this.ringTex, 3, THREE.NormalBlending);
       const [tele2, tele2Mat] = floor(this.ringTex, 3, THREE.NormalBlending);
       const [fill, fillMat] = floor(this.dotTex, 2, THREE.NormalBlending);
-      const [shock, shockMat] = floor(this.ringTex, 5, THREE.AdditiveBlending);
+      const [shock, shockMat] = floor(this.ringTex, 5, THREE.NormalBlending);
       // 稲妻: 縦のぎざぎざの帯。同じ形を 90° 回した 2 枚（どの向きからも見える）
       const boltGeo = new THREE.BufferGeometry();
       boltGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(BOLT_NODES * 2 * 3), 3));
@@ -383,7 +416,7 @@ export class SpellFx {
       bolt.visible = false;
       bolt.renderOrder = 9;
       this.group.add(bolt);
-      const glowMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, fog: false, toneMapped: false });
+      const glowMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false, blending: THREE.NormalBlending, fog: false, toneMapped: false });
       // 稲妻の光の柱（細い円筒。稲妻の芯のまわりのにじみ）
       const glow = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, BOLT_HEIGHT, 10, 1, true), glowMat);
       glow.position.y = BOLT_HEIGHT / 2;
@@ -392,13 +425,13 @@ export class SpellFx {
       glow.frustumCulled = false;
       this.group.add(glow);
       // 火球
-      const ballMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, fog: false, toneMapped: false });
+      const ballMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false, blending: THREE.NormalBlending, fog: false, toneMapped: false });
       const ball = new THREE.Mesh(sphere, ballMat);
       ball.visible = false;
       ball.renderOrder = 9;
       ball.frustumCulled = false;
       this.group.add(ball);
-      const flashMat = new THREE.SpriteMaterial({ map: this.dotTex, color: 0xffffff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, fog: false, opacity: 0 });
+      const flashMat = new THREE.SpriteMaterial({ map: this.dotTex, color: 0xffffff, transparent: true, blending: THREE.NormalBlending, depthWrite: false, depthTest: false, fog: false, opacity: 0 });
       const flash = new THREE.Sprite(flashMat);
       flash.visible = false;
       flash.renderOrder = 12;
@@ -416,7 +449,7 @@ export class SpellFx {
         const map = this.windTex.clone();
         map.needsUpdate = true;
         map.repeat.set(3, 1);
-        const mat = new THREE.MeshBasicMaterial({ map, color: 0xffffff, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, fog: false, toneMapped: false });
+        const mat = new THREE.MeshBasicMaterial({ map, color: 0xffffff, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide, blending: THREE.NormalBlending, fog: false, toneMapped: false });
         const mesh = new THREE.Mesh(open(1, WIND_HEIGHT), mat);
         mesh.position.y = WIND_HEIGHT / 2;
         mesh.frustumCulled = false;
@@ -425,7 +458,7 @@ export class SpellFx {
       };
       const [outer, outerMat] = mk();
       const [inner, innerMat] = mk();
-      const floorM = this.floorMat(this.ringTex, 0xffffff, THREE.AdditiveBlending);
+      const floorM = this.floorMat(this.ringTex, 0xffffff, THREE.NormalBlending);
       const floor = new THREE.Mesh(plane, floorM);
       floor.position.y = 0.05;
       floor.frustumCulled = false;
@@ -441,7 +474,7 @@ export class SpellFx {
   private buildCones(): void {
     for (let i = 0; i < MAX_CONES; i++) {
       const geo = new THREE.BufferGeometry();
-      const mat = new THREE.MeshBasicMaterial({ map: this.fanTex, color: 0xffffff, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, fog: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+      const mat = new THREE.MeshBasicMaterial({ map: this.fanTex, color: 0xffffff, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide, blending: THREE.NormalBlending, fog: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.visible = false;
       mesh.frustumCulled = false;
@@ -459,7 +492,7 @@ export class SpellFx {
       cone.rotateY(Math.PI);
       cone.translate(0, 0, 0.5);
       const mk = (color: number, opacity: number): [THREE.Mesh, THREE.MeshBasicMaterial] => {
-        const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, fog: false, toneMapped: false });
+        const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false, side: THREE.DoubleSide, blending: THREE.NormalBlending, fog: false, toneMapped: false });
         const mesh = new THREE.Mesh(cone, mat);
         mesh.visible = false;
         mesh.frustumCulled = false;
@@ -478,12 +511,57 @@ export class SpellFx {
     }
   }
 
+  // ---------------------------------------------------------------- 杖の先の閃光
+
+  /**
+   * 魔法を放った瞬間に、杖の先 (x, y, z) へ小さな光の球を出す（hitFx の星より小さく、短い。魔弾の連打で画面を覆わないように）。
+   * size = 最大の大きさ（m）、life = 消えるまでの実時間（秒）。粒を少し散らす
+   */
+  flash(x: number, y: number, z: number, element: SpellElement, size: number, life = 0.16): void {
+    const f = this.flashes[this.nextFlash]!;
+    this.nextFlash = (this.nextFlash + 1) % this.flashes.length;
+    const pal = PALETTE[element];
+    f.active = true;
+    f.age = 0;
+    f.life = life;
+    f.size = size;
+    f.mat.color.copy(pal.main);
+    f.sprite.position.set(x, y, z);
+    f.sprite.visible = true;
+    for (let i = 0; i < 6; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const v = 1.2 + Math.random() * 2.2;
+      this.emit(x, y, z, Math.cos(a) * v, (Math.random() - 0.3) * 2, Math.sin(a) * v, 0.25 + Math.random() * 0.2, 0.09, 0.02, 0.9, pal.core, pal.edge, 2.5, 3, true);
+    }
+  }
+
+  private updateFlashes(dt: number): void {
+    for (const f of this.flashes) {
+      if (!f.active) continue;
+      f.age += dt;
+      const t = f.age / f.life;
+      if (t >= 1) {
+        f.active = false;
+        f.sprite.visible = false;
+        continue;
+      }
+      f.sprite.scale.setScalar(f.size * (0.5 + 0.7 * Math.sqrt(t)));
+      f.mat.opacity = (1 - t) * (1 - t);
+    }
+  }
+
   // ---------------------------------------------------------------- 粒
 
-  /** 粒を 1 つ出す（空きがなければ一番古いものを使い回す）。c0 → c1 へ色が移り、s0 → s1 へ大きさが移り、a0 から 0 へ消える */
-  private emit(x: number, y: number, z: number, vx: number, vy: number, vz: number, life: number, s0: number, s1: number, a0: number, c0: THREE.Color, c1: THREE.Color, drag = 0, gravity = 0): void {
-    const p = this.particles[this.nextParticle]!;
-    this.nextParticle = (this.nextParticle + 1) % this.particles.length;
+  /** 粒を 1 つ出す（空きがなければ一番古いものを使い回す）。c0 → c1 へ色が移り、s0 → s1 へ大きさが移り、a0 から 0 へ消える。spark = 加算の合成（小さな火花・光。それ以外は通常の合成） */
+  private emit(x: number, y: number, z: number, vx: number, vy: number, vz: number, life: number, s0: number, s1: number, a0: number, c0: THREE.Color, c1: THREE.Color, drag = 0, gravity = 0, spark = false): void {
+    let p: Particle;
+    if (spark) {
+      p = this.particles[MAX_SOFT + this.nextSpark]!;
+      this.nextSpark = (this.nextSpark + 1) % MAX_SPARK;
+    } else {
+      p = this.particles[this.nextSoft]!;
+      this.nextSoft = (this.nextSoft + 1) % MAX_SOFT;
+    }
     p.active = true;
     p.age = 0;
     p.life = life;
@@ -542,6 +620,7 @@ export class SpellFx {
     this.updateRings(sys, alpha, frameDt);
     this.updateRegen(sys, caster, frameDt);
     this.updateParticles(frameDt);
+    this.updateFlashes(frameDt);
   }
 
   /** すべて消す（戦闘のやり直し） */
@@ -549,6 +628,10 @@ export class SpellFx {
     for (const p of this.particles) {
       p.active = false;
       p.sprite.visible = false;
+    }
+    for (const f of this.flashes) {
+      f.active = false;
+      f.sprite.visible = false;
     }
     for (const s of this.strikes) {
       s.owner = null;
@@ -585,8 +668,8 @@ export class SpellFx {
     const r = 1.45 * grow * (0.4 + 0.6 * this.circleK);
     this.circle.scale.set(r, 1, r);
     this.circle.rotation.y = this.time * (1.4 + 2.2 * c.castProgress);
-    this.circleMat.color.copy(pal.main);
-    this.circleMat.opacity = 0.85 * this.circleK;
+    this.circleMat.color.copy(pal.floor);
+    this.circleMat.opacity = 0.9 * this.circleK;
   }
 
   // ---------------------------------------------------------------- 落雷・爆発
@@ -677,10 +760,10 @@ export class SpellFx {
     const fk = Math.min(1, t / FLASH_FRAMES);
     s.flash.visible = fk < 1;
     s.flash.position.set(p.x, isBlast ? 0.9 : 0.4, p.z);
-    const fsz = p.radius * (isBlast ? 3.2 : 2.6) * (0.5 + 0.7 * Math.sqrt(fk));
+    const fsz = p.radius * (isBlast ? 3 : 1.8) * (0.5 + 0.7 * Math.sqrt(fk));
     s.flash.scale.set(fsz, fsz, 1);
     s.flashMat.color.copy(pal.main);
-    s.flashMat.opacity = (1 - fk) * (1 - fk) * 0.95;
+    s.flashMat.opacity = (1 - fk) * (1 - fk) * (isBlast ? 0.8 : 0.55);
     if (isBlast) {
       // 火球: 膨らみながら、白 → 橙 → 暗い橙へ色が移って薄れる
       const bk = Math.min(1, t / FIREBALL_FRAMES);
@@ -701,10 +784,10 @@ export class SpellFx {
       s.boltMat.opacity = flick * (1 - lk * 0.7);
       s.glow.visible = lk < 1;
       s.glow.position.set(p.x, BOLT_HEIGHT / 2, p.z);
-      const gw = (0.25 + 0.35 * (1 - lk)) * Math.min(1.6, p.radius * 0.7 + 0.3);
+      const gw = 0.16 + 0.16 * (1 - lk);
       s.glow.scale.set(gw, 1, gw);
       s.glowMat.color.copy(pal.main);
-      s.glowMat.opacity = 0.5 * flick * (1 - lk);
+      s.glowMat.opacity = 0.32 * flick * (1 - lk);
       s.ball.visible = false;
     }
   }
@@ -716,7 +799,7 @@ export class SpellFx {
       for (let i = 0; i < n; i++) {
         const a = Math.random() * Math.PI * 2;
         const sp2 = (2.5 + Math.random() * 5) * (0.6 + p.radius * 0.18);
-        this.emit(p.x, 0.3, p.z, Math.cos(a) * sp2, 2 + Math.random() * 5, Math.sin(a) * sp2, 0.5 + Math.random() * 0.5, 0.22, 0.04, 1, pal.core, pal.edge, 0.6, 9);
+        this.emit(p.x, 0.3, p.z, Math.cos(a) * sp2, 2 + Math.random() * 5, Math.sin(a) * sp2, 0.5 + Math.random() * 0.5, 0.22, 0.04, 1, pal.core, pal.edge, 0.6, 9, true);
       }
       return;
     }
@@ -727,7 +810,7 @@ export class SpellFx {
       const y = (k / (BOLT_NODES - 1)) * BOLT_HEIGHT;
       ox = k === 0 ? 0 : k === BOLT_NODES - 1 ? ox * 0.5 : ox + (Math.random() - 0.5) * 1.1;
       ox = Math.max(-0.9, Math.min(0.9, ox));
-      const w = 0.12 + 0.2 * (1 - k / (BOLT_NODES - 1)) + (k === 0 ? 0.15 : 0);
+      const w = 0.035 + 0.07 * (1 - k / (BOLT_NODES - 1)) + (k === 0 ? 0.06 : 0);
       pos.setXYZ(k * 2, ox - w, y, 0);
       pos.setXYZ(k * 2 + 1, ox + w, y, 0);
     }
@@ -736,7 +819,7 @@ export class SpellFx {
     for (let i = 0; i < 14; i++) {
       const a = Math.random() * Math.PI * 2;
       const v = 2 + Math.random() * 4;
-      this.emit(p.x, 0.15, p.z, Math.cos(a) * v, 2.5 + Math.random() * 4, Math.sin(a) * v, 0.35 + Math.random() * 0.3, 0.14, 0.02, 1, pal.core, pal.edge, 1.2, 12);
+      this.emit(p.x, 0.15, p.z, Math.cos(a) * v, 2.5 + Math.random() * 4, Math.sin(a) * v, 0.35 + Math.random() * 0.3, 0.14, 0.02, 1, pal.core, pal.edge, 1.2, 12, true);
     }
   }
 
@@ -755,8 +838,8 @@ export class SpellFx {
       slot.mesh.position.set(fx.x, 0.055, fx.z);
       slot.mesh.rotation.y = fx.yaw;
       slot.mesh.scale.set(sp.range, 1, sp.range);
-      slot.mat.color.copy(pal.main);
-      slot.mat.opacity = 0.75 * fade * (0.85 + 0.15 * Math.sin(this.time * 14));
+      slot.mat.color.copy(pal.floor);
+      slot.mat.opacity = 0.55 * fade * (0.85 + 0.15 * Math.sin(this.time * 14));
       if (fx.ended) continue;
       // 雪・氷の粒: 術者の前から、扇の中へ吹き出す
       this.coneAcc += dt * 70;
@@ -777,8 +860,8 @@ export class SpellFx {
           life,
           big ? 0.22 : 0.13,
           big ? 0.5 : 0.3,
-          big ? 0.9 : 0.75,
-          pal.core,
+          big ? 0.95 : 0.85,
+          pal.main,
           pal.edge,
           1.6,
           0.4,
@@ -829,9 +912,9 @@ export class SpellFx {
       slot.mid.scale.set(sp.width * 0.9 * flick, sp.width * 0.9 * flick, len);
       slot.core.scale.set(sp.width * 0.45 * flick, sp.width * 0.45 * flick, len * 0.8);
       slot.midMat.color.copy(pal.main);
-      slot.midMat.opacity = 0.42 * fade;
+      slot.midMat.opacity = 0.5 * fade;
       slot.coreMat.color.copy(pal.core);
-      slot.coreMat.opacity = 0.55 * fade;
+      slot.coreMat.opacity = 0.7 * fade;
       slot.flash.visible = fade > 0.01;
       slot.flash.position.set(fx.x, 1.0, fx.z);
       const fs = 1.5 * (0.8 + 0.3 * flick);
@@ -868,7 +951,7 @@ export class SpellFx {
       }
       // 遮られて短いとき、先端に火花
       if (fx.len < sp.length - 0.5 && Math.random() < dt * 30) {
-        this.emit(fx.x + dx * fx.len, 0.9, fx.z + dz * fx.len, (Math.random() - 0.5) * 3, 1 + Math.random() * 2, (Math.random() - 0.5) * 3, 0.3, 0.2, 0.02, 1, pal.core, pal.edge, 1, 6);
+        this.emit(fx.x + dx * fx.len, 0.9, fx.z + dz * fx.len, (Math.random() - 0.5) * 3, 1 + Math.random() * 2, (Math.random() - 0.5) * 3, 0.3, 0.2, 0.02, 1, pal.core, pal.edge, 1, 6, true);
       }
     }
     for (let i = n; i < this.beams.length; i++) {
@@ -904,15 +987,15 @@ export class SpellFx {
         slot.inner.position.y = (WIND_HEIGHT * h) / 2;
         slot.outer.rotation.y = this.time * 5.5 + r;
         slot.inner.rotation.y = -this.time * 7 + r;
-        slot.outerMat.color.copy(pal.main);
-        slot.innerMat.color.copy(pal.core);
-        slot.outerMat.opacity = 0.7 * fade;
-        slot.innerMat.opacity = 0.45 * fade;
+        slot.outerMat.color.copy(pal.floor);
+        slot.innerMat.color.copy(pal.main);
+        slot.outerMat.opacity = 0.75 * fade;
+        slot.innerMat.opacity = 0.55 * fade;
         (slot.outerMat.map as THREE.Texture).offset.x = -this.time * 1.2;
         (slot.innerMat.map as THREE.Texture).offset.x = this.time * 1.6;
         slot.floor.scale.set(outer, 1, outer);
-        slot.floorMat.color.copy(pal.main);
-        slot.floorMat.opacity = 0.55 * fade;
+        slot.floorMat.color.copy(pal.floor);
+        slot.floorMat.opacity = 0.6 * fade;
       }
     }
     for (let i = n; i < this.rings.length; i++) this.rings[i]!.group.visible = false;
@@ -940,7 +1023,7 @@ export class SpellFx {
             0.28,
             0.08,
             0.8,
-            pal.core,
+            pal.main,
             pal.edge,
             2,
             0,
@@ -963,7 +1046,7 @@ export class SpellFx {
       if (Math.random() > fadeOut) continue;
       const a = Math.random() * Math.PI * 2;
       const r = 0.25 + Math.random() * 0.55;
-      this.emit(c.x + Math.sin(a) * r, c.y + 0.1 + Math.random() * 0.4, c.z + Math.cos(a) * r, 0, 0.8 + Math.random() * 0.9, 0, 0.9 + Math.random() * 0.5, 0.2, 0.04, 0.9, pal.core, pal.main, 0.2, 0);
+      this.emit(c.x + Math.sin(a) * r, c.y + 0.1 + Math.random() * 0.4, c.z + Math.cos(a) * r, 0, 0.8 + Math.random() * 0.9, 0, 0.9 + Math.random() * 0.5, 0.2, 0.04, 0.9, pal.core, pal.main, 0.2, 0, true);
     }
   }
 }

@@ -182,6 +182,8 @@ const SPELL_BUFFER_FRAMES = 14;
 const CHIP_FLUSH_FRAMES = 20;
 const TICK_SFX_FRAMES = 7;
 const FLAME_SFX_FRAMES = 42;
+/** 範囲の魔法（落雷・爆発・旋風・爆ぜる魔弾）が敵 1 体に当たったときの閃光の大きさの倍率 */
+const SPELL_AOE_FX_SCALE = 0.55;
 /** 魔法の系統ごとの、命中・杖の先の閃光の色と、ボタンの宝珠の色 */
 const ELEMENT_TINT: Record<SpellElement, THREE.Color> = {
   arcane: FX_TINT.arcane,
@@ -563,13 +565,13 @@ export class Game {
   }
 
   /** プレイヤーの攻撃が敵に当たった。ヒットストップ・画面の揺れ・エフェクト・ダメージ数字を起こす */
-  private onPlayerHit(ev: HitEvent, enemy: Enemy, result: DamageResult, riposte = false, tint?: THREE.Color): void {
+  private onPlayerHit(ev: HitEvent, enemy: Enemy, result: DamageResult, riposte = false, tint?: THREE.Color, fxScale = 1): void {
     const fb = hitFeedback(ev, result.killed);
     this.hitStop.trigger(fb.hitStop);
     this.cam.shake.trigger(fb.shakeAmp, fb.shakeSeconds);
     const y = HIT_FEEDBACK.impactHeight;
     // 弾かれた敵への反撃は、水色がかった閃光と大きな数字で「反撃が通った」を見せる（杖の魔法は、系統の色の閃光）
-    this.hitFx.burst(ev.x, y, ev.z, ev.dirX, ev.dirZ, fb.power, riposte ? FX_TINT.parry : tint);
+    this.hitFx.burst(ev.x, y, ev.z, ev.dirX, ev.dirZ, fb.power * fxScale, riposte ? FX_TINT.parry : tint);
     // 会心は数字を専用の見た目（大きな金色）にし、命中の音の上にきらめく音を重ねる（とどめでも、反撃でも会心が読める）
     this.damageNumbers.spawn(enemy.body.x, y + 0.5, enemy.body.z, result.dealt, fb.crit ? 'crit' : riposte && !result.killed ? 'riposte' : fb.style);
     this.sfx.play(fb.style === 'heavy' || riposte ? 'hitHeavy' : 'hit');
@@ -655,8 +657,8 @@ export class Game {
     }
     const dx = Math.sin(c.yaw);
     const dz = Math.cos(c.yaw);
-    // 杖の先（宝珠の高さ・向いている方へ）の閃光
-    this.hitFx.burst(c.x + dx * 0.9, p.y + 1.15, c.z + dz * 0.9, dx, dz, spell.kind === 'bolt' ? (spell.burst ? 0.55 : 0.35) : 0.7, ELEMENT_TINT[spell.element]);
+    // 杖の先（宝珠の高さ・向いている方へ）の小さな閃光
+    this.spellFx.flash(c.x + dx * 0.9, p.y + 1.15, c.z + dz * 0.9, spell.element, spell.kind === 'bolt' ? (spell.burst ? 0.8 : 0.5) : 1.0);
     if (spell.kind === 'bolt') {
       this.fireBolt(spell, c.spell, c.x, c.z, dx, dz, c.power);
       return;
@@ -765,7 +767,8 @@ export class Game {
     const tint = ELEMENT_TINT[info.spell.element];
     if (ev.chip !== true || result.killed) {
       if (result.killed) this.flushChipOf(target.id);
-      this.onPlayerHit(ev, target, result, false, tint);
+      // 範囲の魔法は何体にもまとめて当たるので、1 体あたりの閃光は小さくする（画面が真っ白にならないように）。単体に当たる刻み（とどめ）は等倍
+      this.onPlayerHit(ev, target, result, false, tint, ev.chip === true ? 1 : SPELL_AOE_FX_SCALE);
       return;
     }
     // 継続の刻み: 小さな火花・間引いた音・数字は敵ごとの合計を、一定の間隔で
@@ -807,12 +810,10 @@ export class Game {
     if (sp.id === 'thunder') {
       this.sfx.play('spellThunder', { gain: gain * (index === 0 ? 1 : 0.6) });
       this.cam.shake.trigger(index === 0 ? 0.1 : 0.05, 0.18);
-      this.hitFx.burst(point.x, 1, point.z, 0, 0, index === 0 ? 1 : 0.6, FX_TINT.lightning);
       this.groundFx.burst(point.x, point.z, index === 0 ? 0.5 : 0.3);
     } else if (sp.id === 'explosion') {
       this.sfx.play('spellExplosion', { gain });
       this.cam.shake.trigger(0.24, 0.35);
-      this.hitFx.burst(point.x, 1.2, point.z, 0, 0, 1.3, FX_TINT.blast);
       this.groundFx.burst(point.x, point.z, 1.1);
     }
   }
