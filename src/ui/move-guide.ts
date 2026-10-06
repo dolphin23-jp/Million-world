@@ -18,6 +18,9 @@ const SLOT_LABEL: Record<GuideSlot, string> = {
 /** 見出しの変わりやすい版（立っているとき。「連打」ではなく単にタップ） */
 const SLOT_LABEL_READY: Record<GuideSlot, string> = { ...SLOT_LABEL, tap: '● 攻撃' };
 
+/** 連携の履歴に出す技の数（これより長い連携は、前を「…」で省く。ガイドの幅は 430px 前後） */
+const MAX_TRAIL = 5;
+
 interface ChipEl {
   root: HTMLElement;
   key: HTMLElement;
@@ -115,8 +118,9 @@ export class MoveGuide {
     this.headSig = sig;
     this.head.textContent = '';
     if (v.mode === 'attack') {
-      // 連携の履歴（古い → 新しい）。いまの技だけ大きく金色
-      const trail = v.trail.length > 0 ? v.trail : [v.title];
+      // 連携の履歴（古い → 新しい）。いまの技だけ大きく金色。7 連のとき全部は幅に収まらないので、直近の MAX_TRAIL 件だけ出して、前は「…」で省く
+      const all = v.trail.length > 0 ? v.trail : [v.title];
+      const trail = all.length > MAX_TRAIL ? ['…', ...all.slice(-MAX_TRAIL)] : all;
       trail.forEach((name, i) => {
         if (i > 0) el('span', 'mg-sep', this.head).textContent = '›';
         const s = el('span', i === trail.length - 1 ? 'mg-now' : 'mg-past', this.head);

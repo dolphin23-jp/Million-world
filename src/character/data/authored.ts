@@ -18,6 +18,8 @@ import { GS_DROP } from './gs-drop';
 import { GS_HEAVY_RIP, GS_LUNGE_SWEEP, GS_RETREAT_LUNGE, GS_RISE_SLAM, GS_SPIN2 } from './gs-chain';
 import { COMBO_HOP, COMBO_SPIN, COMBO_UPPER } from './combo-chain';
 import { COMBO_SLAM, HOP_THRUST, LUNGE_SLASH, SWEEP_BACK } from './sword-chain';
+import { SLAM_RIP, SPIN_REV, SPIN_RISE, SWALLOW } from './sword-chain-ex';
+import { GS_BOUNCE, GS_CRUSH, GS_RETURN_SWEEP, GS_SPIN3, GS_SPIN_SLAM } from './gs-chain-ex';
 import { FLURRY, FLURRY_7, FLURRY_9, QUAD3, QUAD4, QUAD5, QUAD6, WHIRL, WHIRL_35, WHIRL_45 } from './skill-sword';
 import { HIRYU, HIRYU_4, HIRYU_7, KENZAN, KENZAN_4, KENZAN_5, OUZU, OUZU_3, OUZU_4 } from './skill-greatsword-ex';
 import { CROSS, CROSS_2, CROSS_3, GALE, GALE_6, GALE_8, IAI, IAI_4, IAI_7 } from './skill-sword-ex';
@@ -37,6 +39,10 @@ export const AUTHORED_ATTACKS: Record<string, AuthoredAttack> = {
   hopThrust: HOP_THRUST,
   lungeSlash: LUNGE_SLASH,
   sweepBack: SWEEP_BACK,
+  slamRip: SLAM_RIP,
+  swallow: SWALLOW,
+  spinRev: SPIN_REV,
+  spinRise: SPIN_RISE,
   // 剣技の専用モーション（ADR-031。攻撃は SKILL_ATTACKS）
   quad3: QUAD3,
   quad4: QUAD4,
@@ -115,6 +121,11 @@ export const AUTHORED_ATTACKS: Record<string, AuthoredAttack> = {
   gsRetreatLunge: GS_RETREAT_LUNGE,
   gsRiseSlam: GS_RISE_SLAM,
   gsHeavyRip: GS_HEAVY_RIP,
+  gsBounce: GS_BOUNCE,
+  gsCrush: GS_CRUSH,
+  gsSpin3: GS_SPIN3,
+  gsSpinSlam: GS_SPIN_SLAM,
+  gsReturnSweep: GS_RETURN_SWEEP,
   guardGreatsword: GS_GUARD,
   guardGreatswordHit: GS_GUARD_HIT,
   guardGreatswordParry: GS_PARRY,

@@ -1788,6 +1788,47 @@ try {
   await sleep(120);
   await page.screenshot({ path: 'artifacts/shot-guide.png' });
 
+  // 連携の拡充（ADR-047）: 前へ倒しながら連打して、片手剣は 7 連・大剣は 5 連まで出し切る。7 連の最後（燕返し）の絵に、ガイドの履歴（直近 5 件。前は「…」）が出る。
+  // 連携の履歴が最長まで届かない・履歴が幅に収まらないときは異常終了（process.exitCode = 3）
+  for (const [loadout, ids, file] of [
+    // 後続の場面（メニュー・パッシブ）は片手剣を前提にしているので、装備は片手剣で終える
+    ['greatsword', ['gs1', 'gs2', 'gsDrop', 'gsBounce', 'gsCrush'], 'artifacts/shot-chain5-greatsword.png'],
+    ['sword', ['combo1', 'combo2', 'combo3', 'comboUpper', 'comboSlam', 'slamRip', 'swallow'], 'artifacts/shot-chain7.png'],
+  ]) {
+    const chain = await page.evaluate(([solo, loadout, ids]) => {
+      const g = window.__mw.game;
+      g.restart({ ...solo, maxAttackers: 0 });
+      g.setLoadout(loadout);
+      g.stepNow(1);
+      g.player.body.x = 0;
+      g.player.body.z = 0;
+      g.player.yaw = 0;
+      g.enemies[0].enemy.place(0, 1.6, Math.PI);
+      const seen = [];
+      g.inject({ attackPressed: true });
+      g.stepNow(1);
+      for (let i = 0; i < 400 && g.player.state === 'attack'; i++) {
+        const id = g.player.attack ? g.player.attack.id : null;
+        if (id && seen[seen.length - 1] !== id) seen.push(id);
+        // 最後の技まで来たら、その途中（2 つ目の当たりのころ）で止めて絵を撮る
+        if (seen.length === ids.length && g.player.stateFrame >= 14) break;
+        // 受付が開いたら、前へ倒して押す（連携の続き）。敵は体の前に置き続ける
+        g.enemies[0].enemy.place(0, g.player.body.z + 1.6, Math.PI);
+        if (g.player.stateFrame >= g.player.attackFrames.cancelFrame) g.inject({ attackPressed: true, moveX: 0, moveY: 1 });
+        g.stepNow(1);
+      }
+      g.renderNow(5);
+      return { seen, chain: [...g.player.chain] };
+    }, [SOLO, loadout, ids]);
+    console.log(`[chain] ${loadout} ${JSON.stringify(chain)}`);
+    if (JSON.stringify(chain.seen) !== JSON.stringify(ids) || chain.chain.length !== ids.length) {
+      console.error(`[chain] ${loadout}: 連携が最長（${ids.length} 連）まで出ていません`);
+      process.exitCode = 3;
+    }
+    await sleep(120);
+    await page.screenshot({ path: file });
+  }
+
   // 一時停止メニュー（ADR-033）: レベル 7（ステータスポイント 18・スキルポイント 6）にして開き、ステータスを振る・スキルを上げる・技表・設定を撮る。
   // 振り分けが戦闘の数値・セーブに届いていること、− が開いてから振った分までしか戻せないこと、閉じると再開することも確かめる
   await page.evaluate(() => {
