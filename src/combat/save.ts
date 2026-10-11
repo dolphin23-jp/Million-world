@@ -61,7 +61,7 @@ export function parseSave(raw: unknown): SaveData | null {
   for (const id of PASSIVE_ORDER) passives[id] = num(rawPassives[id], 0);
   const selected: Partial<Record<WeaponId, SkillId>> = {};
   const rawSel = isRecord(cur.selected) ? cur.selected : {};
-  for (const fam of ['sword', 'greatsword'] as const) {
+  for (const fam of ['sword', 'greatsword', 'spear'] as const) {
     const v = rawSel[fam];
     // 選んだスキルが（消えた・別の系統になったなどで）使えないなら、選んでいないことにする
     if (isSkillId(v) && SKILLS[v].family === fam) selected[fam] = v;

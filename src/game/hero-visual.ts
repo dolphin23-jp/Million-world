@@ -4,8 +4,9 @@ import type { ToonMaterial } from '../render/toon';
 import type { CharacterAsset } from '../character/loader';
 import { Animator, overlayPose } from '../character/animator';
 import { bakeAttack, type AuthoredAttack, type BakeStats, type FrameTrace } from '../character/authoring';
-import { AUTHORED_ATTACKS, GREATSWORD_VARIANT, SHIELD_VARIANT, STAFF_VARIANT, hasShieldVariant } from '../character/data/authored';
+import { AUTHORED_ATTACKS, GREATSWORD_VARIANT, SHIELD_VARIANT, SPEAR_VARIANT, STAFF_VARIANT, hasShieldVariant } from '../character/data/authored';
 import { GS_CARRY, GS_IDLE } from '../character/data/greatsword';
+import { SP_CARRY, SP_IDLE } from '../character/data/spear';
 import { STAFF_CARRY, STAFF_IDLE } from '../character/data/staff';
 import { SHIELD_CARRY, SHIELD_IDLE } from '../character/data/guard';
 import type { WeaponId } from '../combat/data/loadouts';
@@ -18,6 +19,7 @@ import { POSTURE_LEAN, POSTURE_SHARE, POSTURE_SPEED } from '../character/data/po
 import { approach } from '../core/math';
 import { buildSword } from './sword';
 import { buildGreatsword } from './greatsword';
+import { buildSpear } from './spear';
 import { buildStaff } from './staff';
 import { buildShield, shieldMount } from './shield';
 
@@ -121,6 +123,19 @@ export class HeroVisual {
     const carry = this.animator.getClip(GS_CARRY.name);
     const run = this.animator.getClip(HERO.clips.run);
     if (carry && run) this.animator.addClip(HERO.clips.run + GREATSWORD_VARIANT, overlayPose(HERO.clips.run + GREATSWORD_VARIANT, run, carry, ARM_BONES, carry.duration));
+    // 槍を持つとき（ADR-049）: 待機は構えの息づかい（'idle@spear'）、走りは担ぎの腕のまま胴・脚だけ走りの動き、ジャンプ・落下・着地も腕は担ぎのまま（ロールは 'dodge@spear'）
+    const spIdle = bakeAttack(this.capture.rig, SP_IDLE, 60, this.capture.extras);
+    this.animator.addClip(spIdle.clip.name, spIdle.clip);
+    this.authoredStats[spIdle.clip.name] = spIdle.stats;
+    this.authoredTrace[spIdle.clip.name] = spIdle.trace;
+    const spCarry = this.animator.getClip(SP_CARRY.name);
+    if (spCarry && run) this.animator.addClip(HERO.clips.run + SPEAR_VARIANT, overlayPose(HERO.clips.run + SPEAR_VARIANT, run, spCarry, ARM_BONES, spCarry.duration));
+    if (spCarry) {
+      for (const n of ['jump', 'fall', 'land']) {
+        const base = this.animator.getClip(n);
+        if (base) this.animator.addClip(n + SPEAR_VARIANT, overlayPose(n + SPEAR_VARIANT, base, spCarry, ARM_BONES, spCarry.duration));
+      }
+    }
     // 杖を持つとき（ADR-048）: 待機は杖を立てた構えの息づかい（'idle@staff'）、走りは杖を立てて持つ腕のまま胴・脚だけ走りの動き
     const staffIdle = bakeAttack(this.capture.rig, STAFF_IDLE, 60, this.capture.extras);
     this.animator.addClip(staffIdle.clip.name, staffIdle.clip);
@@ -146,13 +161,16 @@ export class HeroVisual {
     socket.scale.setScalar(100);
     const sword = this.makeWeapon(buildSword(), BLADE_RANGE.sword);
     const greatsword = this.makeWeapon(buildGreatsword(), BLADE_RANGE.greatsword);
+    const spear = this.makeWeapon(buildSpear(), BLADE_RANGE.spear);
     const staff = this.makeWeapon(buildStaff(), BLADE_RANGE.staff, STAFF_GLOW_COLOR);
     socket.add(sword.group);
     socket.add(greatsword.group);
+    socket.add(spear.group);
     socket.add(staff.group);
-    this.weapons = { sword, greatsword, staff };
+    this.weapons = { sword, greatsword, spear, staff };
     this.weapon = sword;
     greatsword.group.visible = false;
+    spear.group.visible = false;
     staff.group.visible = false;
     if (bone) bone.add(socket);
     else console.warn(`[hero] ボーンがありません: ${HERO.sword.bone}`);
@@ -397,6 +415,8 @@ export class HeroVisual {
 const BLADE_RANGE: Record<WeaponId, { baseY: number; tipY: number }> = {
   sword: { baseY: 0.3, tipY: 1.17 },
   greatsword: { baseY: 0.5, tipY: 1.62 },
+  // 槍: 柄の中ほどから穂先まで（突きは細い線、薙ぎ払いは柄ごと大きな帯になる）
+  spear: { baseY: 0.9, tipY: 1.85 },
   // 杖は剣筋を出さない（詠唱は当たりを持たない）。帯の位置は宝珠の付近（念のため）
   staff: { baseY: 0.9, tipY: 1.3 },
 };

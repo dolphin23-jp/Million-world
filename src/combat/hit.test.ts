@@ -212,8 +212,8 @@ describe('攻撃データのヒットボックス（実データ）', () => {
     }
   });
 
-  it('全方位の技は回転の技（片手剣の回転斬り・逆回転斬り・大剣の大回転・連携回転斬り・逆の大回転）だけ。真後ろでも真横でも当たる', () => {
-    const spins = ['comboSpin', 'gsSpin', 'gsSpin2', 'gsSpin3', 'spinRev'];
+  it('全方位の技は回転の技（片手剣の回転斬り・逆回転斬り・大剣の大回転・連携回転斬り・逆の大回転・槍の回転薙ぎ）だけ。真後ろでも真横でも当たる', () => {
+    const spins = ['comboSpin', 'gsSpin', 'gsSpin2', 'gsSpin3', 'spinRev', 'spSpin'];
     expect(Object.values(ATTACKS).filter(omni).map((a) => a.id).sort()).toEqual([...spins].sort());
     for (const id of spins) {
       const h = ATTACKS[id]!.hitbox;

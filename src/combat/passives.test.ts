@@ -22,12 +22,12 @@ describe('パッシブのデータの整合', () => {
     }
   });
 
-  it('カテゴリはどれかに属し、一覧のカテゴリの順にすべて使われている。系統つきは片手剣か大剣', () => {
+  it('カテゴリはどれかに属し、一覧のカテゴリの順にすべて使われている。系統つきは片手剣・大剣・槍', () => {
     for (const id of PASSIVE_ORDER) expect(PASSIVE_CATEGORY_ORDER).toContain(PASSIVES[id].category);
     for (const c of PASSIVE_CATEGORY_ORDER) expect(PASSIVE_ORDER.some((id) => PASSIVES[id].category === c), c).toBe(true);
     for (const id of PASSIVE_ORDER) {
       const f = PASSIVES[id].family;
-      if (f !== undefined) expect(['sword', 'greatsword']).toContain(f);
+      if (f !== undefined) expect(['sword', 'greatsword', 'spear']).toContain(f);
     }
   });
 
@@ -44,7 +44,7 @@ describe('パッシブのデータの整合', () => {
   });
 
   it('全部取るには 52 ポイント。Lv30（29 ポイント）では、剣技と合わせても全部は取れない = 選ぶ楽しみ', () => {
-    expect(PASSIVE_POINTS_TOTAL).toBe(52);
+    expect(PASSIVE_POINTS_TOTAL).toBe(57);
     expect(PASSIVE_POINTS_TOTAL).toBeGreaterThan(29 * GROWTH.skillPointsPerLevel);
   });
 
@@ -93,7 +93,9 @@ describe('passiveTotals（効果の合計）', () => {
     expect(t.dropRate).toBeCloseTo(0.1, 9);
   });
   it('系統つきのパッシブは、その武器を装備しているときだけ数える（省略 = 系統つきは数えない）', () => {
-    const lv = { swordMastery: 2, greatMastery: 3 };
+    const lv = { swordMastery: 2, greatMastery: 3, spearMastery: 1 };
+    expect(passiveTotals(lv, 'spear').damage).toBeCloseTo(0.04, 9);
+    expect(passiveTotals(lv, 'spear').knockback).toBeCloseTo(0.02, 9);
     expect(passiveTotals(lv, 'sword').damage).toBeCloseTo(0.08, 9);
     expect(passiveTotals(lv, 'sword').knockback).toBeUndefined();
     expect(passiveTotals(lv, 'greatsword').damage).toBeCloseTo(0.12, 9);

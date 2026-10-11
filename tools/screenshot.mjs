@@ -242,8 +242,198 @@ try {
   }
   }
 
-  if (process.env.SHOT_ONLY === 'staff') {
-    await staffScenes();
+  // ---- 槍のシーン（ADR-049。関数にしてあるのは、SHOT_ONLY=spear で槍のシーンだけを撮れるようにするため。通常は最後に走る）
+  async function spearScenes() {
+  // 槍: 両手持ち・右手が前。通常攻撃は突き（11）→ 二段突き → 薙ぎ払い。穂先の利（間合いの先端 = 中心どうしの距離 2.65m 以上の命中は ×1.3）。
+  // 槍技 3 種（乱れ突き 6 連・風車 2 周・穿ち）。ガード（槍を横にして受ける。パリィは受付 8f）。数値と UI を確かめ、見せ場を撮る
+  const spearSetup = (z) =>
+    page.evaluate((z) => {
+      const g = window.__mw.game;
+      g.loop.stop();
+      g.restart({ waves: [[{ type: 'imp', offset: 0, radius: 6 }]], waveGapFrames: 100, victoryDelayFrames: 75, defeatDelayFrames: 150, maxAttackers: 2 });
+      g.setLoadout('spear');
+      g.critRng = () => 1;
+      g.stepNow(30);
+      g.player.body.x = 0;
+      g.player.body.z = 0;
+      g.player.yaw = 0;
+      const e = g.enemies[0].enemy;
+      e.place(0, z, Math.PI);
+      e.health.hp = e.health.max = 9999;
+      g.renderNow(45);
+    }, z);
+  /** 入力を 1 回押して n ステップ進める（プレイヤーの位置は動かさない。敵に攻撃させない）。敵の HP の減りと攻撃 id の遷移を返す */
+  const spearRun = (input, n, opts = {}) =>
+    page.evaluate(({ input, n, opts }) => {
+      const g = window.__mw.game;
+      const e = g.enemies[0].enemy;
+      const hp0 = e.health.hp;
+      const ids = [];
+      g.inject(input);
+      for (let i = 0; i < n; i++) {
+        e.cooldown = 999;
+        g.stepNow(1);
+        const id = g.player.attack ? g.player.attack.id : null;
+        if (id && ids[ids.length - 1] !== id) ids.push(id);
+      }
+      g.renderNow(2);
+      return { dealt: hp0 - e.health.hp, ids, z: g.player.body.z, state: g.player.state };
+    }, { input, n, opts });
+  {
+    await spearSetup(1.6);
+    const ui = await page.evaluate(() => {
+      const vis = (sel) => {
+        const el = document.querySelector(sel);
+        return el ? getComputedStyle(el).display !== 'none' : false;
+      };
+      return {
+        weapon: document.getElementById('touch-layer')?.dataset.weapon,
+        grid: vis('#spell-grid'),
+        guard: vis('#btn-guard'),
+        skill: vis('#btn-skill'),
+        guide: vis('#move-guide'),
+        skills: window.__mw.game.skills.available('spear').map((d) => d.short),
+      };
+    });
+    console.log(`[spear] UI ${JSON.stringify(ui)}`);
+    if (ui.weapon !== 'spear' || ui.grid || !ui.guard || !ui.skill || !ui.guide || ui.skills.join() !== '乱れ,風車,穿ち') {
+      console.error('[spear] 槍を構えると、ガード・スキル欄・操作ガイドが出て（魔法ボタンは出ない）、槍技は 乱れ・風車・穿ち の 3 つのはず');
+      process.exitCode = 3;
+    }
+    await page.screenshot({ path: 'artifacts/shot-spear-idle.png' });
+
+    // 1 段目の突き: 近い的は 11、間合いの先端（2.9m）の的は ×1.3 = 14。ダメージ数字は穂先の利の色
+    await spearSetup(1.6);
+    const near = await spearRun({ attackPressed: true }, 30);
+    await spearSetup(3.1);
+    const far = await spearRun({ attackPressed: true }, 30);
+    console.log(`[spear] 突き 近 ${JSON.stringify(near)} 先端 ${JSON.stringify(far)}`);
+    if (near.dealt !== 11 || far.dealt !== 14) {
+      console.error(`[spear] 突きは近い的に 11、間合いの先端の的に 14（穂先の利 ×1.3）のはず: ${near.dealt} / ${far.dealt}`);
+      process.exitCode = 3;
+    }
+    await spearSetup(3.1);
+    await spearRun({ attackPressed: true }, 14);
+    await page.screenshot({ path: 'artifacts/shot-spear-thrust.png' });
+
+    // 連携: 突き → 二段突き → 薙ぎ払い（押しっぱなしの連打）
+    await spearSetup(2.4);
+    const chain = await page.evaluate(() => {
+      const g = window.__mw.game;
+      const e = g.enemies[0].enemy;
+      const ids = [];
+      for (let i = 0; i < 150; i++) {
+        e.cooldown = 999;
+        g.inject({ attackPressed: i % 6 === 0 });
+        g.stepNow(1);
+        const id = g.player.attack ? g.player.attack.id : null;
+        if (id && ids[ids.length - 1] !== id) ids.push(id);
+      }
+      return ids;
+    });
+    console.log(`[spear] 連携 ${JSON.stringify(chain)}`);
+    if (chain.slice(0, 3).join() !== 'sp1,sp2,sp3') {
+      console.error('[spear] 連打で 突き → 二段突き → 薙ぎ払い と続くはず');
+      process.exitCode = 3;
+    }
+
+    // 溜め突き: 長押し → 離す（威力は段階で上がる）
+    await spearSetup(5.0);
+    const heavy = await page.evaluate(() => {
+      const g = window.__mw.game;
+      const e = g.enemies[0].enemy;
+      const hp0 = e.health.hp;
+      for (let i = 0; i < 120; i++) {
+        e.cooldown = 999;
+        g.inject(i === 0 ? { attackPressed: true, attackHeld: true } : { attackHeld: true });
+        g.stepNow(1);
+        if (g.player.chargeLevel >= 2) break;
+      }
+      const level = g.player.chargeLevel;
+      g.renderNow(2);
+      return { level, ids: null, hp0 };
+    });
+    await page.screenshot({ path: 'artifacts/shot-spear-charge.png' });
+    const heavyHit = await spearRun({ attackHeld: false }, 40);
+    console.log(`[spear] 溜め突き 段階 ${heavy.level} ${JSON.stringify(heavyHit)}`);
+    if (heavy.level < 2 || !heavyHit.ids.includes('spHeavy')) {
+      console.error('[spear] 長押しで最大の段階まで溜まり、離すと溜め突き（spHeavy）を放つはず');
+      process.exitCode = 3;
+    }
+    await page.screenshot({ path: 'artifacts/shot-spear-heavy.png' });
+
+    // 槍技: 乱れ突き（6 連）・風車（2 周）・穿ち（1 突き）
+    const skillScenes = [
+      ['midare', 'skSpFlurry', 2.0, 90, (r) => r.dealt >= 5 * 6],
+      ['fusha', 'skSpWhirl', 1.4, 110, (r) => r.dealt >= 2 * 8],
+      ['ugachi', 'skSpBore', 3.2, 80, (r) => r.dealt >= 20],
+    ];
+    for (const [id, atk, z, steps, ok] of skillScenes) {
+      await spearSetup(z);
+      await page.evaluate((id) => window.__mw.game.skills.select(id), id);
+      const r = await spearRun({ skillPressed: true }, steps);
+      console.log(`[spear] ${id} ${JSON.stringify(r)}`);
+      if (!r.ids.includes(atk) || !ok(r)) {
+        console.error(`[spear] ${id}: ${atk} が出て、敵に当たるはず`);
+        process.exitCode = 3;
+      }
+      // 見せ場の絵（もう一度、途中まで）
+      await spearSetup(z);
+      await page.evaluate((id) => window.__mw.game.skills.select(id), id);
+      await spearRun({ skillPressed: true }, id === 'fusha' ? 40 : id === 'midare' ? 36 : 26);
+      await page.screenshot({ path: `artifacts/shot-spear-${id}.png` });
+    }
+
+    // ガード: 構える（受け止めると軽減 70%）。槍を横にして体の前をふさぐ絵
+    await spearSetup(3.0);
+    await page.evaluate(() => {
+      const g = window.__mw.game;
+      g.inject({ guardPressed: true, guardHeld: true });
+      g.stepNow(1);
+      for (let i = 0; i < 12; i++) {
+        g.inject({ guardHeld: true });
+        g.stepNow(1);
+      }
+      g.renderNow(2);
+    });
+    const gst = await page.evaluate(() => ({ state: window.__mw.game.player.state, guard: window.__mw.game.player.guard?.id }));
+    console.log(`[spear] ガード ${JSON.stringify(gst)}`);
+    if (gst.state !== 'guard' || gst.guard !== 'spear') {
+      console.error('[spear] ガードボタンで槍の構えに入るはず');
+      process.exitCode = 3;
+    }
+    await page.screenshot({ path: 'artifacts/shot-spear-guard.png' });
+
+    // 一時停止メニュー: スキルタブに「槍」の 3 本
+    await page.evaluate(() => window.__mw.game.loop.stop());
+    await page.click('#btn-menu');
+    await sleep(200);
+    await page.locator('.menu-tab').nth(1).click();
+    await sleep(200);
+    const menu = await page.evaluate(() => ({
+      titles: [...document.querySelectorAll('.sk-fam b')].map((b) => b.textContent),
+      names: [...document.querySelectorAll('.sk-card .sk-name b')].map((b) => b.textContent),
+    }));
+    console.log(`[spear] メニュー ${JSON.stringify({ titles: menu.titles })}`);
+    if (!menu.titles.includes('槍') || !['乱れ突き', '風車', '穿ち'].every((n) => menu.names.includes(n))) {
+      console.error('[spear] スキルタブに「槍」の槍技 3 本が並ぶはず');
+      process.exitCode = 3;
+    }
+    await page.screenshot({ path: 'artifacts/shot-spear-menu.png' });
+    await page.locator('.menu-tab').nth(0).click();
+    await page.click('.menu-close');
+    await sleep(100);
+    await page.evaluate(() => {
+      const g = window.__mw.game;
+      g.setLoadout('sword');
+      g.loop.stop();
+    });
+  }
+  }
+
+  if (process.env.SHOT_ONLY === 'staff' || process.env.SHOT_ONLY === 'spear') {
+    if (process.env.SHOT_ONLY === 'staff') await staffScenes();
+    else await spearScenes();
     await browser.close();
     if (server) {
       try {
@@ -2043,7 +2233,7 @@ try {
     console.error('[menu] スキルのレベル上げが SkillBook に届いていない');
     process.exitCode = 3;
   }
-  // パッシブ（ADR-037）: スキルタブの下に 12 本。未習得で前提が満たされないものは暗く、＋が押せない。剣術習熟に 1 ポイント振ると習得され、片手剣のダメージに +4% が足される
+  // パッシブ（ADR-037）: スキルタブの下に 13 本（槍術習熟を足して 12 → 13。ADR-049）。未習得で前提が満たされないものは暗く、＋が押せない。剣術習熟に 1 ポイント振ると習得され、片手剣のダメージに +4% が足される
   const pa0 = await page.evaluate(() => ({
     cards: document.querySelectorAll('.pa-card').length,
     locked: [...document.querySelectorAll('.pa-card.locked')].map((c) => c.querySelector('b')?.textContent),
@@ -2062,8 +2252,8 @@ try {
     text: document.querySelector('.pa-card .pa-now')?.textContent ?? '',
   }));
   console.log(`[passive-ui] 後 ${JSON.stringify(pa1)}`);
-  if (pa0.cards !== 12 || pa0.locked.length !== 4 || pa0.kp !== 2 || pa1.kp !== 1 || pa1.lv !== 1 || Math.abs(pa1.dmg - 1.07) > 1e-9 || pa1.learned !== 1) {
-    console.error('[passive-ui] パッシブの一覧（12 本・前提で暗いものが 4 本）・習得（ポイント −1・ダメージ +4%）が想定どおりでない');
+  if (pa0.cards !== 13 || pa0.locked.length !== 4 || pa0.kp !== 2 || pa1.kp !== 1 || pa1.lv !== 1 || Math.abs(pa1.dmg - 1.07) > 1e-9 || pa1.learned !== 1) {
+    console.error('[passive-ui] パッシブの一覧（13 本・前提で暗いものが 4 本）・習得（ポイント −1・ダメージ +4%）が想定どおりでない');
     process.exitCode = 3;
   }
   await page.evaluate(() => document.querySelector('.sk-passive-title')?.scrollIntoView({ block: 'start' }));
@@ -2321,6 +2511,7 @@ try {
 
   // 杖（ADR-048）は最後に撮る（装備・メニューのタブなどの状態を、ほかのシーンへ持ち込まないため）
   await staffScenes();
+  await spearScenes();
 
   const errors = logs.filter((l) => l.startsWith('[error]') || l.startsWith('[pageerror]'));
   console.log(logs.join('\n'));

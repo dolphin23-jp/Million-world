@@ -66,3 +66,16 @@ export const STAFF_MOVESET: Moveset = {
   dashRoll: 'stBolt1',
   dashBack: 'stBolt1',
 };
+
+/**
+ * 槍の技のセット（ADR-049）。長い間合いの突きが中心で、片手剣より手数が多く、大剣より素早い。
+ * 前は踏み込み突き（最長）、後ろは跳び退き突き、横は回転薙ぎ（全方位）、ロール直後は跳び突き、後ろステップ直後は突き上げ。長押しの溜め突き（spHeavy）は CHARGES.spear。
+ */
+export const SPEAR_MOVESET: Moveset = {
+  light: 'sp1',
+  lunge: 'spLunge',
+  retreat: 'spRetreat',
+  sweep: 'spSpin',
+  dashRoll: 'spDash',
+  dashBack: 'spRise',
+};

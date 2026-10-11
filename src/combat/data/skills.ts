@@ -20,6 +20,10 @@ export type SkillId =
   | 'ouzu'
   | 'kenzan'
   | 'hiryu'
+  // 槍の槍技（ADR-049）
+  | 'midare'
+  | 'fusha'
+  | 'ugachi'
   // 杖の魔法（ADR-048）。画面に並列のボタンで並べる。魔法を放った瞬間からクールダウン
   | 'thunder'
   | 'blizzard'
@@ -273,6 +277,61 @@ export const SKILLS: Record<SkillId, SkillDef> = {
     cooldownPerLevel: COOLDOWN_PER_LEVEL,
   },
 
+  // ---- 槍（ADR-049）。どれも槍技専用のモーション（SKILL_ATTACKS。数値は data/skill-attacks-spear.ts、モーションは character/data/skill-spear.ts） ----
+  midare: {
+    id: 'midare',
+    name: '乱れ突き',
+    short: '乱れ',
+    detail: '構えから、腕を畳んでは突くを続けざまに繰り返す高速の突き。細く前へ長く届く',
+    family: 'spear',
+    steps: [{ attack: 'skSpFlurry', evolve: [{ minLevel: 4, attack: 'skSpFlurry9' }, { minLevel: 7, attack: 'skSpFlurry12' }] }],
+    evolutions: [
+      { level: 4, text: '突きが 6 連から 9 連になる（間隔も少し詰まる）' },
+      { level: 7, text: '突きが 12 連になり、とどめの 12 発目は深く踏み込んで、さらに長く強く突く' },
+    ],
+    power: 1.15,
+    powerPerLevel: POWER_PER_LEVEL,
+    cooldownFrames: 540,
+    cooldownPerLevel: COOLDOWN_PER_LEVEL,
+  },
+  fusha: {
+    id: 'fusha',
+    name: '風車',
+    short: '風車',
+    detail: '槍を水平に構えて跳び上がり、体ごと回って円を描く。周ごとに全方位へ 1 回ずつ当たる。回っているあいだはスーパーアーマー',
+    family: 'spear',
+    steps: [{ attack: 'skSpWhirl', evolve: [{ minLevel: 4, attack: 'skSpWhirl3' }, { minLevel: 7, attack: 'skSpWhirl4' }] }],
+    evolutions: [
+      { level: 4, text: '2 周から 3 周になる。回りながら前へ追う距離も伸びる' },
+      { level: 7, text: '4 周になる。最後の 1 回は強く飛ばす' },
+    ],
+    power: 1.2,
+    powerPerLevel: POWER_PER_LEVEL,
+    cooldownFrames: 780,
+    cooldownPerLevel: COOLDOWN_PER_LEVEL,
+  },
+  ugachi: {
+    id: 'ugachi',
+    name: '穿ち',
+    short: '穿ち',
+    detail: '深く引き絞り、一気に 2m 踏み込んで貫く。引き絞りから踏み込みの終わりまでスーパーアーマー',
+    family: 'spear',
+    steps: [
+      { attack: 'skSpBore' },
+      // Lv4: 続けざまに 2 つ目の突き / Lv7: とどめに深く沈んで長く貫く
+      { attack: 'skSpBore2', minLevel: 4 },
+      { attack: 'skSpBore3', minLevel: 7, scale: 1.1 },
+    ],
+    evolutions: [
+      { level: 4, text: '突き切ったあと、槍を引き戻して 2 つ目の突きが続く' },
+      { level: 7, text: 'さらに、深く沈んで全体重を乗せる「とどめの突き」が続く。長く、強く、スーパーアーマー付き' },
+    ],
+    power: 1.2,
+    powerPerLevel: POWER_PER_LEVEL,
+    cooldownFrames: 840,
+    cooldownPerLevel: COOLDOWN_PER_LEVEL,
+  },
+
   // ---- 杖（魔法。ADR-048）。1 つの詠唱 = 1 つの魔法（steps は詠唱の攻撃 1 つ）。数値の中身は data/spells.ts、詠唱は data/spell-attacks.ts。
   //      レベルで威力（回復量も）が増え、クールダウンが短くなる（剣技の進化のような動きの変化は無い）。クールダウンは魔法を放った瞬間から数える ----
   thunder: {
@@ -350,7 +409,7 @@ export const SKILLS: Record<SkillId, SkillDef> = {
 };
 
 /** 一覧に並べる順（系統ごとにまとまる） */
-export const SKILL_ORDER: readonly SkillId[] = ['yotsuba', 'samidare', 'tatsumaki', 'iai', 'juji', 'hayate', 'houzan', 'issen', 'ouzu', 'kenzan', 'hiryu', 'thunder', 'blizzard', 'flame', 'explosion', 'regen', 'hurricane'];
+export const SKILL_ORDER: readonly SkillId[] = ['yotsuba', 'samidare', 'tatsumaki', 'iai', 'juji', 'hayate', 'houzan', 'issen', 'ouzu', 'kenzan', 'hiryu', 'midare', 'fusha', 'ugachi', 'thunder', 'blizzard', 'flame', 'explosion', 'regen', 'hurricane'];
 
 export function isSkillId(v: unknown): v is SkillId {
   return typeof v === 'string' && Object.prototype.hasOwnProperty.call(SKILLS, v);

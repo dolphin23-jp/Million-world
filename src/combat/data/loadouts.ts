@@ -4,14 +4,14 @@
  * 数値は技ごと・ガードごとのデータ（attacks.ts / guard.ts / moveset.ts）にあり、ここは「どれを使うか」だけを持つ。
  */
 
-import { GREATSWORD_VARIANT, SHIELD_VARIANT, STAFF_VARIANT } from '../../character/data/authored';
+import { GREATSWORD_VARIANT, SHIELD_VARIANT, SPEAR_VARIANT, STAFF_VARIANT } from '../../character/data/authored';
 import { GUARDS, type GuardDef } from './guard';
-import { GREATSWORD_MOVESET, STAFF_MOVESET, SWORD_MOVESET, type Moveset } from './moveset';
+import { GREATSWORD_MOVESET, SPEAR_MOVESET, STAFF_MOVESET, SWORD_MOVESET, type Moveset } from './moveset';
 
-export type LoadoutId = 'sword' | 'sword-shield' | 'greatsword' | 'staff';
+export type LoadoutId = 'sword' | 'sword-shield' | 'greatsword' | 'spear' | 'staff';
 
-/** 持つ武器（見た目のメッシュ・剣筋の帯・溜めの光が武器ごとに変わる）。杖（staff。ADR-048）は魔法の媒体で、攻撃はすべて詠唱 → 魔法 */
-export type WeaponId = 'sword' | 'greatsword' | 'staff';
+/** 持つ武器（見た目のメッシュ・剣筋の帯・溜めの光が武器ごとに変わる）。槍（spear。ADR-049）は両手持ちの長柄で、突き中心。杖（staff。ADR-048）は魔法の媒体で、攻撃はすべて詠唱 → 魔法 */
+export type WeaponId = 'sword' | 'greatsword' | 'spear' | 'staff';
 
 export interface LoadoutDef {
   id: LoadoutId;
@@ -28,8 +28,8 @@ export interface LoadoutDef {
   guard: GuardDef | null;
   /** 走る速さの倍率（盾の重さ） */
   runSpeedScale: number;
-  /** 手付けクリップの版。'' = そのまま、SHIELD_VARIANT = 左腕を盾の持ち位置に固定して焼き直した版、GREATSWORD_VARIANT = 両手持ちで焼き直した版、STAFF_VARIANT = 杖（待機・走りが杖を立てて持つ版） */
-  clipVariant: '' | typeof SHIELD_VARIANT | typeof GREATSWORD_VARIANT | typeof STAFF_VARIANT;
+  /** 手付けクリップの版。'' = そのまま、SHIELD_VARIANT = 左腕を盾の持ち位置に固定して焼き直した版、GREATSWORD_VARIANT = 両手持ちで焼き直した版、SPEAR_VARIANT = 槍（両手持ち。右手が前）、STAFF_VARIANT = 杖（待機・走りが杖を立てて持つ版） */
+  clipVariant: '' | typeof SHIELD_VARIANT | typeof GREATSWORD_VARIANT | typeof SPEAR_VARIANT | typeof STAFF_VARIANT;
 }
 
 export const LOADOUTS: Record<LoadoutId, LoadoutDef> = {
@@ -69,6 +69,18 @@ export const LOADOUTS: Record<LoadoutId, LoadoutDef> = {
     runSpeedScale: 0.88,
     clipVariant: GREATSWORD_VARIANT,
   },
+  spear: {
+    id: 'spear',
+    name: '槍',
+    detail: '長い間合いの突き。手数が多く素早い',
+    weapon: 'spear',
+    offhand: 'none',
+    moveset: SPEAR_MOVESET,
+    charge: 'spear',
+    guard: GUARDS.spear,
+    runSpeedScale: 0.96,
+    clipVariant: SPEAR_VARIANT,
+  },
   staff: {
     id: 'staff',
     name: '杖',
@@ -84,7 +96,7 @@ export const LOADOUTS: Record<LoadoutId, LoadoutDef> = {
 };
 
 /** 切替・開始画面で並べる順 */
-export const LOADOUT_ORDER: readonly LoadoutId[] = ['sword', 'sword-shield', 'greatsword', 'staff'];
+export const LOADOUT_ORDER: readonly LoadoutId[] = ['sword', 'sword-shield', 'greatsword', 'spear', 'staff'];
 
 export const DEFAULT_LOADOUT: LoadoutId = 'sword';
 

@@ -3,6 +3,7 @@
  *
  * ガードは左手の役割（ADR-013）。盾を持つ（sword-shield）とき: 保持で盾を構えて敵の攻撃をほぼ防ぎ、構えに入った直後の短い間は「パリィ」（弾く）。
  * 素手が標準（sword）のとき: 剣を体の前に立てて受ける。軽減は盾より小さく、パリィはない。
+ * 槍（spear）: 柄を体の前で横にして受ける（受付は盾より短く大剣より長い。弾かれた敵はのけぞるだけで離れない。ADR-049）。
  * 大剣（greatsword）: 両手で剣を体の前に立てて受ける。盾がなくてもパリィができる（受付は盾より短い = シビア）。弾かれた敵は盾のときと違って弾き飛ばされて倒れる（PARRY_EFFECTS.down）。
  * 受け止めるだけのときの軽減は盾より小さいので、失敗すると痛い。
  * 構えているあいだは動けない（向きだけ変えられる）。構えの正面から来る攻撃だけを防ぐ（横・背後からは防げない）。
@@ -11,9 +12,10 @@
 import type { AuthoredAttack } from '../../character/authoring';
 import { SHIELD_GUARD, SHIELD_GUARD_HIT, SHIELD_PARRY, SWORD_GUARD, SWORD_GUARD_HIT } from '../../character/data/guard';
 import { GS_GUARD, GS_GUARD_HIT, GS_PARRY } from '../../character/data/gs-guard';
+import { SP_GUARD, SP_GUARD_HIT, SP_PARRY } from '../../character/data/sp-guard';
 import type { SfxName } from '../../audio/data/sfx';
 
-export type GuardId = 'sword' | 'shield' | 'greatsword';
+export type GuardId = 'sword' | 'shield' | 'greatsword' | 'spear';
 
 export interface GuardDef {
   id: GuardId;
@@ -79,6 +81,21 @@ export const GUARDS: Record<GuardId, GuardDef> = {
     cancelFrame: 4,
     minHoldFrames: 8,
     lockFrames: 14,
+  },
+  // 槍（ADR-049）: 柄を横にして受ける。受付 8f（0.13 秒。盾の 10f と大剣の 6f の間）、軽減は 70%、構え直しは盾と大剣の間（12f）。
+  // 弾かれた敵はのけぞる（stagger）だけで離れない: 槍は間合いが長いので、近距離の連打でも、少し下がった突きでも反撃が届く
+  spear: {
+    id: 'spear',
+    clips: { enter: SP_GUARD, hit: SP_GUARD_HIT, parry: SP_PARRY },
+    parryFrames: 8,
+    parryEffect: 'stagger',
+    coneDeg: 75,
+    damageReduction: 0.7,
+    knockbackScale: 0.45,
+    hitStunFrames: 14,
+    cancelFrame: 4,
+    minHoldFrames: 8,
+    lockFrames: 12,
   },
 };
 

@@ -61,6 +61,8 @@ export interface HitEvent {
    * ひるむ敵が刻みのたびに動けなくなって、放射がずっと敵を封じるのを避ける。付くときだけ true
    */
   chip?: true;
+  /** 穂先の利（槍。ADR-049）: 攻撃者から相手の中心までの距離が AttackDef.tip.from 以上だった命中。ダメージが tip.scale 倍になる。付くときだけ true */
+  tip?: true;
 }
 
 /** 円 target がヒットボックスに当たっているか */
@@ -149,7 +151,7 @@ export function makeHitEvent(
   attackerId: number,
   origin: HitOrigin,
   target: Circle & { id: number },
-  hit: { damage: number; knockback: number; hitStop: number; crit?: boolean; chip?: boolean },
+  hit: { damage: number; knockback: number; hitStop: number; crit?: boolean; chip?: boolean; tip?: boolean },
 ): HitEvent {
   let dx = target.x - origin.x;
   let dz = target.z - origin.z;
@@ -174,5 +176,6 @@ export function makeHitEvent(
     z: target.z - dz * target.r,
     ...(hit.crit ? { crit: true as const } : {}),
     ...(hit.chip ? { chip: true as const } : {}),
+    ...(hit.tip ? { tip: true as const } : {}),
   };
 }

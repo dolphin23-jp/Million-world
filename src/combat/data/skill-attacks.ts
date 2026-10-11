@@ -49,6 +49,7 @@ import {
 } from '../../character/data/skill-greatsword';
 import type { HitboxDef } from '../hit';
 import { SKILL_ATTACKS_EX } from './skill-attacks-ex';
+import { SKILL_ATTACKS_SPEAR } from './skill-attacks-spear';
 
 const deg = (d: number) => (d * Math.PI) / 180;
 
@@ -407,6 +408,8 @@ SKILL_ATTACKS.skGsIssenLunge = {
 
 // 剣技の第 2 弾（ADR-038）
 Object.assign(SKILL_ATTACKS, SKILL_ATTACKS_EX);
+// 槍技（ADR-049）
+Object.assign(SKILL_ATTACKS, SKILL_ATTACKS_SPEAR);
 
 /** 攻撃 id から定義を探す（ふつうの攻撃 → 剣技専用の攻撃 → 杖の詠唱の順） */
 export function findAttack(id: string): AttackDef | undefined {

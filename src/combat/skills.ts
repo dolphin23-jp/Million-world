@@ -113,7 +113,7 @@ export class SkillBook {
 
   /** セーブから選択を戻す（使えない・系統が合わないものは無視する） */
   restoreSelection(sel: Partial<Record<WeaponId, SkillId>>): void {
-    for (const fam of ['sword', 'greatsword'] as const) {
+    for (const fam of ['sword', 'greatsword', 'spear'] as const) {
       const id = sel[fam];
       if (id && SKILLS[id]?.family === fam && this.levels[id] >= 1) this.selected[fam] = id;
     }

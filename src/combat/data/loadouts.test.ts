@@ -5,7 +5,7 @@ import { GUARDS, PARRY_EFFECTS } from './guard';
 import { DEFAULT_LOADOUT, LOADOUTS, LOADOUT_ORDER, isLoadoutId, nextLoadout } from './loadouts';
 import { AuthoredSampler, type AuthoredAttack } from '../../character/authoring';
 import type { PoseInput } from '../../character/pose-solver';
-import { AUTHORED_ATTACKS, GREATSWORD_VARIANT, SHIELD_VARIANT } from '../../character/data/authored';
+import { AUTHORED_ATTACKS, GREATSWORD_VARIANT, SHIELD_VARIANT, SPEAR_VARIANT } from '../../character/data/authored';
 import { SHIELD_GUARD, SHIELD_GUARD_HIT, SHIELD_PARRY, SWORD_GUARD, SWORD_GUARD_HIT } from '../../character/data/guard';
 import { makeRig } from '../../character/test-rig';
 
@@ -62,6 +62,14 @@ describe('ロードアウト（素手が標準・盾は装備。ADR-020）', () 
         expect(l.clipVariant).toBe(GREATSWORD_VARIANT);
         expect(l.runSpeedScale).toBeLessThan(1);
         expect(l.charge).toBe('greatsword');
+      } else if (l.weapon === 'spear') {
+        // 槍（ADR-049）: 両手持ち・右手が前。槍版のクリップ・専用のガード（盾なしでパリィ）。走る速さは大剣より軽い
+        expect(l.offhand).toBe('none');
+        expect(l.guard!.id).toBe('spear');
+        expect(l.clipVariant).toBe(SPEAR_VARIANT);
+        expect(l.runSpeedScale).toBeLessThan(1);
+        expect(l.runSpeedScale).toBeGreaterThan(LOADOUTS.greatsword.runSpeedScale);
+        expect(l.charge).toBe('spear');
       } else if (l.offhand === 'shield') {
         expect(l.guard!.id).toBe('shield');
         expect(l.clipVariant).toBe(SHIELD_VARIANT);
